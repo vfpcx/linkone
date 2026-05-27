@@ -1,0 +1,24 @@
+{
+  "name": "superpowers-collab",
+  "version": "1.0.0",
+  "description": "A project enabling Superpowers multi-role collaboration.",
+  "main": "src/extension.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": [
+    "vscode",
+    "extension",
+    "collaboration",
+    "superpowers"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^4.0.0",
+    "vscode": "^1.1.37"
+  }
+}
