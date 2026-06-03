@@ -8,6 +8,9 @@
 - executing-plans
 - code-review-agent
 - planning-with-files
+- ui-ux-pro-max
+- code-review
+  -code-simplifier
 
 ## 全局协作规则（强制）
 
@@ -33,7 +36,7 @@
 
 职责：
 
-- 输出产品原型（页面布局、交互逻辑、操作流程）
+- 使用 UI/UX Pro Max 输出页面原型、交互、UI规范、输出产品原型（页面布局、交互逻辑、操作流程）
 - 编写产品需求文档（PRD）、用户故事、交互说明
 - 定义核心功能的业务规则、异常场景处理逻辑
 - 与开发角色对齐需求，确认原型/PRD 可落地性
@@ -72,7 +75,7 @@
 职责：
 
 - 基于产品 PRD 和开发代码编写单元测试、接口测试、边界用例
-- 代码规范审查、安全漏洞检查
+- 使用 code-review和code-simplifier 做代码规范审查、安全漏洞检查
 - 输出测试报告与问题清单
   禁止：编写业务功能代码
 
