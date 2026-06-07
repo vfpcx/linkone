@@ -6,6 +6,29 @@
 > 依赖：PRD 全集 + 06-page-wireframes.md（51 ASCII 线框）
 > 状态：草案 → 待前端 Agent 落地
 
+## 📌 与产品线框图的关系
+
+| 文档 | 回答的问题 | 怎么用 |
+|---|---|---|
+| **本文档 + `pages/*.md`** | 这个页面**怎么长**？ | **视觉规范**：token、组件、间距、动效 |
+| **`shared/product/06-page-wireframes.md`** | 这个页面有**什么**？ | **信息架构**：51 个 ASCII 线框，字段、交互、流程 |
+
+**前端开发约定**：
+1. 先读 06-page-wireframes.md 找到目标页面线框 → 明确**有什么**
+2. 再读本 MASTER.md → 用默认 token / 组件 落地视觉
+3. 检查 `pages/{page-name}.md` 是否存在覆写 → 有则**覆写优先**
+
+**覆写清单（覆写自 MASTER 默认的特殊页面）**：
+
+| 06 线框章节 | design-system 覆写文件 |
+|---|---|
+| §0.5 登录 / 注册 / 找回密码 / 多角色切换器 / 安全设置 | [`pages/auth.md`](pages/auth.md) |
+| §6 二批 / 终端（RT 店铺浏览 / 商品详情 / 询价） | [`pages/rt-store.md`](pages/rt-store.md) |
+| §3.3 WK 入库扫码（含 §3.3b 代建入库的扫码部分） | [`pages/wk-scan.md`](pages/wk-scan.md) |
+| §3.3 入库单 / §3.4b 代建出库的打印 / §3.4c 强制清库 | [`pages/print-templates.md`](pages/print-templates.md) |
+
+其余 ~47 个页面**直接使用 MASTER 默认规范**，无需覆写文档。
+
 ---
 
 ## 0. 设计原则（先于任何决策）
