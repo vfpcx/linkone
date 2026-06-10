@@ -1,0 +1,32 @@
+{
+  "name": "@cangchu/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "仓储云 SaaS 前端 monorepo（admin Vue3 + Element Plus, uni-app H5/小程序）",
+  "packageManager": "pnpm@9.10.0",
+  "scripts": {
+    "dev:admin": "pnpm --filter @cangchu/admin dev",
+    "dev:uni": "pnpm --filter @cangchu/uni dev:h5",
+    "build:admin": "pnpm --filter @cangchu/admin build",
+    "build:tokens": "pnpm --filter @cangchu/design-tokens build",
+    "build:packages": "pnpm -r --filter './packages/*' build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . --ext .ts,.vue,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,vue,tsx,css,scss,json,md}\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vue/eslint-config-typescript": "^13.0.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-vue": "^9.22.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5",
+    "vue-eslint-parser": "^9.4.2"
+  },
+  "engines": {
+    "node": ">=18.18",
+    "pnpm": ">=9.0"
+  }
+}

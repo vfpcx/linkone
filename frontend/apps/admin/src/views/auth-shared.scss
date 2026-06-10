@@ -1,0 +1,128 @@
+/* 注册 / 找回密码 复用样式 · 与 Login.vue 一致的 PC 分屏 + 卡片 */
+
+.auth-page {
+  display: flex;
+  min-height: 100vh;
+  background: var(--color-bg-2);
+}
+
+.auth-brand {
+  flex: 1;
+  background: var(--color-brand-primary);
+  color: var(--color-brand-primary-on);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 64px 80px;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-brand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 0% 100%, rgba(3, 105, 161, 0.35), transparent 60%),
+    radial-gradient(ellipse at 100% 0%, rgba(5, 150, 105, 0.18), transparent 50%);
+  pointer-events: none;
+}
+
+.auth-brand__content {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-brand__logo {
+  font-size: 48px;
+  font-weight: var(--font-weight-bold);
+  margin: 0 0 var(--space-4);
+}
+
+.auth-brand__slogan {
+  font-size: 18px;
+  opacity: 0.85;
+  margin: 0;
+}
+
+.auth-brand__footer {
+  position: relative;
+  z-index: 1;
+  font-size: var(--font-size-caption);
+  opacity: 0.5;
+}
+
+.auth-form {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+
+.auth-card {
+  width: 480px;
+  background: var(--color-bg-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+}
+
+.auth-card__title {
+  font-size: 32px;
+  font-weight: var(--font-weight-bold);
+  margin: 0 0 var(--space-3);
+  color: var(--color-fg-1);
+}
+
+.submit-btn {
+  width: 100%;
+  height: 48px;
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.auth-footer {
+  text-align: center;
+  margin: var(--space-4) 0 0;
+  color: var(--color-fg-3);
+}
+.auth-footer a {
+  color: var(--color-brand-accent);
+  margin-left: 4px;
+}
+
+@media (max-width: 768px) {
+  .auth-page {
+    flex-direction: column;
+  }
+  .auth-brand {
+    flex: 0 0 30vh;
+    padding: 40px 24px 80px;
+  }
+  .auth-brand__logo {
+    font-size: 32px;
+  }
+  .auth-form {
+    flex: 1;
+    align-items: flex-start;
+    margin-top: -40px;
+    padding: 0 16px;
+  }
+  .auth-card {
+    width: 100%;
+    border-radius: 24px 24px var(--radius-lg) var(--radius-lg);
+    padding: var(--space-6);
+  }
+  .auth-card__title {
+    font-size: 24px;
+  }
+}
+
+:deep(.el-input--large .el-input__wrapper) {
+  border-radius: var(--radius-base);
+}
+:deep(.el-input--large .el-input__inner) {
+  height: 48px;
+  font-size: 16px;
+}

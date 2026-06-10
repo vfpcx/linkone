@@ -1,0 +1,62 @@
+/* Element Plus 主题覆写 · 对齐 @cangchu/design-tokens */
+:root {
+  /* 主色 → 操作蓝 #0369A1 */
+  --el-color-primary: #0369a1;
+  --el-color-primary-light-3: #38a3da;
+  --el-color-primary-light-5: #66bce6;
+  --el-color-primary-light-7: #b3def0;
+  --el-color-primary-light-8: #d6ecf7;
+  --el-color-primary-light-9: #eaf5fb;
+  --el-color-primary-dark-2: #035b8c;
+
+  /* 状态色 */
+  --el-color-success: #059669;
+  --el-color-warning: #d97706;
+  --el-color-danger: #dc2626;
+  --el-color-error: #dc2626;
+  --el-color-info: #64748b;
+
+  /* 文字色 */
+  --el-text-color-primary: #020617;
+  --el-text-color-regular: #334155;
+  --el-text-color-secondary: #64748b;
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #94a3b8;
+
+  /* 边框色 */
+  --el-border-color: #e2e8f0;
+  --el-border-color-light: #f1f5f9;
+  --el-border-color-lighter: #f8fafc;
+  --el-border-color-extra-light: #ffffff;
+  --el-border-color-dark: #cbd5e1;
+
+  /* 背景 */
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f8fafc;
+  --el-fill-color: #f1f5f9;
+  --el-fill-color-light: #f8fafc;
+  --el-fill-color-blank: #ffffff;
+
+  /* 字体 */
+  --el-font-family:
+    'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica,
+    'Hiragino Sans GB', Arial, sans-serif;
+
+  /* 圆角 */
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+  --el-border-radius-round: 9999px;
+}
+
+/* 按钮 hover 用品牌色 */
+.el-button--primary:hover {
+  background: var(--color-brand-accent-hover) !important;
+  border-color: var(--color-brand-accent-hover) !important;
+}
+
+/* 表格数字列等宽 */
+.el-table .cell.is-numeric,
+.el-table .cell.is-money {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}

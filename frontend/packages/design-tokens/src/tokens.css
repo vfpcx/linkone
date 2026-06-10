@@ -1,0 +1,158 @@
+/* ============================================================
+   仓储云 · Design Tokens · CSS Variables
+   来源：shared/design-system/MASTER.md §2
+   暗色模式 MVP 不做（架构预留，仅亮色生效）
+   ============================================================ */
+
+:root {
+  /* ===== 品牌色 ===== */
+  --color-brand-primary: #0f172a;          /* 藏青 - 顶部导航、深色背景、品牌强调 */
+  --color-brand-primary-on: #ffffff;
+  --color-brand-accent: #0369a1;           /* 操作蓝 - 主 CTA、链接、选中态 */
+  --color-brand-accent-hover: #0284c7;
+  --color-brand-accent-on: #ffffff;
+
+  /* ===== 状态色（语义色） ===== */
+  --color-success: #059669;
+  --color-success-bg: #d1fae5;
+  --color-warning: #d97706;
+  --color-warning-bg: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fee2e2;
+  --color-info: #0369a1;
+  --color-info-bg: #dbeafe;
+
+  /* ===== 中性色（文字） ===== */
+  --color-fg-1: #020617;
+  --color-fg-2: #334155;
+  --color-fg-3: #64748b;
+  --color-fg-4: #94a3b8;
+
+  /* ===== 中性色（背景） ===== */
+  --color-bg-1: #ffffff;
+  --color-bg-2: #f8fafc;
+  --color-bg-3: #f1f5f9;
+  --color-bg-disabled: #f1f5f9;
+
+  /* ===== 中性色（边框） ===== */
+  --color-border-1: #e2e8f0;
+  --color-border-2: #cbd5e1;
+  --color-border-focus: #0369a1;
+
+  /* ===== RT 专属（仅 RT 端生效） ===== */
+  --color-rt-accent: #059669;
+  --color-rt-accent-hover: #047857;
+  --color-rt-warm: #d97706;
+
+  /* ===== 字体栈 ===== */
+  --font-family-sans:
+    'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica,
+    'Hiragino Sans GB', Arial, sans-serif;
+  --font-family-mono:
+    'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, 'Courier New', monospace;
+
+  /* ===== 字号阶梯 ===== */
+  --font-size-display: 28px;
+  --font-size-h1: 22px;
+  --font-size-h2: 18px;
+  --font-size-h3: 16px;
+  --font-size-body: 14px;
+  --font-size-body-lg: 16px;
+  --font-size-caption: 12px;
+
+  /* ===== 行高 ===== */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-loose: 1.75;
+
+  /* ===== 字重 ===== */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ===== 间距（8pt 网格） ===== */
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ===== 圆角 ===== */
+  --radius-sm: 4px;
+  --radius-base: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* ===== 阴影 ===== */
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-base: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -4px rgba(15, 23, 42, 0.05);
+
+  /* ===== 动画 ===== */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-decelerate: cubic-bezier(0, 0, 0, 1);
+  --easing-accelerate: cubic-bezier(0.3, 0, 1, 1);
+
+  /* ===== Z-index ===== */
+  --z-base: 0;
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-fixed: 30;
+  --z-overlay: 40;
+  --z-drawer: 50;
+  --z-modal: 100;
+  --z-popover: 200;
+  --z-toast: 1000;
+}
+
+/* 全局基础 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  color: var(--color-fg-1);
+  background: var(--color-bg-2);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 移动端正文 ≥ 16px 防 iOS 缩放 */
+@media (max-width: 768px) {
+  html,
+  body {
+    font-size: var(--font-size-body-lg);
+  }
+}
+
+/* 等宽数字 utility */
+.cc-tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-family: var(--font-family-mono);
+}
+
+/* 动效降级 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
