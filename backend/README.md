@@ -1,6 +1,6 @@
 # Cangchu Backend
 
-仓储云 SaaS 平台后端（Spring Boot 3.2.5 + JDK 17 + MyBatis Plus + Sa-Token）。
+仓储云 SaaS 平台后端（Spring Boot 3.2.5 + JDK 21 + MyBatis Plus + Sa-Token）。
 
 ## 状态
 
@@ -13,6 +13,7 @@
 ## 已实现模块
 
 ### Common 基础设施
+
 - `common/config/` — MyBatis Plus / Redis / Sa-Token 配置
 - `common/exception/` — `BizException` + `ErrorCode` 枚举 + `GlobalExceptionHandler`
 - `common/response/R<T>` — 统一响应体
@@ -20,35 +21,38 @@
 - `common/util/` — `SnowflakeIdUtil`（雪花 ID）+ `SmsUtil`（MVP 阶段 mock）
 
 ### Account 账号模块（7 接口）
+
 基于 PRD `US-COMMON-01 ~ 07`：
 
-| 接口 | 路径 |
-|---|---|
-| 注册 | `POST /api/v1/account/register` |
-| 登录 | `POST /api/v1/account/login` |
-| 改密 | `PUT /api/v1/account/password` |
-| 找回密码 | `POST /api/v1/account/password/reset` |
-| 换绑手机号 | `PUT /api/v1/account/phone` |
-| RT 免密登录 | `POST /api/v1/account/login/rt` |
-| 退出登录 | `POST /api/v1/account/logout` |
+| 接口        | 路径                                  |
+| ----------- | ------------------------------------- |
+| 注册        | `POST /api/v1/account/register`       |
+| 登录        | `POST /api/v1/account/login`          |
+| 改密        | `PUT /api/v1/account/password`        |
+| 找回密码    | `POST /api/v1/account/password/reset` |
+| 换绑手机号  | `PUT /api/v1/account/phone`           |
+| RT 免密登录 | `POST /api/v1/account/login/rt`       |
+| 退出登录    | `POST /api/v1/account/logout`         |
 
 ### Tenant 租户模块（8 接口）
+
 基于 PRD §2 + §1 OPS：
 
-| 接口 | 路径 |
-|---|---|
-| TA 自助注册 | `POST /api/v1/tenant/apply` |
-| OPS 审核入驻 | `POST /api/v1/admin/tenant/{id}/audit` |
-| OPS 代建租户 | `POST /api/v1/admin/tenant/create` |
-| 查看店铺设置 | `GET /api/v1/tenant/me` |
-| 改店铺设置 | `PUT /api/v1/tenant/me` |
-| 生成店铺码 | `POST /api/v1/tenant/store-qr` |
-| 生成员工注册码 | `POST /api/v1/tenant/invite-code` |
-| 实时容量查询 | `GET /api/v1/tenant/capacity` |
+| 接口           | 路径                                   |
+| -------------- | -------------------------------------- |
+| TA 自助注册    | `POST /api/v1/tenant/apply`            |
+| OPS 审核入驻   | `POST /api/v1/admin/tenant/{id}/audit` |
+| OPS 代建租户   | `POST /api/v1/admin/tenant/create`     |
+| 查看店铺设置   | `GET /api/v1/tenant/me`                |
+| 改店铺设置     | `PUT /api/v1/tenant/me`                |
+| 生成店铺码     | `POST /api/v1/tenant/store-qr`         |
+| 生成员工注册码 | `POST /api/v1/tenant/invite-code`      |
+| 实时容量查询   | `GET /api/v1/tenant/capacity`          |
 
 ## 数据库迁移
 
 Flyway 自动执行：
+
 - `V1__init_account.sql` — 账号相关表（users / user_roles / sms_codes / login_sessions / password_history）
 - `V2__init_tenant.sql` — 租户相关表（tenants / stores / invite_codes / capacity_publish / tenant_applications）
 
@@ -74,10 +78,10 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 
 ## Mock 列表
 
-| 服务 | 实现 |
-|---|---|
-| 短信 | `SmsUtil` 打印控制台 + 写库 sms_codes 表 + 返回固定 code（联调期临时） |
-| 地图反查 | 暂未实现，地址字段先按 (text, lng, lat, source=manual) 落库 |
+| 服务     | 实现                                                                   |
+| -------- | ---------------------------------------------------------------------- |
+| 短信     | `SmsUtil` 打印控制台 + 写库 sms_codes 表 + 返回固定 code（联调期临时） |
+| 地图反查 | 暂未实现，地址字段先按 (text, lng, lat, source=manual) 落库            |
 
 ## 已知风险
 

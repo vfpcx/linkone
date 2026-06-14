@@ -26,7 +26,7 @@
 |---|---|---|
 | 端层 | PC 浏览器 + H5（移动浏览器） + 微信小程序（uni-app 编译） | D09 |
 | 接入层 | Nginx 1.24 + WAF（阿里云）+ CDN（OSS public bucket） | ADR-006 |
-| 应用层 | Java 17 + Spring Boot 3.2 单体多副本 | D09 / D10 / ADR-006 |
+| 应用层 | Java 21 + Spring Boot 3.2 单体多副本 | D09 / D10 / ADR-006（v2: 17→21 升级） |
 | 数据层 | MySQL 8.0（主从）+ Redis 7.2（Sentinel）+ OSS（私有 Bucket） | D09 / ADR-005 |
 | 中间件 | RocketMQ 5.x + XXL-Job 2.4 | ADR-008 |
 | 第三方 | 阿里云短信 / NLS / OSS + 高德地图 | ADR-002 ~ 005 |
@@ -40,14 +40,14 @@
 
 | 项 | 版本 | 说明 |
 |---|---|---|
-| JDK | OpenJDK 17 LTS（Eclipse Temurin） | LTS 至 2029；Spring Boot 3 最低要求 17 |
-| Spring Boot | 3.2.x（最新稳定）| 3.x 系列已稳定 1.5 年；与 JDK 17 配合 |
+| JDK | **OpenJDK 21 LTS** | LTS 至 2031；Virtual Threads / Pattern Matching / Sequenced Collections |
+| Spring Boot | 3.2.x（最新稳定）| 3.x 系列已稳定 1.5 年；JDK 21 兼容 |
 | Spring Framework | 6.1.x（跟随 Boot） | — |
 | Spring Cloud | **不引入**（D10 模块化单体） | 仅在分布式事务/服务发现需要时考虑，MVP 不需要 |
-| Maven | 3.9.x | 构建工具 |
+| Maven | 3.6.x+ | 构建工具 |
 
 **理由**：
-- JDK 17：模式匹配、Record、Sealed Class 提升业务建模表达力
+- **JDK 21（v2 升级，从 17 升级）**：Virtual Threads（提升 IO 密集型并发吞吐）、Pattern Matching for Switch（正式）、Sequenced Collections、ZGC 性能改进、安全更新到 2031 年
 - Boot 3.x：Jakarta EE 9 命名空间已普及，向前兼容性好
 - 不引入 Spring Cloud：避免引入服务发现/网关等不需要的组件（D10 锁定单体）
 
@@ -432,7 +432,7 @@ cangchu:
 
 | 组合 | 验证状态 |
 |---|---|
-| JDK 17 + Spring Boot 3.2 + MyBatis-Plus 3.5 | ✅ 官方支持 |
+| JDK 21 + Spring Boot 3.2 + MyBatis-Plus 3.5 | ✅ Spring Boot 3.2 起官方支持 JDK 21 |
 | Spring Boot 3.2 + Sa-Token 1.38 | ✅ 官方适配 starter |
 | RocketMQ 5.x + Spring Boot 3.x | ✅ 官方 starter 2.3+ |
 | Vue 3.4 + Element Plus 2.6 + Vite 5 | ✅ 主流组合 |
@@ -462,7 +462,7 @@ cangchu:
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| JDK 17 团队不熟悉 | 中 | 选择 Spring Boot 3.2 主流稳定版；培训 |
+| JDK 21 团队不熟悉（含 Virtual Threads） | 中 | 选择 Spring Boot 3.2 主流稳定版；培训；MVP 阶段先用平台默认线程池，VT 在 v2 评估接入 |
 | Sa-Token 文档英文较少 | 低 | 中文社区活跃；问题响应快 |
 | 阿里云全家桶绑定深 | 中 | infra 模块抽象接口，预留切换路径 |
 | uni-app 小程序 + H5 兼容差异 | 中 | 优先 H5 主端；小程序按 v2 节奏适配 |

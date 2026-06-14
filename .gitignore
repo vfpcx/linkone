@@ -1,5 +1,7 @@
 .claude/
+.github/modernize/
 *.log
+backend/logs/
 .DS_Store
 node_modules/
 target/
