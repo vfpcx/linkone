@@ -83,18 +83,31 @@ public class TenantServiceImpl implements TenantService {
         tenant.setStatus("PENDING");
         tenantMapper.updateById(tenant);
 
-        // 绑定 TA 角色
-        UserRole taRole = new UserRole();
-        taRole.setId(snowflakeIdUtil.nextId());
-        taRole.setUserId(userId);
-        taRole.setRole("TA");
-        taRole.setTenantId(tenant.getId());
-        taRole.setStatus("ACTIVE");
-        taRole.setPriority(10);
-        taRole.setCreatedAt(LocalDateTime.now());
-        taRole.setUpdatedAt(LocalDateTime.now());
-        taRole.setCreatedBy(userId);
-        userRoleMapper.insert(taRole);
+        // 绑定 TA 角色到新建租户
+        // 注册时已经插入 UserRole(role=TA, tenantId=null)，apply 时应该绑定 tenantId 而不是再插一行
+        UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRole, "TA")
+                .isNull(UserRole::getTenantId)
+                .eq(UserRole::getStatus, "ACTIVE")
+                .last("LIMIT 1"));
+        if (existing != null) {
+            existing.setTenantId(tenant.getId());
+            existing.setUpdatedAt(LocalDateTime.now());
+            userRoleMapper.updateById(existing);
+        } else {
+            UserRole taRole = new UserRole();
+            taRole.setId(snowflakeIdUtil.nextId());
+            taRole.setUserId(userId);
+            taRole.setRole("TA");
+            taRole.setTenantId(tenant.getId());
+            taRole.setStatus("ACTIVE");
+            taRole.setPriority(10);
+            taRole.setCreatedAt(LocalDateTime.now());
+            taRole.setUpdatedAt(LocalDateTime.now());
+            taRole.setCreatedBy(userId);
+            userRoleMapper.insert(taRole);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("applicationId", application.getId().toString());
@@ -198,6 +211,7 @@ public class TenantServiceImpl implements TenantService {
                 .eq(UserRole::getUserId, userId)
                 .eq(UserRole::getRole, "TA")
                 .eq(UserRole::getStatus, "ACTIVE")
+                .isNotNull(UserRole::getTenantId)
                 .last("LIMIT 1"));
         if (taRole == null || taRole.getTenantId() == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND, "未找到您的租户");
@@ -213,6 +227,7 @@ public class TenantServiceImpl implements TenantService {
                 .eq(UserRole::getUserId, userId)
                 .eq(UserRole::getRole, "TA")
                 .eq(UserRole::getStatus, "ACTIVE")
+                .isNotNull(UserRole::getTenantId)
                 .last("LIMIT 1"));
         if (taRole == null || taRole.getTenantId() == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
@@ -273,6 +288,7 @@ public class TenantServiceImpl implements TenantService {
                 .eq(UserRole::getUserId, userId)
                 .eq(UserRole::getRole, "TA")
                 .eq(UserRole::getStatus, "ACTIVE")
+                .isNotNull(UserRole::getTenantId)
                 .last("LIMIT 1"));
         if (taRole == null || taRole.getTenantId() == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
@@ -296,6 +312,7 @@ public class TenantServiceImpl implements TenantService {
                 .eq(UserRole::getUserId, userId)
                 .eq(UserRole::getRole, "TA")
                 .eq(UserRole::getStatus, "ACTIVE")
+                .isNotNull(UserRole::getTenantId)
                 .last("LIMIT 1"));
         if (taRole == null || taRole.getTenantId() == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);

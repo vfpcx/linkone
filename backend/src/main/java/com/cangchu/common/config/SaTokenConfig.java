@@ -20,9 +20,12 @@ public class SaTokenConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         // Sa-Token 鉴权拦截器
+        // - /api/v1/admin/** 走 OPS 鉴权
+        // - /api/v1/tenant/** 走登录鉴权（TA/WK/ST）
+        // - /api/v1/tenant/capacity 公开查询，不鉴权（按 PRD US-TA-10 容量公示）
         registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkLogin()))
-                .addPathPatterns("/api/v1/common/**", "/api/v1/tenant/**")
-                .excludePathPatterns("/api/v1/public/**");
+                .addPathPatterns("/api/v1/common/**", "/api/v1/tenant/**", "/api/v1/admin/**")
+                .excludePathPatterns("/api/v1/public/**", "/api/v1/tenant/capacity");
 
         // 租户上下文拦截器
         registry.addInterceptor(tenantInterceptor)
