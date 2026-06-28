@@ -73,7 +73,9 @@ public enum ErrorCode {
     PERMISSION_LOGIN_FAILED(42006, "登录失败次数过多，账号已锁定"),
     TENANT_NOT_FOUND(50210, "租户不存在"),
     TENANT_ALREADY_EXISTS(50211, "该手机号已注册租户"),
-    CAPACITY_NOT_FOUND(50220, "容量快照不存在");
+    CAPACITY_NOT_FOUND(50220, "容量快照不存在"),
+    WHOLESALER_NOT_FOUND(50230, "批发商商户不存在"),
+    WHOLESALER_NAME_DUPLICATED(50231, "本租户下已存在同名批发商商户");
 
     private final int code;
     private final String message;
