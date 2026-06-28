@@ -86,7 +86,10 @@ public enum ErrorCode {
     INVENTORY_NOT_FOUND(50250, "库存记录不存在"),
     STOCK_NOT_ENOUGH(50251, "库存不足，无法出库"),
     STOCK_QTY_INVALID(50252, "出入库数量非法（必须>0）"),
-    INVENTORY_LOCK_FAILED(50253, "库存繁忙，请稍后重试");
+    INVENTORY_LOCK_FAILED(50253, "库存繁忙，请稍后重试"),
+
+    // ==================== STORE-FRONT (phase-1 B2) ====================
+    STORE_NOT_FOUND(50260, "店铺不存在或已下线");
 
     private final int code;
     private final String message;
