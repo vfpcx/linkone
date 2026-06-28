@@ -14,6 +14,14 @@ public interface TenantService {
     /** TA 自助注册仓库（待审核） */
     Map<String, Object> apply(Long userId, TenantApplyDto dto);
 
+    /**
+     * D-16：注册时按仓库名创建 PENDING 租户壳（tenant + 默认 store + settings），并把 tenantId 绑定到该 TA 的 user_roles。
+     * 仅创建「壳」，详细资料（营业执照/地址/经纬度）后续由 {@link #apply} 完善（apply 会复用已绑定的 PENDING 租户，避免重复建仓）。
+     *
+     * @return 新建租户 id
+     */
+    Long createPendingTenantShell(Long taUserId, String tenantName, String contactPhone);
+
     /** OPS 审核入驻（通过/驳回） */
     void audit(Long tenantId, Long opsUserId, TenantAuditDto dto);
 

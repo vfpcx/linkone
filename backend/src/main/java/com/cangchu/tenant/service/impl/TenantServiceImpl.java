@@ -66,6 +66,21 @@ public class TenantServiceImpl implements TenantService {
             throw new BizException(ErrorCode.TENANT_ALREADY_EXISTS, "您已提交过同名仓库申请，请勿重复注册");
         }
 
+        // D-16 对齐：若注册阶段已为该 TA 建了 PENDING 租户壳（user_roles 已绑定 tenantId），
+        // 则 apply 视为「完善资料」——更新既有 PENDING 租户 + store，绝不再新建第二个租户（避免重复建仓）。
+        UserRole boundTa = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRole, "TA")
+                .eq(UserRole::getStatus, "ACTIVE")
+                .isNotNull(UserRole::getTenantId)
+                .last("LIMIT 1"));
+        if (boundTa != null && boundTa.getTenantId() != null) {
+            Tenant existing = tenantMapper.selectById(boundTa.getTenantId());
+            if (existing != null && "PENDING".equals(existing.getStatus())) {
+                return completePendingTenant(userId, existing, dto);
+            }
+        }
+
         // 创建入驻申请
         TenantApplication application = new TenantApplication();
         application.setId(snowflakeIdUtil.nextId());
@@ -448,6 +463,95 @@ public class TenantServiceImpl implements TenantService {
                 .snapshotAt(snapshot.getSnapshotAt())
                 .expectedNextRefresh(snapshot.getSnapshotAt().plusMinutes(10))
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public Long createPendingTenantShell(Long taUserId, String tenantName, String contactPhone) {
+        // 创建 PENDING 租户壳（tenant + 默认 store + settings）
+        Tenant tenant = createTenant(tenantName, null, null, null, taUserId, contactPhone, false);
+        tenant.setStatus("PENDING");
+        tenantMapper.updateById(tenant);
+
+        // 绑定 tenantId 到该 TA 的 user_roles（注册时已插入 TA 角色 tenantId=null，这里回填）
+        UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, taUserId)
+                .eq(UserRole::getRole, "TA")
+                .isNull(UserRole::getTenantId)
+                .eq(UserRole::getStatus, "ACTIVE")
+                .last("LIMIT 1"));
+        if (existing != null) {
+            existing.setTenantId(tenant.getId());
+            existing.setUpdatedAt(LocalDateTime.now());
+            userRoleMapper.updateById(existing);
+        } else {
+            UserRole taRole = new UserRole();
+            taRole.setId(snowflakeIdUtil.nextId());
+            taRole.setUserId(taUserId);
+            taRole.setRole("TA");
+            taRole.setTenantId(tenant.getId());
+            taRole.setStatus("ACTIVE");
+            taRole.setPriority(10);
+            taRole.setCreatedAt(LocalDateTime.now());
+            taRole.setUpdatedAt(LocalDateTime.now());
+            taRole.setCreatedBy(taUserId);
+            userRoleMapper.insert(taRole);
+        }
+
+        log.info("[D-16] 注册建仓：TA {} 创建 PENDING 租户壳 {} ({})", taUserId, tenant.getId(), tenantName);
+        return tenant.getId();
+    }
+
+    /**
+     * D-16：apply 命中注册阶段已建的 PENDING 租户壳 → 完善详细资料（不新建第二个租户）。
+     * 同时补写一条 APPROVED 的 tenant_applications 记录，关联到该既有租户，供 OPS 审核队列追溯。
+     */
+    private Map<String, Object> completePendingTenant(Long userId, Tenant existing, TenantApplyDto dto) {
+        // 完善租户主表资料
+        if (dto.getName() != null) existing.setName(dto.getName());
+        if (dto.getLegalName() != null) existing.setLegalName(dto.getLegalName());
+        if (dto.getLicenseNo() != null) existing.setLicenseNo(dto.getLicenseNo());
+        if (dto.getLicenseUrl() != null) existing.setLicenseUrl(dto.getLicenseUrl());
+        if (dto.getContactPhone() != null) existing.setContactPhone(dto.getContactPhone());
+        existing.setUpdatedAt(LocalDateTime.now());
+        tenantMapper.updateById(existing);
+
+        // 完善默认 store（地址/经纬度/名称）
+        Store store = storeMapper.selectOne(
+                new LambdaQueryWrapper<Store>().eq(Store::getTenantId, existing.getId()));
+        if (store != null) {
+            if (dto.getName() != null) store.setName(dto.getName());
+            if (dto.getLng() != null) store.setLng(dto.getLng());
+            if (dto.getLat() != null) store.setLat(dto.getLat());
+            store.setUpdatedAt(LocalDateTime.now());
+            storeMapper.updateById(store);
+        }
+
+        // 记录入驻申请（APPROVED，关联既有租户）
+        TenantApplication application = new TenantApplication();
+        application.setId(snowflakeIdUtil.nextId());
+        application.setApplicantUserId(userId);
+        application.setName(dto.getName());
+        application.setLegalName(dto.getLegalName());
+        application.setLicenseNo(dto.getLicenseNo());
+        application.setLicenseUrl(dto.getLicenseUrl());
+        application.setContactPhone(dto.getContactPhone());
+        application.setAddressText(dto.getAddressText());
+        application.setLng(dto.getLng());
+        application.setLat(dto.getLat());
+        application.setTenantId(existing.getId());
+        application.setStatus("APPROVED");
+        application.setCreatedAt(LocalDateTime.now());
+        application.setUpdatedAt(LocalDateTime.now());
+        tenantApplicationMapper.insert(application);
+
+        log.info("[D-16] apply 完善既有 PENDING 租户 {}（注册建仓壳），未新建重复租户", existing.getId());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("applicationId", application.getId().toString());
+        result.put("tenantId", existing.getId().toString());
+        result.put("status", "PENDING");
+        return result;
     }
 
     // ==================== 私有方法 ====================

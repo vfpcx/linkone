@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -28,7 +28,8 @@ public class LoginVo {
 
     private String primaryRouter;
 
-    private LocalDateTime expireAt;
+    /** D-13：带时区偏移的过期时间（OffsetDateTime → ISO-8601 含 +08:00），与契约对齐 */
+    private OffsetDateTime expireAt;
 
     private TenantInfo tenantInfo;
 

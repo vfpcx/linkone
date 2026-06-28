@@ -155,7 +155,7 @@
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
 |---|---|---|---|---|---|
 | 40101 | `VALIDATION_FORMAT_001` | 200 | 手机号格式不正确 | Invalid phone format | 11 位大陆手机号 |
-| 40102 | `VALIDATION_FORMAT_002` | 200 | 密码强度不足（8–32 位，含字母数字） | Password too weak | PRD §16.2 |
+| 40102 | `VALIDATION_FORMAT_002` | 200 | 密码强度不足（6–20 位，含字母数字） | Password too weak | PRD §16.2 |
 | 40103 | `VALIDATION_FORMAT_003` | 200 | 金额格式不正确（≤ 2 位小数） | Amount format invalid | — |
 | 40104 | `VALIDATION_FORMAT_004` | 200 | 日期格式不正确 | Date format invalid | ISO-8601 |
 | 40105 | `VALIDATION_FORMAT_005` | 200 | 坐标超出有效范围 | Coordinate out of range | lng -180~180 / lat -90~90 |

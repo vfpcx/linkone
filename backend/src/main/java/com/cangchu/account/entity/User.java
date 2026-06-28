@@ -26,6 +26,9 @@ public class User {
 
     private String nickname;
 
+    /** 真实姓名（实名，区别于展示昵称 nickname）。D-16 注册落库。 */
+    private String realName;
+
     private String avatarUrl;
 
     private String status;

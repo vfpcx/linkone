@@ -13,9 +13,11 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
+import com.cangchu.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RAtomicLong;
+import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -43,6 +48,7 @@ public class AccountServiceImpl implements AccountService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final SmsUtil smsUtil;
     private final RedissonClient redissonClient;
+    private final TenantService tenantService;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -55,11 +61,18 @@ public class AccountServiceImpl implements AccountService {
     private static final int SMS_EXPIRE_MINUTES = 5;
     /** 验证码最大验证次数 */
     private static final int SMS_MAX_VERIFY = 5;
-    /** 单日最大短信发送次数 */
+    /** 单日最大短信发送次数（按手机号+场景维度） */
     private static final int SMS_DAILY_MAX = 10;
+    /** 短信重发冷却（秒，按手机号+场景维度） */
+    private static final int SMS_RESEND_COOLDOWN_SEC = 60;
+    /** 单 IP 单日最大短信发送次数（粗粒度防爆破，手机号维度为精确闸门，D-09 G-6.2） */
+    private static final int SMS_IP_DAILY_MAX = 100;
 
     /** 合法注册角色白名单（D-07） */
     private static final Set<String> VALID_ROLES = Set.of("OPS", "TA", "WK", "ST", "WA", "WE", "RT");
+
+    /** D-13：对外时间统一用东八区（与契约 +08:00 对齐） */
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 登录失败计数 Redis key 前缀（按手机号 hash 维度） */
     private static final String LOGIN_FAIL_KEY_PREFIX = "login:fail:";
@@ -71,24 +84,41 @@ public class AccountServiceImpl implements AccountService {
     public void sendSmsCode(SmsCodeSendDto dto, String clientIp) {
         String phone = dto.getPhone();
         String scene = dto.getScene();
+        String phoneHash = DigestUtil.sha256Hex(phone);
 
-        // 60s 防重
-        SmsCode lastCode = smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
-                .eq(SmsCode::getPhone, phone)
-                .eq(SmsCode::getScene, scene)
-                .orderByDesc(SmsCode::getCreatedAt)
-                .last("LIMIT 1"));
-        if (lastCode != null && lastCode.getCreatedAt().plusSeconds(60).isAfter(LocalDateTime.now())) {
+        // ---- D-09：Redisson 原子限流，替代「先 select 再 insert」的 DB 计数（消除 TOCTOU 竞态）----
+        // 1) 60s 重发冷却（手机号+场景）：RBucket.trySet 原子占位，已存在即冷却中 → 41204
+        RBucket<String> cooldown =
+                redissonClient.getBucket("sms:cd:" + phoneHash + ":" + scene);
+        if (!cooldown.trySet("1", SMS_RESEND_COOLDOWN_SEC, java.util.concurrent.TimeUnit.SECONDS)) {
             throw new BizException(ErrorCode.AUTH_SMS_004);
         }
 
-        // 单日 10 次上限
-        long todayCount = smsCodeMapper.selectCount(new LambdaQueryWrapper<SmsCode>()
-                .eq(SmsCode::getPhone, phone)
-                .eq(SmsCode::getScene, scene)
-                .ge(SmsCode::getCreatedAt, LocalDateTime.now().toLocalDate().atStartOfDay()));
-        if (todayCount >= SMS_DAILY_MAX) {
+        // 2) 单日上限（手机号+场景）：原子自增，首次设置当日剩余 TTL；超限 → 41205
+        RAtomicLong phoneDaily =
+                redissonClient.getAtomicLong("sms:daily:" + phoneHash + ":" + scene);
+        long phoneCount = phoneDaily.incrementAndGet();
+        if (phoneCount == 1L) {
+            phoneDaily.expire(secondsUntilEndOfDay());
+        }
+        if (phoneCount > SMS_DAILY_MAX) {
+            // 已超限：回滚刚占用的 60s 冷却，避免冷却阻塞了正常的"明日重试"提示语义
+            cooldown.delete();
             throw new BizException(ErrorCode.AUTH_SMS_005);
+        }
+
+        // 3) IP 维度单日上限（粗粒度防爆破，G-6.2）：仅对可识别的非环回 IP 生效
+        if (clientIp != null && !clientIp.isBlank() && !isLoopback(clientIp)) {
+            RAtomicLong ipDaily =
+                    redissonClient.getAtomicLong("sms:ip:daily:" + DigestUtil.sha256Hex(clientIp));
+            long ipCount = ipDaily.incrementAndGet();
+            if (ipCount == 1L) {
+                ipDaily.expire(secondsUntilEndOfDay());
+            }
+            if (ipCount > SMS_IP_DAILY_MAX) {
+                cooldown.delete();
+                throw new BizException(ErrorCode.AUTH_SMS_005);
+            }
         }
 
         // 发送验证码（MVP mock）
@@ -107,6 +137,21 @@ public class AccountServiceImpl implements AccountService {
         smsCodeMapper.insert(smsCode);
     }
 
+    /** 距当日 23:59:59 的剩余时长，作为「单日」计数 key 的 TTL（自然日滚动） */
+    private Duration secondsUntilEndOfDay() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime endOfDay = now.toLocalDate().atTime(LocalTime.MAX);
+        Duration d = Duration.between(now, endOfDay);
+        // 兜底：避免极端时钟边界返回 0/负值导致 key 立即过期
+        return d.isZero() || d.isNegative() ? Duration.ofSeconds(1) : d;
+    }
+
+    /** 是否环回/本机地址（dev 手测与本地集成测试豁免 IP 维度限流，避免误伤） */
+    private boolean isLoopback(String ip) {
+        return "127.0.0.1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip)
+                || "::1".equals(ip) || "localhost".equalsIgnoreCase(ip);
+    }
+
     // ==================== 注册 ====================
 
     @Override
@@ -114,6 +159,17 @@ public class AccountServiceImpl implements AccountService {
     public LoginVo register(RegisterDto dto) {
         String phone = dto.getPhone();
         String phoneHash = DigestUtil.sha256Hex(phone);
+
+        // D-16 / G-3.1：必须勾选同意协议（null 或 false 均拒绝）才放行注册
+        if (!Boolean.TRUE.equals(dto.getAgreedTerms())) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001, "请先阅读并同意《用户协议》《隐私政策》");
+        }
+
+        // D-07: 角色枚举白名单校验，非法角色返回 40001（先于一切建仓/落库，避免脏数据）
+        String role = dto.getRole() != null ? dto.getRole() : "TA";
+        if (!VALID_ROLES.contains(role)) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001, "非法的角色类型: " + role);
+        }
 
         // 验证验证码
         verifySmsCode(phone, "REGISTER", dto.getSmsCode());
@@ -125,14 +181,8 @@ public class AccountServiceImpl implements AccountService {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004);
         }
 
-        // 创建用户
-        User user = createUser(phone, phoneHash, dto.getPassword(), dto.getNickname(), "SELF");
-
-        // D-07: 角色枚举白名单校验，非法角色返回 40001（不得放行返回 0）
-        String role = dto.getRole() != null ? dto.getRole() : "TA";
-        if (!VALID_ROLES.contains(role)) {
-            throw new BizException(ErrorCode.VALIDATION_BASIC_001, "非法的角色类型: " + role);
-        }
+        // 创建用户（D-16：realName 独立落库，区别于展示昵称 nickname）
+        User user = createUser(phone, phoneHash, dto.getPassword(), dto.getNickname(), dto.getRealName(), "SELF");
 
         // 创建角色绑定
         UserRole userRole = new UserRole();
@@ -146,8 +196,22 @@ public class AccountServiceImpl implements AccountService {
         userRole.setCreatedBy(user.getId());
         userRoleMapper.insert(userRole);
 
-        // 注册后自动登录
-        return doLogin(user, role, "PC", "SMS_CODE", null);
+        // D-16：TA 注册且填了仓库名 → 创建 PENDING 租户壳并绑定 tenantId（进入 OPS 待审核）。
+        // 后续 /tenant/apply 完善详细资料时会复用此壳，避免重复建仓。
+        // 不填 tenantName（如纯账号注册 / 历史测试路径）则只建账号，建仓延后到 apply。
+        if ("TA".equals(role) && dto.getTenantName() != null && !dto.getTenantName().isBlank()) {
+            tenantService.createPendingTenantShell(user.getId(), dto.getTenantName().trim(), phone);
+        }
+        // WA/WE 入驻（wholesalerName/targetTenantId）依赖批发商入驻模块（wholesalers 表/服务尚未落地），
+        // 当前仅接收并校验字段，不静默丢弃；持久化方案见交付「Team Lead 待决点」。
+        if ("WA".equals(role) && dto.getTargetTenantId() != null && !dto.getTargetTenantId().isBlank()) {
+            log.info("[D-16] WA 注册携带 targetTenantId={} wholesalerName={}（待批发商入驻模块落地，暂记录日志）",
+                    dto.getTargetTenantId(), dto.getWholesalerName());
+        }
+
+        // 注册后自动登录（重新取主角色，确保 tenantId 已绑定时随登录响应下发）
+        String primaryRole = resolvePrimaryRole(user.getId());
+        return doLogin(user, primaryRole, "PC", "SMS_CODE", null);
     }
 
     // ==================== 登录 ====================
@@ -375,7 +439,7 @@ public class AccountServiceImpl implements AccountService {
         boolean isNew = false;
         if (user == null) {
             // 自动注册 RT 账号
-            user = createUser(phone, phoneHash, null, "用户" + phone.substring(phone.length() - 4), "RT_CODE");
+            user = createUser(phone, phoneHash, null, "用户" + phone.substring(phone.length() - 4), null, "RT_CODE");
             isNew = true;
 
             // 创建 RT 角色
@@ -401,7 +465,7 @@ public class AccountServiceImpl implements AccountService {
                 .primaryRole("RT")
                 .roles(List.of(LoginVo.RoleInfo.builder().role("RT").tenantId(null).wholesalerId(null).priority(60).build()))
                 .isNew(isNew)
-                .expireAt(LocalDateTime.now().plusSeconds(StpUtil.getTokenSessionTimeout()))
+                .expireAt(tokenExpireAt())
                 .build();
     }
 
@@ -485,7 +549,7 @@ public class AccountServiceImpl implements AccountService {
     }
 
     /** 创建用户 */
-    private User createUser(String phone, String phoneHash, String password, String nickname, String source) {
+    private User createUser(String phone, String phoneHash, String password, String nickname, String realName, String source) {
         User user = new User();
         user.setId(snowflakeIdUtil.nextId());
         user.setPhone(phone);
@@ -494,6 +558,10 @@ public class AccountServiceImpl implements AccountService {
             user.setPasswordHash(PASSWORD_ENCODER.encode(password));
         }
         user.setNickname(nickname != null ? nickname : "用户" + phone.substring(phone.length() - 4));
+        // D-16：真实姓名独立落库（非 RT 角色由前端必填；为空则不写）
+        if (realName != null && !realName.isBlank()) {
+            user.setRealName(realName.trim());
+        }
         user.setStatus("ACTIVE");
         user.setRegisterSource(source);
         user.setCreatedAt(LocalDateTime.now());
@@ -565,8 +633,13 @@ public class AccountServiceImpl implements AccountService {
                 .primaryRole(primaryRole)
                 .roles(roleList)
                 .primaryRouter(router)
-                .expireAt(LocalDateTime.now().plusSeconds(StpUtil.getTokenSessionTimeout()))
+                .expireAt(tokenExpireAt())
                 .build();
+    }
+
+    /** D-13：token 过期时间，带东八区偏移（OffsetDateTime → ISO-8601 +08:00） */
+    private OffsetDateTime tokenExpireAt() {
+        return OffsetDateTime.now(APP_ZONE).plusSeconds(StpUtil.getTokenSessionTimeout());
     }
 
     /** 角色到路由的映射 */
