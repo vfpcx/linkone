@@ -89,8 +89,9 @@ WK 出库登记 → 库存扣减(FIFO 简化：单 sku 维度) → 闭环完成
 - **C2 document·询价+出库**：`Inquiry.submitByRt/confirm` → 单事务 `OutboundRequest.autoGenerateFromInquiry` → `WK.register` 调 `inventory.deductStock`。单据号 Redis INCR。
 
 ### 阶段 D（贯穿）— 前端 + E2E
-- **D1 前端**：商户管理(TA)/SKU上架(WA)/入库(WK)/询价确认(WA)/出库(WK) 页面 + RT 进店浏览（见 §5）。
-- **D2 E2E**：扩展 Playwright，加「TA建商户→上架→入库→（RT/或API模拟）询价→WA确认→出库」整链路用例。
+- **D1 admin 前端**：商户管理(TA)/SKU上架(WA)/入库(WK)/询价确认(WA)/出库(WK) 页面。
+- **D1b RT H5**：最小 RT H5 进店页（扫码进店 → 浏览店内 WA/SKU 公开价 → 提交询价）。对接 store-front + inquiry 接口。
+- **D2 E2E**：扩展 Playwright，加「TA建商户→上架→入库→RT(H5)询价→WA确认→出库」整链路用例。
 
 **并行度建议**：A1+A2 并行（2 后端 Agent）；B1+B2 并行；C1+C2 可并行（接口契约先定）；D1 前端随 B/C 接口就绪推进。每阶段交付即合并 + 重跑测试。
 
@@ -98,9 +99,9 @@ WK 出库登记 → 库存扣减(FIFO 简化：单 sku 维度) → 闭环完成
 
 ## 5. 关键取舍点（需 Team Lead/产品确认）
 
-1. **RT 端 UI**：RT 是 H5/小程序、admin 不承载。phase-1「RT 进店询价」如何落地？
-   - 方案 a（推荐）：phase-1 先做**卖家侧 + 询价接口**，RT 端用 API/Postman 或最小 H5 页验证闭环，正式 RT 端随后做。
-   - 方案 b：本期顺带做最小 RT H5 进店+询价页。
+1. **RT 端 UI**：✅ **已定（2026-06-28）= 方案 b：本期做最小 RT H5 进店+询价页**，跑通完整验证闭环。
+   - 范围：扫码进店 → 浏览店内 WA/SKU(公开价) → 提交询价；不做支付/账户/收藏等。
+   - 技术：最小 H5（可独立轻量页或 admin 内 RT 路由），对接 store-front + inquiry 接口。
 2. **SPU 取舍**：phase-1 SKU 是否挂平台 SPU？建议简化为商户自由录入（name+spec），SPU 合并/标准化延后。
 3. **店铺与商户**：沿用「店铺=TA 1:1、WA 为店内商户」模型（见记忆 phase1-wholesaler-seller-scope）。
 
