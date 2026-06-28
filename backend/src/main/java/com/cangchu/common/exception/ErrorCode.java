@@ -75,7 +75,12 @@ public enum ErrorCode {
     TENANT_ALREADY_EXISTS(50211, "该手机号已注册租户"),
     CAPACITY_NOT_FOUND(50220, "容量快照不存在"),
     WHOLESALER_NOT_FOUND(50230, "批发商商户不存在"),
-    WHOLESALER_NAME_DUPLICATED(50231, "本租户下已存在同名批发商商户");
+    WHOLESALER_NAME_DUPLICATED(50231, "本租户下已存在同名批发商商户"),
+
+    // ==================== PRODUCT / SKU (phase-1 A2) ====================
+    SKU_NOT_FOUND(50240, "商品 SKU 不存在"),
+    SKU_PRICE_INVALID(50241, "商品价格非法（单价>0，起批价>=0，起批量>=1）"),
+    SKU_NAME_REQUIRED(50242, "商品名称不能为空");
 
     private final int code;
     private final String message;
