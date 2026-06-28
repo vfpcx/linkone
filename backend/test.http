@@ -1,0 +1,215 @@
+### 仓储云后端手动测试 · VS Code REST Client
+### 用法：装 VS Code 插件 "REST Client" (作者 Huachao Mao)
+### 然后在每个 ### 块上方点击 "Send Request" 按钮即可
+### 中文字符直接支持，不会乱码
+
+@host = http://localhost:8080
+@taPhone = 13800002001
+@opsPhone = 15800002001
+@taPassword = TaPass123
+@opsPassword = OpsPass123
+
+###############################################
+# 0. 健康检查
+###############################################
+
+### 0.1 健康检查
+GET {{host}}/actuator/health
+
+###############################################
+# 1. 账号模块
+###############################################
+
+### 1.1 注册 TA（拿到下面的 token，复制粘到 @taToken）
+# @name registerTa
+POST {{host}}/api/v1/account/register
+Content-Type: application/json
+
+{
+  "phone": "{{taPhone}}",
+  "password": "{{taPassword}}",
+  "smsCode": "888888",
+  "role": "TA"
+}
+
+### 1.2 注册 OPS（拿到 token，复制粘到 @opsToken）
+# @name registerOps
+POST {{host}}/api/v1/account/register
+Content-Type: application/json
+
+{
+  "phone": "{{opsPhone}}",
+  "password": "{{opsPassword}}",
+  "smsCode": "888888",
+  "role": "OPS"
+}
+
+### 把上面响应里的 token 粘到这里 ⬇
+@taToken = 这里粘 1.1 响应里 data.token 的值
+@opsToken = 这里粘 1.2 响应里 data.token 的值
+
+### 1.3 密码登录
+POST {{host}}/api/v1/account/login
+Content-Type: application/json
+
+{
+  "phone": "{{taPhone}}",
+  "password": "{{taPassword}}",
+  "loginType": "PASSWORD"
+}
+
+### 1.4 验证码登录
+POST {{host}}/api/v1/account/login
+Content-Type: application/json
+
+{
+  "phone": "{{taPhone}}",
+  "smsCode": "888888",
+  "loginType": "SMS_CODE"
+}
+
+### 1.5 RT 免密登录（首次自动注册）
+POST {{host}}/api/v1/account/login/rt
+Content-Type: application/json
+
+{
+  "phone": "13700002001",
+  "smsCode": "888888"
+}
+
+### 1.6 改密码（需要 token）
+PUT {{host}}/api/v1/account/password
+Content-Type: application/json
+Authorization: {{taToken}}
+
+{
+  "oldPassword": "{{taPassword}}",
+  "newPassword": "NewPass456"
+}
+
+### 1.7 找回密码
+POST {{host}}/api/v1/account/password/reset
+Content-Type: application/json
+
+{
+  "phone": "{{taPhone}}",
+  "smsCode": "888888",
+  "newPassword": "ResetPass789"
+}
+
+### 1.8 退出登录
+POST {{host}}/api/v1/account/logout
+Authorization: {{taToken}}
+
+###############################################
+# 2. 租户模块（用 1.1 拿到的 taToken / opsToken）
+###############################################
+
+### 2.1 TA 申请仓库
+POST {{host}}/api/v1/tenant/apply
+Content-Type: application/json
+Authorization: {{taToken}}
+
+{
+  "name": "杭州西湖测试仓库",
+  "legalName": "杭州西湖仓储有限公司",
+  "contactPhone": "{{taPhone}}",
+  "addressText": "浙江省杭州市西湖区文三路 100 号",
+  "lng": 120.1552,
+  "lat": 30.2741
+}
+
+### 把上面响应里的 tenantId 粘到这里 ⬇
+@tenantId = 这里粘 2.1 响应里 data.tenantId 的值
+
+### 2.2 OPS 审核通过
+POST {{host}}/api/v1/admin/tenant/{{tenantId}}/audit
+Content-Type: application/json
+Authorization: {{opsToken}}
+
+{
+  "action": "APPROVED",
+  "remark": "资质合格"
+}
+
+### 2.3 OPS 代建租户（直接 ACTIVE + 短信临时密码）
+POST {{host}}/api/v1/admin/tenant/create
+Content-Type: application/json
+Authorization: {{opsToken}}
+
+{
+  "name": "OPS代建仓库",
+  "legalName": "代建仓储有限公司",
+  "contactPhone": "13800002099",
+  "addressText": "上海市浦东新区张江路 88 号"
+}
+
+### 2.4 TA 查我的店铺设置（审核通过后才能查）
+GET {{host}}/api/v1/tenant/me
+Authorization: {{taToken}}
+
+### 2.5 TA 改店铺设置（5 开关 + 地图坐标）
+PUT {{host}}/api/v1/tenant/me
+Content-Type: application/json
+Authorization: {{taToken}}
+
+{
+  "name": "改名后的仓库",
+  "batchEnabled": 1,
+  "photoMode": "REQUIRED",
+  "billingDim": "PALLET",
+  "expiryThresholdDays": 30,
+  "lng": 120.1552,
+  "lat": 30.2741
+}
+
+### 2.6 TA 生成店铺二维码
+POST {{host}}/api/v1/tenant/store-qr
+Authorization: {{taToken}}
+
+### 2.7 TA 生成员工注册码
+POST {{host}}/api/v1/tenant/invite-code?targetRole=WK&maxUses=5&expireDays=30
+Authorization: {{taToken}}
+
+### 2.8 实时容量查询（公开，无需登录）
+GET {{host}}/api/v1/tenant/capacity?tenantId={{tenantId}}
+
+###############################################
+# 3. 错误码测试
+###############################################
+
+### 3.1 手机号格式错（应返回 40101）
+POST {{host}}/api/v1/account/register
+Content-Type: application/json
+
+{
+  "phone": "12345",
+  "password": "Pass1234",
+  "smsCode": "888888",
+  "role": "TA"
+}
+
+### 3.2 没传 token（应返回 41001）
+GET {{host}}/api/v1/tenant/me
+
+### 3.3 验证码错误（应返回 41003 / 40001）
+POST {{host}}/api/v1/account/register
+Content-Type: application/json
+
+{
+  "phone": "13800009999",
+  "password": "Pass1234",
+  "smsCode": "000000",
+  "role": "TA"
+}
+
+### 3.4 重复手机号（应返回错误）
+POST {{host}}/api/v1/account/register
+Content-Type: application/json
+
+{
+  "phone": "{{taPhone}}",
+  "password": "{{taPassword}}",
+  "smsCode": "888888",
+  "role": "TA"
+}

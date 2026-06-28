@@ -139,7 +139,7 @@ const sendSms = async () => {
     return
   }
   try {
-    const res = await accountApi.sendSmsCode({ phone: form.phone, purpose: 'REGISTER' })
+    const res = await accountApi.sendSmsCode({ phone: form.phone, scene: 'REGISTER' })
     smsCooldown.value = res.cooldownSec || 60
     smsTimer && clearInterval(smsTimer)
     smsTimer = setInterval(() => {
@@ -163,8 +163,8 @@ const sendSmsBtnText = computed(() =>
 
 // ============ 营业资质（占位） ============
 const businessLicenseFile = ref<File | null>(null)
-const handleFileChange = (file: { raw: File }) => {
-  businessLicenseFile.value = file.raw
+const handleFileChange = (file: { raw?: File }) => {
+  if (file.raw) businessLicenseFile.value = file.raw
   ElMessage.info('文件已选中（上传接口待后续 Agent 对接 OSS）')
 }
 
@@ -192,17 +192,16 @@ const onSubmit = async () => {
 
   loading.value = true
   try {
+    // 后端 RegisterDto 仅接收 phone/password/smsCode/role/inviteCode/nickname。
+    // realName/tenantName/wholesalerName/targetTenantId/营业资质 后端 MVP 暂不收，
+    // 资质待后端补 DTO 后再回填（见契约 §7.2）。realName 暂作 nickname 透传。
     const payload = await accountApi.register({
       phone: form.phone,
       smsCode: form.smsCode,
       password: needPassword.value ? form.password : undefined,
-      realName: needRealName.value ? form.realName : undefined,
       role: role.value,
-      tenantName: needTenantName.value ? form.tenantName : undefined,
-      wholesalerName: needWholesalerName.value ? form.wholesalerName : undefined,
-      targetTenantId: needTargetTenantId.value ? form.targetTenantId : undefined,
       inviteCode: needInviteCode.value ? form.inviteCode : undefined,
-      agreedTerms: true,
+      nickname: needRealName.value ? form.realName : undefined,
     })
 
     ElMessage.success(
@@ -213,21 +212,21 @@ const onSubmit = async () => {
           : '注册成功，请登录',
     )
 
-    // 直接登录（payload 已有 token）
+    // 注册返回即 LoginVo（含 token + roles），直接登录
     auth.setLoginPayload({
       token: payload.token,
       userId: payload.userId,
-      primaryRole: payload.role,
-      roles: [
+      primaryRole: payload.primaryRole,
+      roles: payload.roles ?? [
         {
-          role: payload.role,
+          role: payload.primaryRole,
           tenantId: null,
           wholesalerId: null,
           priority: 50,
         },
       ],
       primaryRouter: payload.primaryRouter,
-      expireAt: '',
+      expireAt: payload.expireAt ?? '',
     })
     router.replace(payload.primaryRouter || '/ta/dashboard')
   } catch (e) {
@@ -236,6 +235,10 @@ const onSubmit = async () => {
       if (e.code === 41104) {
         ElMessage.info('该手机号已注册，请直接登录')
       }
+    } else {
+      // 非 ApiError（如 getter/字段缺失抛错、网络异常）不静默吞掉
+      console.error('[register] 非预期异常', e)
+      ElMessage.error('注册异常，请重试')
     }
   } finally {
     loading.value = false
@@ -338,7 +341,7 @@ onBeforeUnmount(() => {
               :auto-upload="false"
               :show-file-list="false"
               accept="image/*"
-              :on-change="(f) => handleFileChange(f as { raw: File })"
+              :on-change="handleFileChange"
             >
               <el-button>选择文件</el-button>
               <span v-if="businessLicenseFile" class="upload-name">

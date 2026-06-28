@@ -16,6 +16,9 @@ dist-ssr
 unpackage
 .eslintcache
 coverage
+test-results
+playwright-report
+playwright/.cache
 *.local
 *.log
 npm-debug.log*

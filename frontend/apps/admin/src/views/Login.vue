@@ -119,7 +119,7 @@ const sendSms = async () => {
     return
   }
   try {
-    const res = await accountApi.sendSmsCode({ phone: form.phone, purpose: 'LOGIN' })
+    const res = await accountApi.sendSmsCode({ phone: form.phone, scene: 'LOGIN' })
     startCooldown(res.cooldownSec || 60)
     ElMessage.success('验证码已发送')
   } catch (e) {
@@ -147,10 +147,10 @@ const onSubmit = async () => {
         deviceInfo: navigator.userAgent.slice(0, 200),
       })
     } else {
-      // 验证码登录走 RT 接口（其他角色实际后端可能复用 login）
+      // 验证码登录走 RT 接口（后端用 query 参数 phone/code）
       payload = await accountApi.rtSmsLogin({
         phone: form.phone,
-        smsCode: form.smsCode,
+        code: form.smsCode,
       })
     }
 
@@ -168,6 +168,10 @@ const onSubmit = async () => {
   } catch (e) {
     if (e instanceof ApiError) {
       handleLoginError(e)
+    } else {
+      // 非 ApiError（如 getter/字段缺失抛错、网络异常）不静默吞掉
+      console.error('[login] 非预期异常', e)
+      ElMessage.error('登录异常，请重试')
     }
   } finally {
     loading.value = false

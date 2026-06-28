@@ -27,7 +27,7 @@ export const useAuthStore = defineStore('auth', {
 
   getters: {
     isAuthenticated: (s) => !!s.token,
-    hasMultipleRoles: (s) => s.roles.length > 1,
+    hasMultipleRoles: (s) => (s.roles?.length ?? 0) > 1,
     /** 当前店铺名（顶栏显示） */
     currentStoreName: (s) => s.tenantInfo?.tenantName || '',
   },
@@ -38,7 +38,7 @@ export const useAuthStore = defineStore('auth', {
       this.token = payload.token
       this.userId = payload.userId
       this.primaryRole = payload.primaryRole
-      this.roles = payload.roles
+      this.roles = payload.roles ?? []
       this.primaryRouter = payload.primaryRouter || this.defaultRouterFor(payload.primaryRole)
       this.expireAt = payload.expireAt
       this.tenantInfo = payload.tenantInfo ?? null

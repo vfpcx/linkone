@@ -15,14 +15,17 @@ import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RAtomicLong;
+import org.redisson.api.RedissonClient;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 账号服务实现
@@ -39,6 +42,7 @@ public class AccountServiceImpl implements AccountService {
     private final PasswordHistoryMapper passwordHistoryMapper;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final SmsUtil smsUtil;
+    private final RedissonClient redissonClient;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -53,6 +57,12 @@ public class AccountServiceImpl implements AccountService {
     private static final int SMS_MAX_VERIFY = 5;
     /** 单日最大短信发送次数 */
     private static final int SMS_DAILY_MAX = 10;
+
+    /** 合法注册角色白名单（D-07） */
+    private static final Set<String> VALID_ROLES = Set.of("OPS", "TA", "WK", "ST", "WA", "WE", "RT");
+
+    /** 登录失败计数 Redis key 前缀（按手机号 hash 维度） */
+    private static final String LOGIN_FAIL_KEY_PREFIX = "login:fail:";
 
     // ==================== 短信验证码 ====================
 
@@ -118,8 +128,13 @@ public class AccountServiceImpl implements AccountService {
         // 创建用户
         User user = createUser(phone, phoneHash, dto.getPassword(), dto.getNickname(), "SELF");
 
-        // 创建角色绑定
+        // D-07: 角色枚举白名单校验，非法角色返回 40001（不得放行返回 0）
         String role = dto.getRole() != null ? dto.getRole() : "TA";
+        if (!VALID_ROLES.contains(role)) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001, "非法的角色类型: " + role);
+        }
+
+        // 创建角色绑定
         UserRole userRole = new UserRole();
         userRole.setId(snowflakeIdUtil.nextId());
         userRole.setUserId(user.getId());
@@ -145,8 +160,22 @@ public class AccountServiceImpl implements AccountService {
 
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
+
+        // D-04: 锁定优先于一切（即便用户不存在也按手机号维度统一处理，防枚举 + 防爆破）
+        if (isLoginLocked(phoneHash)) {
+            throw new BizException(ErrorCode.AUTH_ACCOUNT_002);
+        }
+
+        // D-10 防账号枚举：手机号未注册不单独暴露，统一走"账号或密码错误"。
+        // 注意——验证码登录场景下若手机号不存在则无对应验证码，verifySmsCode 会以 AUTH_SMS_* 失败，
+        // 与密码登录路径区分；此处只对密码登录路径做统一防枚举处理。
         if (user == null) {
-            throw new BizException(ErrorCode.AUTH_ACCOUNT_003);
+            if (dto.getSmsCode() != null && !dto.getSmsCode().isEmpty()) {
+                // 验证码登录：先校验验证码（不存在的号码必然失败），不暴露账号存在性
+                verifySmsCode(phone, "LOGIN", dto.getSmsCode());
+            }
+            // 走到这里说明验证码"通过"但账号不存在，或为密码登录——统一返回账号或密码错误
+            recordLoginFailureAndThrow(phoneHash);
         }
 
         // 检查账号状态
@@ -157,16 +186,17 @@ public class AccountServiceImpl implements AccountService {
             verifySmsCode(phone, "LOGIN", dto.getSmsCode());
         } else if (dto.getPassword() != null && !dto.getPassword().isEmpty()) {
             // 密码登录
-            if (user.getPasswordHash() == null) {
-                throw new BizException(ErrorCode.AUTH_ACCOUNT_001);
-            }
-            if (!PASSWORD_ENCODER.matches(dto.getPassword(), user.getPasswordHash())) {
-                // TODO: Redis 记录错误次数; MVP 简化
-                throw new BizException(ErrorCode.AUTH_ACCOUNT_001, "账号或密码错误，剩余尝试 4 次");
+            if (user.getPasswordHash() == null
+                    || !PASSWORD_ENCODER.matches(dto.getPassword(), user.getPasswordHash())) {
+                // D-04 + D-10：累加失败计数、达阈值锁定，返回真实剩余次数，不区分账号是否存在
+                recordLoginFailureAndThrow(phoneHash);
             }
         } else {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_001, "请输入密码或验证码");
         }
+
+        // D-04: 登录成功清零失败计数
+        clearLoginFailures(phoneHash);
 
         // 更新登录信息
         user.setLastLoginAt(LocalDateTime.now());
@@ -369,7 +399,7 @@ public class AccountServiceImpl implements AccountService {
                 .token(tokenInfo.tokenValue)
                 .userId(user.getId())
                 .primaryRole("RT")
-                .roleList(List.of(LoginVo.RoleInfo.builder().role("RT").tenantId(null).wholesalerId(null).priority(60).build()))
+                .roles(List.of(LoginVo.RoleInfo.builder().role("RT").tenantId(null).wholesalerId(null).priority(60).build()))
                 .isNew(isNew)
                 .expireAt(LocalDateTime.now().plusSeconds(StpUtil.getTokenSessionTimeout()))
                 .build();
@@ -387,8 +417,8 @@ public class AccountServiceImpl implements AccountService {
 
     /** 验证短信验证码 */
     private void verifySmsCode(String phone, String scene, String code) {
-        // MVP mock 验证码
-        if (smsUtil.getMockCode().equals(code)) {
+        // D-03: mock 万能验证码短路仅 dev 生效；prod 下 isMockEnabled()=false，永不放行 888888。
+        if (smsUtil.isMockEnabled() && smsUtil.getMockCode().equals(code)) {
             log.info("[SMS VERIFY] Mock code matched for {} scene={}", phone, scene);
             return;
         }
@@ -414,6 +444,44 @@ public class AccountServiceImpl implements AccountService {
         smsCode.setVerifyCount(smsCode.getVerifyCount() + 1);
         smsCode.setVerifiedAt(LocalDateTime.now());
         smsCodeMapper.updateById(smsCode);
+    }
+
+    // ==================== 登录失败锁定（D-04，Redisson 原子计数 + TTL）====================
+
+    /** 登录失败计数 key（按手机号 hash，避免明文手机号入 Redis key） */
+    private String loginFailKey(String phoneHash) {
+        return LOGIN_FAIL_KEY_PREFIX + phoneHash;
+    }
+
+    /** 是否已锁定：达到最大失败次数即视为锁定（计数 key 自带 TTL，过期即解锁） */
+    private boolean isLoginLocked(String phoneHash) {
+        RAtomicLong counter = redissonClient.getAtomicLong(loginFailKey(phoneHash));
+        return counter.isExists() && counter.get() >= MAX_LOGIN_FAILURES;
+    }
+
+    /**
+     * 记录一次登录失败并抛出统一错误（D-04 + D-10）。
+     * <p>原子自增失败计数，首次失败时设置 {@link #LOCKOUT_MINUTES} 的 TTL（滑动窗口的锁定期）。
+     * 达阈值返回账号锁定错误码 {@code AUTH_ACCOUNT_002}；否则返回"账号或密码错误"并附带真实剩余次数。
+     * <p>不区分"账号不存在"与"密码错误"，防止账号枚举。
+     */
+    private void recordLoginFailureAndThrow(String phoneHash) {
+        RAtomicLong counter = redissonClient.getAtomicLong(loginFailKey(phoneHash));
+        long failures = counter.incrementAndGet();
+        if (failures == 1L) {
+            // 首次失败启动锁定窗口 TTL；窗口内不重置，达阈值即锁满 LOCKOUT_MINUTES
+            counter.expire(Duration.ofMinutes(LOCKOUT_MINUTES));
+        }
+        if (failures >= MAX_LOGIN_FAILURES) {
+            throw new BizException(ErrorCode.AUTH_ACCOUNT_002);
+        }
+        long remaining = MAX_LOGIN_FAILURES - failures;
+        throw new BizException(ErrorCode.AUTH_ACCOUNT_001, "账号或密码错误，剩余尝试 " + remaining + " 次");
+    }
+
+    /** 登录成功后清零失败计数 */
+    private void clearLoginFailures(String phoneHash) {
+        redissonClient.getAtomicLong(loginFailKey(phoneHash)).delete();
     }
 
     /** 创建用户 */
@@ -495,7 +563,7 @@ public class AccountServiceImpl implements AccountService {
                 .token(tokenInfo.tokenValue)
                 .userId(user.getId())
                 .primaryRole(primaryRole)
-                .roleList(roleList)
+                .roles(roleList)
                 .primaryRouter(router)
                 .expireAt(LocalDateTime.now().plusSeconds(StpUtil.getTokenSessionTimeout()))
                 .build();
@@ -505,13 +573,15 @@ public class AccountServiceImpl implements AccountService {
     private String resolveRouter(String role) {
         return switch (role) {
             case "OPS" -> "/ops/dashboard";
-            case "TA" -> "/tenant/dashboard";
-            case "WK" -> "/tenant/wk/dashboard";
-            case "ST" -> "/tenant/st/dashboard";
-            case "WA" -> "/wholesaler/dashboard";
-            case "WE" -> "/wholesaler/we/dashboard";
-            case "RT" -> "/rt/home";
-            default -> "/";
+            case "TA" -> "/ta/dashboard";
+            case "ST" -> "/st/dashboard";
+            case "WK" -> "/ta/dashboard";
+            case "WA" -> "/ta/dashboard";
+            case "WE" -> "/ta/dashboard";
+            // RT(二批/终端) 是 H5/小程序买家，admin 后台不承载 RT 页面（前端无 /rt/* 路由）。
+            // 与前端 defaultRouterFor(RT) 对齐，回兜底工作台，避免 admin 内 404。
+            case "RT" -> "/ta/dashboard";
+            default -> "/ta/dashboard";
         };
     }
 

@@ -52,9 +52,10 @@ logging:
 cangchu:
   tenant:
     leak-detection: true
+  # D-03: 短信 mock（万能验证码 888888）严禁在主配开启，已移出主配；
+  # 仅 dev profile 的 application-dev.yml 提供 mock 开关，prod 永不放行 888888。
   sms:
-    mock: true
-    mock-code: "888888"
+    mock: false
   snowflake:
     worker-id: 1
     datacenter-id: 1

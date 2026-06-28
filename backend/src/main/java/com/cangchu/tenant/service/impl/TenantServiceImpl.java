@@ -55,6 +55,17 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public Map<String, Object> apply(Long userId, TenantApplyDto dto) {
+        // D-06 唯一性（应用层）：同一申请人不可重复提交同名仓库（避免每次新建重复租户）。
+        // DB 侧 stores 已有 UNIQUE KEY uk_tenant_id_name(tenant_id, name) 兜底，但 apply 每次新建
+        // tenant 故 (tenant_id,name) 不会撞，必须在应用层按 applicant + name 拦截重复申请。
+        long dup = tenantApplicationMapper.selectCount(new LambdaQueryWrapper<TenantApplication>()
+                .eq(TenantApplication::getApplicantUserId, userId)
+                .eq(TenantApplication::getName, dto.getName())
+                .ne(TenantApplication::getStatus, "REJECTED"));
+        if (dup > 0) {
+            throw new BizException(ErrorCode.TENANT_ALREADY_EXISTS, "您已提交过同名仓库申请，请勿重复注册");
+        }
+
         // 创建入驻申请
         TenantApplication application = new TenantApplication();
         application.setId(snowflakeIdUtil.nextId());
@@ -119,9 +130,23 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public void audit(Long tenantId, Long opsUserId, TenantAuditDto dto) {
+        // D-02(c) 角色鉴权：审核入驻仅限 OPS（以 user_roles 登录态为可信来源，不依赖客户端）
+        requireOpsRole(opsUserId);
+
         Tenant tenant = tenantMapper.selectById(tenantId);
         if (tenant == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
+        }
+
+        // D-05 状态机：仅 PENDING 可审核；已通过(ACTIVE)/已驳回(REJECTED)再操作一律拒绝
+        if (!"PENDING".equals(tenant.getStatus())) {
+            throw new BizException(ErrorCode.STATE_TENANT_001,
+                    "租户当前状态为 " + tenant.getStatus() + "，不可重复审核");
+        }
+
+        // action 白名单
+        if (!"APPROVED".equals(dto.getAction()) && !"REJECTED".equals(dto.getAction())) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001, "审核结果仅支持 APPROVED/REJECTED");
         }
 
         if ("APPROVED".equals(dto.getAction())) {
@@ -147,6 +172,9 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public Map<String, Object> createByOps(Long opsUserId, TenantCreateDto dto) {
+        // D-02(c) 角色鉴权：代建租户仅限 OPS
+        requireOpsRole(opsUserId);
+
         // 检查手机号是否已注册用户
         String phoneHash = DigestUtil.sha256Hex(dto.getContactPhone());
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhoneHash, phoneHash));
@@ -234,6 +262,16 @@ public class TenantServiceImpl implements TenantService {
         }
 
         Long tenantId = taRole.getTenantId();
+
+        // D-05 状态机：仅已审核通过(ACTIVE)的租户才可修改店铺设置；PENDING/REJECTED/冻结一律拒绝
+        Tenant tenantForState = tenantMapper.selectById(tenantId);
+        if (tenantForState == null) {
+            throw new BizException(ErrorCode.TENANT_NOT_FOUND);
+        }
+        if (!"ACTIVE".equals(tenantForState.getStatus())) {
+            throw new BizException(ErrorCode.STATE_TENANT_001,
+                    "租户尚未审核通过（当前状态 " + tenantForState.getStatus() + "），暂不可修改店铺设置");
+        }
 
         // 更新 Store
         Store store = storeMapper.selectOne(new LambdaQueryWrapper<Store>().eq(Store::getTenantId, tenantId));
@@ -413,6 +451,20 @@ public class TenantServiceImpl implements TenantService {
     }
 
     // ==================== 私有方法 ====================
+
+    /**
+     * D-02(c) 角色鉴权：校验用户具备有效 OPS 角色，否则抛越权。
+     * 以 user_roles（登录态推导）为唯一可信来源，不信任客户端传参。
+     */
+    private void requireOpsRole(Long userId) {
+        long opsCount = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRole, "OPS")
+                .eq(UserRole::getStatus, "ACTIVE"));
+        if (opsCount == 0) {
+            throw new BizException(ErrorCode.PERMISSION_ROLE_002);
+        }
+    }
 
     /** 创建租户 + 店铺 + 设置 */
     private Tenant createTenant(String name, String legalName, String licenseNo, String licenseUrl,

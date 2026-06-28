@@ -308,6 +308,8 @@ GET /api/v1/common/files/sts-token?scene=VOICE
 | GET  | `/api/v1/common/account/roles` | 当前账号下所有角色 | 任意 |
 | POST | `/api/v1/common/account/switch-role` | 切换主操作角色（多角色场景） | 任意 |
 
+> ⚠️ **账号模块以实现为准**：上表为 v1 设计稿规划路径；**当前后端 MVP 实际落地路径为 `/api/v1/account/**`（无 public/common 拆分）**，且请求/响应字段与 §5.1 示例存在差异。账号模块登录/注册/改密/找回密码/RT 登录的**权威契约**见 [api-contract-account.md](./api-contract-account.md)（2026-06-28 起以该文档为单一事实源）。
+
 ### 4.2 OPS 平台（/api/v1/ops/**）
 
 | 方法 | 路径 | 说明 |
@@ -523,7 +525,8 @@ WE 受限角色，路径复用 WA 的子集：
         "priority": 60
       }
     ],
-    "primaryRouter": "/wa/dashboard",
+    "primaryRouter": "/ta/dashboard",
+    "isNew": false,
     "expireAt": "2026-07-02T10:30:00+08:00",
     "tenantInfo": {
       "tenantId": "184237892374820000",
@@ -874,6 +877,7 @@ pnpm openapi-typescript-codegen --input shared/openapi/openapi.json --output src
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-06-02 | 首版 |
+| v1.1 | 2026-06-28 | 账号模块契约对齐实现：§5.1 登录响应 `primaryRouter` 由 `/wa/dashboard` 修正为 `/ta/dashboard`（WA→/ta/dashboard）并补 `isNew`；§4.1 增加权威契约指引，账号模块以新建的 api-contract-account.md 为准 |
 
 ---
 
