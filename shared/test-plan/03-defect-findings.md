@@ -25,7 +25,8 @@
 | D-15 yml/注释清理 | ✅ 已修 | REDIS_PASSWORD 对称 + 删 lettuce.pool + roleList 注释 |
 | T-01 测试 harness streaming | ✅ 已修 | 加 httpclient5(test) 换工厂，AC-S4/S6 转 PASS |
 | **D-16（新）** | 🟠 待修 | 见下 |
-| D-09/D-11/D-13/D-14 | ⏳ 待办 | 批次三/四（竞态/密码规则统一/时区/生产硬化）|
+| D-11 密码规则统一 | ✅ 已修 | 三处统一 6–20（前端 3 处 zod + 前端/架构错误码文案）；详见 api-contract-account.md §7.3 + v1.1 |
+| D-09/D-13/D-14 | ⏳ 待办 | 批次三/四（竞态/时区/生产硬化）|
 
 > **集成教训**：D-03 首版用"active profile==dev"判 mock，导致 `@ActiveProfiles("test")` 的整套测试 41202 全挂（级联到 register→login）。改为**配置开关驱动 + prod 强制禁用**后恢复。已写入 G-7.1 的修订意图。
 

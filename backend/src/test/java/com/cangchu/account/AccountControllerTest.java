@@ -50,6 +50,7 @@ class AccountControllerTest {
         dto.setSmsCode("888888");
         dto.setRole("TA");
         dto.setNickname("测试TA");
+        dto.setAgreedTerms(true);
 
         ResponseEntity<R<LoginVo>> response = restTemplate.exchange(
                 baseUrl + "/register",
@@ -78,6 +79,7 @@ class AccountControllerTest {
         dto.setPhone("13800001001");
         dto.setPassword("Pass1234");
         dto.setSmsCode("888888");
+        dto.setAgreedTerms(true);
 
         ResponseEntity<R<LoginVo>> response = restTemplate.exchange(
                 baseUrl + "/register",
@@ -238,6 +240,7 @@ class AccountControllerTest {
         dto.setSmsCode("888888");
         dto.setRole("WA");
         dto.setNickname("测试WA");
+        dto.setAgreedTerms(true);
 
         ResponseEntity<R<LoginVo>> registerResp = restTemplate.exchange(
                 baseUrl + "/register", HttpMethod.POST,

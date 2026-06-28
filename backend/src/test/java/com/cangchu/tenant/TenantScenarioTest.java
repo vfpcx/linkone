@@ -83,6 +83,7 @@ class TenantScenarioTest {
         dto.setPassword(password);
         dto.setSmsCode("888888");
         dto.setRole(role);
+        dto.setAgreedTerms(true);   // D-16：注册需同意协议
         R<LoginVo> body = restTemplate.exchange(baseAccount + "/register", HttpMethod.POST,
                 new HttpEntity<>(dto), LOGIN_VO).getBody();
         assertThat(body).isNotNull();

@@ -295,7 +295,7 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
    - 登录响应多角色标记：前端 `multiRole?`，后端**不下发**，应由前端按 `roles.length>1` 推导。
    - `SendSmsCodeResponse` 设计为含 `cooldownSec/registered`，后端返回 `R<Void>`（data:null）。
    - RT 登录：前端 `RtSmsLoginRequest`（JSON body + agreedTerms），后端用 **query 参数 phone/code**。
-3. **密码强度规则不一致**：05-error-codes.md `VALIDATION_FORMAT_002` 文案写「8–32 位」；后端实际校验 `6–20 位`（RegisterDto/ResetPasswordDto/ChangePasswordDto 正则）。建议二者统一（以实现 6–20 为准或同时修正实现）。
+3. ~~**密码强度规则不一致**：05-error-codes.md `VALIDATION_FORMAT_002` 文案写「8–32 位」；后端实际校验 `6–20 位`（RegisterDto/ResetPasswordDto/ChangePasswordDto 正则）。建议二者统一（以实现 6–20 为准或同时修正实现）。~~ **【D-11 已解决，2026-06-28】** 三处（后端正则/前端 zod/文档错误码）统一为后端权威值 **6–20 位**：05-error-codes.md `VALIDATION_FORMAT_002` 文案改为 6–20；前端三处 zod（Register.vue / ForgotPassword.vue / Login.vue）`max(32)→max(20)`；前端 `packages/error-codes/messages-zh.ts` 文案改 6–20。
 4. **expireAt 时区**：04-api-spec.md 约定 ISO-8601 含时区（`+08:00`）；后端 `LocalDateTime` 序列化**不含时区偏移**。建议后端改 `OffsetDateTime`/统一 Jackson 配置。
 5. **错误码复用**：账号注销场景复用 `AUTH_ACCOUNT_003`（手机号未注册）带自定义消息，语义略偏；可考虑新增专用码（如 `AUTH_ACCOUNT_008 账号已注销`）。
 
@@ -306,3 +306,4 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-06-28 | 首版：固化账号模块以实现为准的请求/响应/错误码契约。本轮对齐：登录/注册响应 **`roleList` → `roles`**；primaryRouter 路由表前后端统一（OPS→/ops/dashboard，TA/ST 对应 dashboard，WK/WA/WE/RT 兜底 /ta/dashboard）；补充 `isNew`、`tenantInfo`、RoleInfo 字段与前端可选扩展 `storeName/pendingCount`；标注实际路径 `/api/v1/account/**` 与 dev mock 短信码 `888888`；§7 列出 5 项待对齐不一致项。 |
+| v1.1 | 2026-06-28 | **D-11 密码强度规则三处统一为 6–20 位**（以后端正则为权威）：修正 §7.3 不一致项为已解决；前端 3 处 zod 校验 `max(32)→max(20)`（Register/ForgotPassword/Login），前端 `error-codes` 文案与 `05-error-codes.md` `VALIDATION_FORMAT_002` 文案由 8–32 改为 6–20。 |

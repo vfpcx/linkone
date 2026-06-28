@@ -5,6 +5,7 @@ import com.cangchu.account.dto.*;
 import com.cangchu.account.service.AccountService;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.response.R;
+import com.cangchu.common.util.IpUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ public class AccountController {
     /** 发送短信验证码 */
     @PostMapping("/sms-code")
     public R<Void> sendSmsCode(@Valid @RequestBody SmsCodeSendDto dto, HttpServletRequest request) {
-        accountService.sendSmsCode(dto, request.getRemoteAddr());
+        accountService.sendSmsCode(dto, IpUtil.getClientIp(request));
         return R.ok();
     }
 
@@ -37,7 +38,7 @@ public class AccountController {
     /** 登录（密码 + 验证码二选一） */
     @PostMapping("/login")
     public R<LoginVo> login(@Valid @RequestBody LoginDto dto, HttpServletRequest request) {
-        LoginVo vo = accountService.login(dto, request.getRemoteAddr());
+        LoginVo vo = accountService.login(dto, IpUtil.getClientIp(request));
         return R.ok(vo);
     }
 

@@ -68,6 +68,7 @@ class TenantControllerTest {
         regDto.setPassword(password);
         regDto.setSmsCode("888888");
         regDto.setRole(role);
+        regDto.setAgreedTerms(true);   // D-16：注册需同意协议
 
         ResponseEntity<R<LoginVo>> regResp = restTemplate.exchange(
                 baseAccount + "/register", HttpMethod.POST,

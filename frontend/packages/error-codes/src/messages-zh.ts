@@ -62,7 +62,7 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.VALIDATION_REQUIRED]: '缺少必填参数',
   [ErrorCode.VALIDATION_RANGE]: '参数超出范围',
   [ErrorCode.VALIDATION_PHONE_FORMAT]: '手机号格式不正确',
-  [ErrorCode.VALIDATION_PASSWORD_WEAK]: '密码强度不足（8-32 位，含字母数字）',
+  [ErrorCode.VALIDATION_PASSWORD_WEAK]: '密码强度不足（6-20 位，含字母数字）',
   [ErrorCode.VALIDATION_AMOUNT_FORMAT]: '金额格式不正确',
   [ErrorCode.VALIDATION_DATE_FORMAT]: '日期格式不正确',
   [ErrorCode.VALIDATION_COORD_RANGE]: '坐标超出有效范围',

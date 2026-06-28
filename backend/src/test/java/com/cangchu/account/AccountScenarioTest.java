@@ -109,6 +109,7 @@ class AccountScenarioTest {
         dto.setSmsCode("888888");
         dto.setRole("TA");
         dto.setNickname("场景测试");
+        dto.setAgreedTerms(true);   // D-16：注册需同意协议
         return dto;
     }
 
@@ -116,6 +117,81 @@ class AccountScenarioTest {
         HttpHeaders h = new HttpHeaders();
         h.set("Authorization", token);
         return h;
+    }
+
+    // ======================================================================
+    // D-16 注册业务字段落库 / 同意协议门槛
+    // ======================================================================
+
+    @Test
+    @DisplayName("AC-D16-01 未同意协议(agreedTerms=null) 注册 → 40001 拒绝")
+    void acD16_01_notAgreedTerms() {
+        RegisterDto dto = validReg(uniquePhone());
+        dto.setAgreedTerms(null);
+        R<LoginVo> body = register(dto);
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(40001);
+    }
+
+    @Test
+    @DisplayName("AC-D16-01b 显式不同意协议(agreedTerms=false) 注册 → 40001 拒绝")
+    void acD16_01b_agreedTermsFalse() {
+        RegisterDto dto = validReg(uniquePhone());
+        dto.setAgreedTerms(false);
+        R<LoginVo> body = register(dto);
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(40001);
+    }
+
+    @Test
+    @DisplayName("AC-D16-02 TA 携 tenantName 注册 → 建 PENDING 租户壳并绑定 tenantId（登录响应 roles 带 tenantId）")
+    void acD16_02_taRegisterWithTenantName() {
+        RegisterDto dto = validReg(uniquePhone());
+        dto.setRole("TA");
+        dto.setRealName("张三");
+        dto.setTenantName("西湖测试仓-" + dto.getPhone());
+        R<LoginVo> body = register(dto);
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        assertThat(body.getData().getPrimaryRole()).isEqualTo("TA");
+        // 建仓壳后 TA 角色应已绑定 tenantId（D-16 核心断言）
+        assertThat(body.getData().getRoles()).isNotEmpty();
+        assertThat(body.getData().getRoles().get(0).getTenantId())
+                .as("TA 携仓库名注册应创建 PENDING 租户并把 tenantId 绑定到角色")
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("AC-D16-03 TA 不带 tenantName 注册 → 仅建账号，tenantId 仍为空（建仓延后到 apply）")
+    void acD16_03_taRegisterWithoutTenantName() {
+        RegisterDto dto = validReg(uniquePhone());
+        dto.setRole("TA");
+        // 不设 tenantName
+        R<LoginVo> body = register(dto);
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        assertThat(body.getData().getRoles().get(0).getTenantId())
+                .as("未填仓库名时注册不建仓，tenantId 应为 null")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("AC-D16-04 expireAt 带时区偏移（D-13，OffsetDateTime ISO-8601 含 +）")
+    void acD16_04_expireAtHasOffset() {
+        RegisterDto dto = validReg(uniquePhone());
+        R<LoginVo> body = register(dto);
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        // D-13：expireAt 现为 OffsetDateTime —— 若后端仍发无偏移的 LocalDateTime 串，
+        // 客户端 ObjectMapper 无法反序列化进 OffsetDateTime 字段（会报错/为 null）。
+        // 因此「能成功反序列化为 OffsetDateTime 且为未来时间」即证明对外时间已带时区偏移。
+        // 注：客户端 Jackson 默认把偏移归一化到 UTC，故此处不断言具体 +08:00，仅校验类型+语义。
+        assertThat(body.getData().getExpireAt())
+                .as("expireAt 应为带时区偏移的 OffsetDateTime（非无偏移 LocalDateTime）")
+                .isNotNull();
+        assertThat(body.getData().getExpireAt().toInstant())
+                .as("expireAt 应是未来的过期时刻")
+                .isAfter(java.time.Instant.now().minusSeconds(60));
     }
 
     // ======================================================================

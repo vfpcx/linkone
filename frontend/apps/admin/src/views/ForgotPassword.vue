@@ -95,7 +95,7 @@ const loading = ref(false)
 const passwordSchema = z
   .string()
   .min(6, '密码至少 6 位')
-  .max(32, '密码最多 32 位')
+  .max(20, '密码最多 20 位')
   .regex(/[a-zA-Z]/, '密码必须包含字母')
   .regex(/\d/, '密码必须包含数字')
 
