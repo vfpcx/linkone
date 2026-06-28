@@ -29,7 +29,7 @@
 
 - 统一响应包装 `R<T>`：`{ code, message, data }`，`code=0` 成功；非 0 见 05-error-codes.md。
 - 雪花 ID 字段后端用 `ToStringSerializer` 序列化为 **string**，前端按 string 处理（`userId` / `tenantId` / `wholesalerId`）。
-- 时间字段 `expireAt` 为 ISO-8601（`LocalDateTime` 序列化）。
+- 时间字段 `expireAt` 为 ISO-8601 **带时区偏移**（后端 `OffsetDateTime`，东八区 `+08:00`，D-13 已落地）。
 - 所有账号接口 base path：`/api/v1/account`。
 - dev/test 环境 mock 短信验证码：**`888888`**（`cangchu.sms.mock-code`，见 `application-dev.yml`）。任意手机号用 `888888` 均可通过短信校验。
 
@@ -73,7 +73,7 @@
       }
     ],
     "primaryRouter": "/ta/dashboard",
-    "expireAt": "2026-07-02T10:30:00",
+    "expireAt": "2026-07-02T10:30:00+08:00",
     "tenantInfo": {
       "tenantId": "184237892374820000",
       "tenantName": "杭州西湖仓",
@@ -93,7 +93,7 @@
 | `primaryRole` | string | 是 | 主角色（按 priority 升序取第一个 ACTIVE 角色；无角色兜底 `TA`） |
 | `roles` | RoleInfo[] | 是 | 该账号下所有 ACTIVE 角色（**原 `roleList`，2026-06-28 更名为 `roles`**） |
 | `primaryRouter` | string | 是 | 登录后落地路由，由 `primaryRole` 映射（见 §4） |
-| `expireAt` | string(ISO) | 是 | token 过期时间 |
+| `expireAt` | string(ISO-8601 带时区) | 是 | token 过期时间；后端 `OffsetDateTime` 序列化，含东八区偏移 `+08:00`（如 `2026-07-02T10:30:00+08:00`）。D-13 由 `LocalDateTime` 改为 `OffsetDateTime`，前端按带偏移的 ISO-8601 解析 |
 | `tenantInfo` | object \| null | 否 | 租户信息；NON_NULL，无租户上下文时不下发 |
 | `isNew` | boolean \| null | 否 | 是否本次新注册（注册、RT 首次自动注册时为 `true`）；NON_NULL |
 
@@ -148,6 +148,8 @@
 
 ### 5.2 注册 `POST /api/v1/account/register`
 
+> **D-16 已对齐（2026-06-28）**：DTO 补齐前端入驻表单字段（`realName / tenantName / wholesalerName / targetTenantId / agreedTerms`），避免 Jackson 静默丢弃导致 TA/WA 建仓信息未落库。字段以 `RegisterDto.java` 为准。
+
 ```json
 {
   "phone": "13800138000",
@@ -155,7 +157,12 @@
   "smsCode": "888888",
   "role": "TA",
   "inviteCode": null,
-  "nickname": "西湖仓老板"
+  "nickname": "西湖仓老板",
+  "realName": "张三",
+  "tenantName": "杭州西湖仓",
+  "wholesalerName": null,
+  "targetTenantId": null,
+  "agreedTerms": true
 }
 ```
 
@@ -164,11 +171,26 @@
 | `phone` | 是 | `^1[3-9]\d{9}$` | 手机号 |
 | `password` | 是 | `^(?=.*[a-zA-Z])(?=.*\d).{6,20}$` | 6–20 位含字母数字 |
 | `smsCode` | 是 | 非空 | 短信验证码（dev=888888） |
-| `role` | 否 | — | 注册入口角色，默认 `TA`；可选 TA/WK/ST/WA/WE/RT |
+| `agreedTerms` | **是** | 必须为 `true` | 是否同意《用户协议》《隐私政策》。后端用 `Boolean` 包装类型区分「未传(null)」与「显式 false」，**二者均拒绝**；非 `true` 抛 `40001`（VALIDATION_BASIC_001，消息「请先阅读并同意…」）。G-3.1 安全闸门 |
+| `role` | 否 | 白名单 | 注册入口角色，默认 `TA`；仅允许 TA/WK/ST/WA/WE/RT（含 OPS 实为内部，前端不传）。非白名单值抛 `40001` |
 | `inviteCode` | 否 | — | 员工注册（WK/ST/WE）场景的邀请码 |
-| `nickname` | 否 | — | 昵称 |
+| `nickname` | 否 | — | 昵称（展示名）；为空时后端兜底「用户+手机尾号4位」 |
+| `realName` | 否（业务上非 RT 角色由前端必填） | `max 64` | 真实姓名（实名），独立落库 `users.real_name`，区别于展示昵称 `nickname`。为空则不写库 |
+| `tenantName` | 否（TA 建仓时必填） | `max 128` | 仓库名称。**TA 注册且填了非空 `tenantName` 时，后端建 PENDING 租户壳并回填 tenantId**（见下方流程）。其它角色 / 不填则只建账号，建仓延后到 `/tenant/apply` |
+| `wholesalerName` | 否 | `max 128` | 商户名称（WA 入驻用）。当前**仅接收 + 校验，未持久化**（批发商入驻模块未落地，后端记日志，见 §7 待决点） |
+| `targetTenantId` | 否 | — | 目标仓库 ID（WA 选择入驻的租户，雪花 ID 字符串）。当前**仅接收 + 记日志**，同上待落地 |
 
-响应：`R<LoginVo>`，`isNew=true`。
+响应：`R<LoginVo>`，`isNew=true`（注册后自动登录；若 TA 建了租户壳，登录响应的 `roles[].tenantId` 已带新租户 ID）。
+
+#### 5.2.1 TA 注册建仓流程（D-16：PENDING 租户壳 + apply 复用）
+
+后端 `AccountServiceImpl.register` + `TenantServiceImpl.createPendingTenantShell / apply` 实际行为：
+
+1. **注册阶段**：`role=TA` 且 `tenantName` 非空时，注册事务内调用 `createPendingTenantShell(userId, tenantName, phone)`：新建一个 `status=PENDING` 的 tenant + 默认 store（PENDING）+ 默认 tenant_settings，并把 tenantId **回填**到该用户的 `user_roles(role=TA)` 行（注册时先插的 `tenantId=null` 行被 update，不新增第二行）。
+2. **完善资料阶段（`POST /api/v1/tenant/apply`）**：apply 先查该 TA 是否已绑定 PENDING 租户壳；命中则走 `completePendingTenant` —— **更新既有 PENDING 租户 + store 详细资料并补一条 APPROVED 的 tenant_applications 记录，绝不再新建第二个租户**（避免重复建仓）。未命中（如纯账号注册、历史路径）才走原「新建租户」分支。
+3. **审核阶段**：OPS 审核该 PENDING 租户（`/ops/tenants/{id}/approve`）通过后置 `ACTIVE` 并激活其 store。
+4. **未填 `tenantName`**：注册只建账号与 `TA(tenantId=null)` 角色，建仓完全延后到 `apply`（apply 走新建租户分支）。
+5. **WA（`wholesalerName/targetTenantId`）**：当前不建任何实体，后端仅 `log.info` 记录，待批发商入驻模块落地（§7 待决点）。
 
 ### 5.3 登录 `POST /api/v1/account/login`
 
@@ -288,7 +310,7 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
 
 1. **路径前缀**：04-api-spec.md §4.1 规划 `/api/v1/public/account/**`、`/api/v1/common/account/**`；实现统一为 `/api/v1/account/**`。前端 `packages/api-types/src/account.ts` 顶部注释仍写 public/common 路径，**前端类型注释待更新**。
 2. **前端 api-types 字段与后端 DTO 不一致**（`frontend/packages/api-types/src/account.ts`，归前端角色处理）：
-   - `RegisterRequest` 含 `realName/tenantName/wholesalerName/targetTenantId/agreedTerms`，后端 `RegisterDto` 实际只有 `phone/password/smsCode/role/inviteCode/nickname`。
+   - ~~`RegisterRequest` 含 `realName/tenantName/wholesalerName/targetTenantId/agreedTerms`，后端 `RegisterDto` 实际只有 `phone/password/smsCode/role/inviteCode/nickname`。~~ **【D-16 已解决，2026-06-28】** 后端 `RegisterDto` 已补齐 `realName/tenantName/wholesalerName/targetTenantId/agreedTerms`（`agreedTerms` 必须 true 才放行），前后端注册契约对齐，详见 §5.2 / §5.2.1。注：`wholesalerName/targetTenantId` 后端当前仅接收+记日志，待批发商入驻模块落地（见第 6 项待决点）。
    - `ChangePasswordRequest` 含 `smsCode`，后端 `ChangePasswordDto` 无（仅 oldPassword/newPassword）。
    - `ChangePhoneRequest` 用 `oldPhoneSmsCode/newPhoneSmsCode`，后端 `ChangePhoneDto` 用 `oldSmsCode/newSmsCode`。
    - `ResetPasswordRequest` 含 `confirmPassword`，后端无。
@@ -296,8 +318,9 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
    - `SendSmsCodeResponse` 设计为含 `cooldownSec/registered`，后端返回 `R<Void>`（data:null）。
    - RT 登录：前端 `RtSmsLoginRequest`（JSON body + agreedTerms），后端用 **query 参数 phone/code**。
 3. ~~**密码强度规则不一致**：05-error-codes.md `VALIDATION_FORMAT_002` 文案写「8–32 位」；后端实际校验 `6–20 位`（RegisterDto/ResetPasswordDto/ChangePasswordDto 正则）。建议二者统一（以实现 6–20 为准或同时修正实现）。~~ **【D-11 已解决，2026-06-28】** 三处（后端正则/前端 zod/文档错误码）统一为后端权威值 **6–20 位**：05-error-codes.md `VALIDATION_FORMAT_002` 文案改为 6–20；前端三处 zod（Register.vue / ForgotPassword.vue / Login.vue）`max(32)→max(20)`；前端 `packages/error-codes/messages-zh.ts` 文案改 6–20。
-4. **expireAt 时区**：04-api-spec.md 约定 ISO-8601 含时区（`+08:00`）；后端 `LocalDateTime` 序列化**不含时区偏移**。建议后端改 `OffsetDateTime`/统一 Jackson 配置。
+4. ~~**expireAt 时区**：04-api-spec.md 约定 ISO-8601 含时区（`+08:00`）；后端 `LocalDateTime` 序列化**不含时区偏移**。建议后端改 `OffsetDateTime`/统一 Jackson 配置。~~ **【D-13 已解决，2026-06-28】** 后端 `LoginVo.expireAt` 由 `LocalDateTime` 改为 `OffsetDateTime`，`AccountServiceImpl.tokenExpireAt()` 用东八区（`Asia/Shanghai`）生成，序列化为带 `+08:00` 偏移的 ISO-8601，与 04-api-spec.md / 契约一致。
 5. **错误码复用**：账号注销场景复用 `AUTH_ACCOUNT_003`（手机号未注册）带自定义消息，语义略偏；可考虑新增专用码（如 `AUTH_ACCOUNT_008 账号已注销`）。
+6. **WA 入驻字段未持久化（D-16 遗留）**：注册 DTO 已接收 `wholesalerName/targetTenantId`，但批发商入驻模块（wholesalers 表/服务）尚未落地，后端当前仅 `log.info` 记录、不建实体。提请 Team Lead 安排 WA 入驻模块落地后补持久化逻辑与对应契约。
 
 ---
 
@@ -307,3 +330,4 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
 |---|---|---|
 | v1 | 2026-06-28 | 首版：固化账号模块以实现为准的请求/响应/错误码契约。本轮对齐：登录/注册响应 **`roleList` → `roles`**；primaryRouter 路由表前后端统一（OPS→/ops/dashboard，TA/ST 对应 dashboard，WK/WA/WE/RT 兜底 /ta/dashboard）；补充 `isNew`、`tenantInfo`、RoleInfo 字段与前端可选扩展 `storeName/pendingCount`；标注实际路径 `/api/v1/account/**` 与 dev mock 短信码 `888888`；§7 列出 5 项待对齐不一致项。 |
 | v1.1 | 2026-06-28 | **D-11 密码强度规则三处统一为 6–20 位**（以后端正则为权威）：修正 §7.3 不一致项为已解决；前端 3 处 zod 校验 `max(32)→max(20)`（Register/ForgotPassword/Login），前端 `error-codes` 文案与 `05-error-codes.md` `VALIDATION_FORMAT_002` 文案由 8–32 改为 6–20。 |
+| v1.2 | 2026-06-28 | **批次三账号契约对齐（以后端实现为准）**：① **D-16** 注册 DTO 补齐 `realName / tenantName / wholesalerName / targetTenantId / agreedTerms`，更新 §5.2 请求示例与字段表（标注 `agreedTerms` 必填且必须 true、各字段类型/可选性以 `RegisterDto` 为准）；新增 §5.2.1「TA 注册建 PENDING 租户壳 + apply 复用不二次建仓」流程说明；§7.2 注册字段不一致标记为已解决。② **D-13** `LoginVo.expireAt` 由 `LocalDateTime` 改为 `OffsetDateTime`（ISO-8601 带 `+08:00`），更新 §1 通用约定、§3 响应示例、§3.1 字段说明；§7.4 expireAt 时区不一致标记为已解决。③ §7 新增第 6 项待决点：WA 入驻字段（`wholesalerName/targetTenantId`）后端仅接收+记日志、未持久化，待批发商入驻模块落地。 |

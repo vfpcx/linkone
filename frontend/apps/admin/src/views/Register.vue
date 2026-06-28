@@ -192,16 +192,25 @@ const onSubmit = async () => {
 
   loading.value = true
   try {
-    // 后端 RegisterDto 仅接收 phone/password/smsCode/role/inviteCode/nickname。
-    // realName/tenantName/wholesalerName/targetTenantId/营业资质 后端 MVP 暂不收，
-    // 资质待后端补 DTO 后再回填（见契约 §7.2）。realName 暂作 nickname 透传。
+    // D-16：后端 RegisterDto 已扩展，真实发送
+    // realName/tenantName/wholesalerName/targetTenantId/agreedTerms。
+    // agreedTerms 必须为 true，后端兜底校验（null/false 抛 40001）。
+    // 营业资质（图片）待后端补上传接口后再对接 OSS。
     const payload = await accountApi.register({
       phone: form.phone,
       smsCode: form.smsCode,
       password: needPassword.value ? form.password : undefined,
       role: role.value,
       inviteCode: needInviteCode.value ? form.inviteCode : undefined,
-      nickname: needRealName.value ? form.realName : undefined,
+      // 真实姓名（实名）独立发送，不再塞 nickname
+      realName: needRealName.value ? form.realName : undefined,
+      // TA 建仓：仓库名称
+      tenantName: needTenantName.value ? form.tenantName : undefined,
+      // WA 入驻：商户名称 + 目标租户
+      wholesalerName: needWholesalerName.value ? form.wholesalerName : undefined,
+      targetTenantId: needTargetTenantId.value ? form.targetTenantId : undefined,
+      // 同意条款真实勾选值（前端已先拦，后端兜底）
+      agreedTerms: form.agreedTerms,
     })
 
     ElMessage.success(
