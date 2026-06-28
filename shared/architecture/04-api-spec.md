@@ -296,7 +296,7 @@ GET /api/v1/common/files/sts-token?scene=VOICE
 | 方法 | 路径 | 说明 | 鉴权 |
 |---|---|---|---|
 | POST | `/api/v1/public/account/sms-code` | 发送短信验证码 | 公开 |
-| POST | `/api/v1/public/account/register` | 注册（手机号 + 密码 + 验证码 + 可选邀请码） | 公开 |
+| POST | `/api/v1/public/account/register` | 注册（手机号 + 密码 + 验证码 + agreedTerms 必须 true；可选 realName/tenantName/wholesalerName/targetTenantId/inviteCode/nickname/role；TA 携 tenantName 建 PENDING 租户壳。字段以 RegisterDto 为准，详见 api-contract-account.md §5.2） | 公开 |
 | POST | `/api/v1/public/account/login` | 登录（手机号 + 密码） | 公开 |
 | POST | `/api/v1/public/rt/sms-login` | RT 验证码登录（自动注册） | 公开 |
 | POST | `/api/v1/common/account/logout` | 退出登录 | 任意 |

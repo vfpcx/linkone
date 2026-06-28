@@ -45,9 +45,18 @@ export interface SendSmsCodeResponse {
 
 // ============ 注册 ============
 /**
- * 对齐后端 RegisterDto（phone/password/smsCode/role/inviteCode/nickname）。
- * 注：realName/tenantName/wholesalerName/targetTenantId/agreedTerms 后端 DTO 不接收，
- * 已从请求体移除（业务字段后续待后端补 DTO 后再加，见契约 §7.2 / Team Lead 协调点）。
+ * 对齐后端 RegisterDto（D-16 扩展后）：
+ * phone/password/smsCode/role/inviteCode/nickname
+ * + realName/tenantName/wholesalerName/targetTenantId/agreedTerms。
+ *
+ * 后端必填/可选：
+ *  - phone / password / smsCode：@NotBlank 必填
+ *  - role：默认 TA，可选
+ *  - realName：@Size(max=64)，非 RT 角色前端必填（DTO 层非 @NotBlank，由前端按角色控制）
+ *  - tenantName：@Size(max=128)，TA 建仓用（建 PENDING 租户壳）
+ *  - wholesalerName：@Size(max=128)，WA 入驻用
+ *  - targetTenantId：雪花 ID 字符串，WA 选择目标租户
+ *  - agreedTerms：Boolean，D-16/G-3.1 必须为 true 才放行（null/false 均拒，服务层抛 40001）
  */
 export interface RegisterRequest {
   phone: string
@@ -58,8 +67,18 @@ export interface RegisterRequest {
   role?: Role
   /** 员工注册（WK/ST/WE）邀请码 */
   inviteCode?: string
-  /** 昵称（后端唯一接收的展示字段） */
+  /** 昵称（展示名，可选） */
   nickname?: string
+  /** 真实姓名（实名），后端 @Size(max=64)；非 RT 角色前端必填，落库 users.real_name */
+  realName?: string
+  /** 仓库名称，后端 @Size(max=128)；TA 注册建 PENDING 租户壳 */
+  tenantName?: string
+  /** 商户名称，后端 @Size(max=128)；WA 入驻用 */
+  wholesalerName?: string
+  /** 目标仓库 ID（雪花字符串）；WA 选择入驻的目标租户 */
+  targetTenantId?: SnowflakeId
+  /** 是否已同意用户协议/隐私政策；后端必须为 true 才放行（D-16/G-3.1） */
+  agreedTerms: boolean
 }
 
 /** 注册与登录返回同一结构 LoginVo，isNew=true。 */
