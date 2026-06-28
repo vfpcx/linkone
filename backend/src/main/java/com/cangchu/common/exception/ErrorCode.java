@@ -80,7 +80,13 @@ public enum ErrorCode {
     // ==================== PRODUCT / SKU (phase-1 A2) ====================
     SKU_NOT_FOUND(50240, "商品 SKU 不存在"),
     SKU_PRICE_INVALID(50241, "商品价格非法（单价>0，起批价>=0，起批量>=1）"),
-    SKU_NAME_REQUIRED(50242, "商品名称不能为空");
+    SKU_NAME_REQUIRED(50242, "商品名称不能为空"),
+
+    // ==================== INVENTORY (phase-1 B1) ====================
+    INVENTORY_NOT_FOUND(50250, "库存记录不存在"),
+    STOCK_NOT_ENOUGH(50251, "库存不足，无法出库"),
+    STOCK_QTY_INVALID(50252, "出入库数量非法（必须>0）"),
+    INVENTORY_LOCK_FAILED(50253, "库存繁忙，请稍后重试");
 
     private final int code;
     private final String message;

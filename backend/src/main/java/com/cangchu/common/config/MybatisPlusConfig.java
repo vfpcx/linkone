@@ -35,7 +35,9 @@ public class MybatisPlusConfig {
             "stores",
             "tenant_settings",
             "wholesalers",
-            "skus"
+            "skus",
+            "inventories",
+            "stock_movements"
     );
 
     @Bean
