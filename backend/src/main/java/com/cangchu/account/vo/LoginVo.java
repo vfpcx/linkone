@@ -24,7 +24,7 @@ public class LoginVo {
 
     private String primaryRole;
 
-    private List<RoleInfo> roleList;
+    private List<RoleInfo> roles;
 
     private String primaryRouter;
 

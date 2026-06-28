@@ -57,7 +57,7 @@ const sendSms = async () => {
   try {
     const res = await accountApi.sendSmsCode({
       phone: step1.phone,
-      purpose: 'RESET_PASSWORD',
+      scene: 'RESET_PASSWORD',
     })
     smsCooldown.value = res.cooldownSec || 60
     smsTimer && clearInterval(smsTimer)
@@ -129,11 +129,11 @@ const onComplete = async () => {
 
   loading.value = true
   try {
+    // 后端 ResetPasswordDto 无 confirmPassword（两次一致性已在前端校验）
     await accountApi.resetPassword({
       phone: step1.phone,
       smsCode: step1.smsCode,
       newPassword: step2.newPassword,
-      confirmPassword: step2.confirmPassword,
     })
     ElMessage.success('密码已修改，所有设备需重新登录')
     setTimeout(() => {

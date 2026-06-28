@@ -63,7 +63,7 @@ class AccountControllerTest {
         assertThat(body.getCode()).isEqualTo(0);
         assertThat(body.getData().getToken()).isNotBlank();
         assertThat(body.getData().getPrimaryRole()).isEqualTo("TA");
-        assertThat(body.getData().getRoleList()).isNotEmpty();
+        assertThat(body.getData().getRoles()).isNotEmpty();
 
         token = body.getData().getToken();
         userId = body.getData().getUserId();
@@ -229,7 +229,7 @@ class AccountControllerTest {
     // ==================== Case 9: 多角色登录 ====================
     @Test
     @Order(9)
-    @DisplayName("多角色登录返回 roleList")
+    @DisplayName("多角色登录返回 roles")
     void testMultiRoleLogin() {
         // 注册第二个角色（同手机号不同场景）
         RegisterDto dto = new RegisterDto();
@@ -245,7 +245,7 @@ class AccountControllerTest {
                 new ParameterizedTypeReference<R<LoginVo>>() {});
 
         assertThat(registerResp.getBody().getCode()).isEqualTo(0);
-        assertThat(registerResp.getBody().getData().getRoleList()).hasSize(1);
+        assertThat(registerResp.getBody().getData().getRoles()).hasSize(1);
 
         LoginVo loginData = registerResp.getBody().getData();
         assertThat(loginData.getPrimaryRole()).isEqualTo("WA");
