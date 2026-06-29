@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS `inbound_requests` (
     `updated_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     -- 单据号全局唯一（DocumentNumberService Redis INCR 生成，双保险 G-5.1）
-    CONSTRAINT `uk_inb_doc_no` UNIQUE (`doc_no`)
+    CONSTRAINT `uk_inb_doc_no` UNIQUE (`doc_no`),
+    -- 索引内联进建表（MySQL 不支持 CREATE INDEX IF NOT EXISTS；与 V4-V6 风格一致，H2/MySQL 均兼容）
+    KEY `idx_inb_wholesaler` (`wholesaler_id`),
+    KEY `idx_inb_tenant` (`tenant_id`)
 );
-
-CREATE INDEX IF NOT EXISTS `idx_inb_wholesaler` ON `inbound_requests` (`wholesaler_id`);
-CREATE INDEX IF NOT EXISTS `idx_inb_tenant` ON `inbound_requests` (`tenant_id`);
