@@ -38,7 +38,9 @@ public class MybatisPlusConfig {
             "skus",
             "inventories",
             "stock_movements",
-            "inbound_requests"
+            "inbound_requests",
+            "inquiry_requests",
+            "outbound_requests"
     );
 
     @Bean

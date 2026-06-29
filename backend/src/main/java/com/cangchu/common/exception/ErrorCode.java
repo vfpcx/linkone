@@ -96,7 +96,17 @@ public enum ErrorCode {
     INBOUND_WHOLESALER_REQUIRED(50271, "缺少批发商商户"),
     INBOUND_NOT_FOUND(50272, "入库单不存在"),
     INBOUND_OPERATOR_NOT_WK(50273, "仅本租户仓管(WK)可登记入库"),
-    DOC_NO_GENERATE_FAILED(50274, "单据号生成失败，请稍后重试");
+    DOC_NO_GENERATE_FAILED(50274, "单据号生成失败，请稍后重试"),
+
+    // ==================== INQUIRY / OUTBOUND (phase-1 C2) ====================
+    INQUIRY_ITEMS_REQUIRED(50280, "询价商品不能为空"),
+    INQUIRY_QTY_INVALID(50281, "询价数量非法（必须>0）"),
+    INQUIRY_WHOLESALER_NOT_IN_STORE(50282, "批发商不属于该店铺或未上架"),
+    INQUIRY_SKU_NOT_BELONG(50283, "商品不属于该批发商"),
+    INQUIRY_NOT_FOUND(50284, "询价单不存在"),
+    INQUIRY_STATUS_INVALID(50285, "询价单状态不允许此操作"),
+    INQUIRY_OPERATOR_NOT_WA(50286, "仅该批发商(WA)可确认询价"),
+    OUTBOUND_GENERATE_FAILED(50287, "出库单生成失败，请稍后重试");
 
     private final int code;
     private final String message;
