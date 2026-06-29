@@ -73,7 +73,40 @@ public enum ErrorCode {
     PERMISSION_LOGIN_FAILED(42006, "登录失败次数过多，账号已锁定"),
     TENANT_NOT_FOUND(50210, "租户不存在"),
     TENANT_ALREADY_EXISTS(50211, "该手机号已注册租户"),
-    CAPACITY_NOT_FOUND(50220, "容量快照不存在");
+    CAPACITY_NOT_FOUND(50220, "容量快照不存在"),
+    WHOLESALER_NOT_FOUND(50230, "批发商商户不存在"),
+    WHOLESALER_NAME_DUPLICATED(50231, "本租户下已存在同名批发商商户"),
+
+    // ==================== PRODUCT / SKU (phase-1 A2) ====================
+    SKU_NOT_FOUND(50240, "商品 SKU 不存在"),
+    SKU_PRICE_INVALID(50241, "商品价格非法（单价>0，起批价>=0，起批量>=1）"),
+    SKU_NAME_REQUIRED(50242, "商品名称不能为空"),
+
+    // ==================== INVENTORY (phase-1 B1) ====================
+    INVENTORY_NOT_FOUND(50250, "库存记录不存在"),
+    STOCK_NOT_ENOUGH(50251, "库存不足，无法出库"),
+    STOCK_QTY_INVALID(50252, "出入库数量非法（必须>0）"),
+    INVENTORY_LOCK_FAILED(50253, "库存繁忙，请稍后重试"),
+
+    // ==================== STORE-FRONT (phase-1 B2) ====================
+    STORE_NOT_FOUND(50260, "店铺不存在或已下线"),
+
+    // ==================== INBOUND / DOCUMENT (phase-1 C1) ====================
+    INBOUND_QTY_INVALID(50270, "入库数量非法（必须>0）"),
+    INBOUND_WHOLESALER_REQUIRED(50271, "缺少批发商商户"),
+    INBOUND_NOT_FOUND(50272, "入库单不存在"),
+    INBOUND_OPERATOR_NOT_WK(50273, "仅本租户仓管(WK)可登记入库"),
+    DOC_NO_GENERATE_FAILED(50274, "单据号生成失败，请稍后重试"),
+
+    // ==================== INQUIRY / OUTBOUND (phase-1 C2) ====================
+    INQUIRY_ITEMS_REQUIRED(50280, "询价商品不能为空"),
+    INQUIRY_QTY_INVALID(50281, "询价数量非法（必须>0）"),
+    INQUIRY_WHOLESALER_NOT_IN_STORE(50282, "批发商不属于该店铺或未上架"),
+    INQUIRY_SKU_NOT_BELONG(50283, "商品不属于该批发商"),
+    INQUIRY_NOT_FOUND(50284, "询价单不存在"),
+    INQUIRY_STATUS_INVALID(50285, "询价单状态不允许此操作"),
+    INQUIRY_OPERATOR_NOT_WA(50286, "仅该批发商(WA)可确认询价"),
+    OUTBOUND_GENERATE_FAILED(50287, "出库单生成失败，请稍后重试");
 
     private final int code;
     private final String message;

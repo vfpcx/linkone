@@ -33,7 +33,14 @@ public class MybatisPlusConfig {
      */
     private static final Set<String> TENANT_FILTER_TABLES = Set.of(
             "stores",
-            "tenant_settings"
+            "tenant_settings",
+            "wholesalers",
+            "skus",
+            "inventories",
+            "stock_movements",
+            "inbound_requests",
+            "inquiry_requests",
+            "outbound_requests"
     );
 
     @Bean
