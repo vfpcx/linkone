@@ -89,7 +89,14 @@ public enum ErrorCode {
     INVENTORY_LOCK_FAILED(50253, "库存繁忙，请稍后重试"),
 
     // ==================== STORE-FRONT (phase-1 B2) ====================
-    STORE_NOT_FOUND(50260, "店铺不存在或已下线");
+    STORE_NOT_FOUND(50260, "店铺不存在或已下线"),
+
+    // ==================== INBOUND / DOCUMENT (phase-1 C1) ====================
+    INBOUND_QTY_INVALID(50270, "入库数量非法（必须>0）"),
+    INBOUND_WHOLESALER_REQUIRED(50271, "缺少批发商商户"),
+    INBOUND_NOT_FOUND(50272, "入库单不存在"),
+    INBOUND_OPERATOR_NOT_WK(50273, "仅本租户仓管(WK)可登记入库"),
+    DOC_NO_GENERATE_FAILED(50274, "单据号生成失败，请稍后重试");
 
     private final int code;
     private final String message;

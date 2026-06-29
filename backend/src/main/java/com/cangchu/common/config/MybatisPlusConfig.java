@@ -37,7 +37,8 @@ public class MybatisPlusConfig {
             "wholesalers",
             "skus",
             "inventories",
-            "stock_movements"
+            "stock_movements",
+            "inbound_requests"
     );
 
     @Bean
