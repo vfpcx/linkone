@@ -41,6 +41,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ta/Settings.vue'),
     meta: { role: 'TA', title: '店铺设置' },
   },
+  {
+    path: '/ta/wholesalers',
+    name: 'ta-wholesalers',
+    component: () => import('@/views/ta/Wholesalers.vue'),
+    meta: { role: 'TA', title: '入驻商户' },
+  },
 
   // OPS / ST 工作台占位（后续 Agent 实现）
   {

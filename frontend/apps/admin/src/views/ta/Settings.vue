@@ -98,8 +98,8 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ta/dashboard') {
-    router.push('/ta/dashboard')
+  if (key === '/ta/dashboard' || key === '/ta/wholesalers') {
+    router.push(key)
     return
   }
   // 其它菜单页尚未实现，保持占位
