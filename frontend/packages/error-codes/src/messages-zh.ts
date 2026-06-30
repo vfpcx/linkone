@@ -94,6 +94,7 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_WA_HAS_UNPAID]: '退驻申请前需结清账单',
   [ErrorCode.STATE_WA_HAS_STOCK]: '退驻申请前需清空库存',
   [ErrorCode.STATE_WA_BLACKLISTED]: '批发商已在黑名单中，无法入驻',
+  [ErrorCode.STATE_INVITE_REVOKED]: '员工注册码已作废，请向管理员索取新码',
   [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
   [ErrorCode.STATE_BILL_DISPATCHED]: '账单已下发，不能直接调整',
   [ErrorCode.STATE_BILL_PAID]: '账单已结清，无法继续操作',

@@ -32,9 +32,15 @@ const auth = useAuthStore()
 // ============ 角色解析 ============
 const SUPPORTED_ROLES: Role[] = ['TA', 'WA', 'WK', 'ST', 'WE', 'RT']
 
+// 员工受邀注册角色（凭码）
+const EMPLOYEE_ROLES: Role[] = ['WK', 'ST', 'WE']
+
 const role = computed<Role>(() => {
-  const r = String(route.query.role || 'rt').toUpperCase() as Role
-  return SUPPORTED_ROLES.includes(r) ? r : 'RT'
+  const r = String(route.query.role || '').toUpperCase() as Role
+  if (SUPPORTED_ROLES.includes(r)) return r
+  // ?invite=1 但未带 role：进入员工凭码注册模式，默认库管员(WK)
+  if (String(route.query.invite) === '1') return 'WK'
+  return 'RT'
 })
 
 const roleLabel = computed(() => {
@@ -218,7 +224,9 @@ const onSubmit = async () => {
         ? '注册成功！资质审核中，登录后可填资料'
         : role.value === 'WA'
           ? '注册成功！等待租户审批入驻'
-          : '注册成功，请登录',
+          : EMPLOYEE_ROLES.includes(role.value)
+            ? '注册成功！已为您加入所在仓库'
+            : '注册成功，请登录',
     )
 
     // 注册返回即 LoginVo（含 token + roles），直接登录
@@ -256,6 +264,13 @@ const onSubmit = async () => {
 
 onMounted(() => {
   if (needTargetTenantId.value) fetchTenants()
+  // ?code=xxx 预填员工注册码（扫码进入注册页时）
+  if (needInviteCode.value) {
+    const code = route.query.code
+    if (typeof code === 'string' && code.trim()) {
+      form.inviteCode = code.trim()
+    }
+  }
 })
 
 onBeforeUnmount(() => {
