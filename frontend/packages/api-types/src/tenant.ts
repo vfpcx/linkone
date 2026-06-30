@@ -116,6 +116,42 @@ export interface InviteCode {
   usedCount: number
 }
 
+// ============ 员工注册码（phase-1，已上线） ============
+/**
+ * 后端契约（EmployeeInviteController，已上线）：
+ *  - POST   /api/v1/tenant/employee-invites      生码（TA 登录态）
+ *  - GET    /api/v1/tenant/employee-invites      列表（倒序）
+ *  - DELETE /api/v1/tenant/employee-invites/{id} 作废
+ * VO：{id,tenantId,code,role,maxUses,usedCount,remaining,expireAt,status}
+ */
+export type EmployeeInviteRole = 'WK' | 'ST'
+export type EmployeeInviteStatus = 'ACTIVE' | 'EXHAUSTED' | 'REVOKED'
+
+export interface EmployeeInvite {
+  id: SnowflakeId
+  tenantId: SnowflakeId
+  /** 注册码（员工凭码注册时填入） */
+  code: string
+  role: EmployeeInviteRole
+  /** 最大可用次数 */
+  maxUses: number
+  /** 已使用次数 */
+  usedCount: number
+  /** 剩余可用次数 = maxUses - usedCount */
+  remaining: number
+  /** 过期时间 ISO */
+  expireAt: string
+  status: EmployeeInviteStatus
+}
+
+export interface CreateEmployeeInviteRequest {
+  role: EmployeeInviteRole
+  /** 最大可用次数，默认 1 */
+  maxUses?: number
+  /** 有效天数，默认 7 */
+  expiresInDays?: number
+}
+
 // ============ WA 入驻审批 ============
 export interface WholesalerApplication {
   applicationId: SnowflakeId

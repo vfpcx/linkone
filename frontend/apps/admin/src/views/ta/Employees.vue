@@ -1,15 +1,15 @@
 <script setup lang="ts">
 /**
- * TA 入驻商户管理（PC）— phase-1 D1a 卖家侧
+ * TA 员工管理（PC）— phase-1 员工注册码
  *
  * 来源：
- *  - 契约：backend/.../tenant/controller/WholesalerController.java
- *      GET  /tenant/wholesalers       列表
- *      POST /tenant/wholesalers       创建（name 必填，license/intro/waPhone 可选）
- *      PUT  /tenant/wholesalers/{id}  改资料（license / intro）
- *  - 视觉：沿用 Dashboard.vue / Settings.vue 的顶栏 + 左侧菜单 shell + el-table/el-dialog 风格
+ *  - 契约：backend EmployeeInviteController（已上线）
+ *      POST   /tenant/employee-invites      生码（role / maxUses / expiresInDays）
+ *      GET    /tenant/employee-invites      列表（倒序）
+ *      DELETE /tenant/employee-invites/{id} 作废
+ *  - 视觉：沿用 Wholesalers.vue 的顶栏 + 左侧菜单 shell + el-table/el-dialog 风格
  *
- * 范围：仅 TA 商户管理（列表 + 新建 + 编辑资料），不碰 SKU/入库/询价/RT。
+ * 范围：仅员工注册码（生码 / 列表 / 复制 / 作废）。员工凭码注册在 Register.vue。
  */
 
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -28,15 +28,16 @@ import {
   TrendCharts,
   Goods,
   Plus,
+  CopyDocument,
 } from '@element-plus/icons-vue'
 import { StatusBadge } from '@cangchu/ui-shared'
 import type {
-  Wholesaler,
-  CreateWholesalerRequest,
-  UpdateWholesalerRequest,
+  EmployeeInvite,
+  EmployeeInviteRole,
+  CreateEmployeeInviteRequest,
 } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
-import { wholesalerApi } from '@/api/wholesaler'
+import { employeeInviteApi } from '@/api/employeeInvite'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -73,7 +74,7 @@ const handleProfileMenu = async (key: string) => {
 }
 
 // ============ 菜单 ============
-const activeMenu = ref('/ta/wholesalers')
+const activeMenu = ref('/ta/employees')
 
 interface MenuItem {
   key: string
@@ -94,7 +95,7 @@ const menus: MenuItem[] = [
 ]
 
 const handleMenuSelect = (key: string) => {
-  if (key === '/ta/wholesalers') {
+  if (key === '/ta/employees') {
     activeMenu.value = key
     return
   }
@@ -102,7 +103,7 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/dashboard' ||
     key === '/ta/settings' ||
     key === '/ta/skus' ||
-    key === '/ta/employees'
+    key === '/ta/wholesalers'
   ) {
     router.push(key)
     return
@@ -112,12 +113,12 @@ const handleMenuSelect = (key: string) => {
 
 // ============ 列表 ============
 const loading = ref(false)
-const list = ref<Wholesaler[]>([])
+const list = ref<EmployeeInvite[]>([])
 
 const fetchList = async () => {
   loading.value = true
   try {
-    list.value = await wholesalerApi.list()
+    list.value = await employeeInviteApi.list()
   } catch {
     // 全局 toast 已提示
   } finally {
@@ -125,23 +126,23 @@ const fetchList = async () => {
   }
 }
 
-// ============ 状态徽章 ============
+// ============ 角色 / 状态徽章 ============
+const roleLabel = (role: string): string => {
+  const map: Record<string, string> = {
+    WK: '库管员',
+    ST: '结算员',
+  }
+  return map[role] ?? role ?? '—'
+}
+
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'default'
 const statusMeta = (status: string): { variant: BadgeVariant; text: string } => {
   const map: Record<string, { variant: BadgeVariant; text: string }> = {
-    ACTIVE: { variant: 'success', text: '生效中' },
-    DISABLED: { variant: 'danger', text: '已停用' },
-    PENDING: { variant: 'warning', text: '待生效' },
+    ACTIVE: { variant: 'success', text: '可用' },
+    EXHAUSTED: { variant: 'warning', text: '已用完' },
+    REVOKED: { variant: 'danger', text: '已作废' },
   }
   return map[status] ?? { variant: 'default', text: status || '—' }
-}
-
-const sourceLabel = (source: string): string => {
-  const map: Record<string, string> = {
-    SELF_OPERATED: '自营',
-    APPLIED: '入驻申请',
-  }
-  return map[source] ?? source ?? '—'
 }
 
 const formatTime = (iso: string): string => {
@@ -152,30 +153,86 @@ const formatTime = (iso: string): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-// ============ 对话框（新建 / 编辑） ============
+// ============ 复制注册码 ============
+const copyCode = async (code: string) => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code)
+    } else {
+      // 降级：execCommand
+      const ta = document.createElement('textarea')
+      ta.value = code
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    ElMessage.success('注册码已复制')
+  } catch {
+    ElMessage.warning(`复制失败，请手动复制：${code}`)
+  }
+}
+
+// ============ 作废 ============
+const revoke = async (row: EmployeeInvite) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认作废注册码「${row.code}」？作废后该码将无法继续注册。`,
+      '作废确认',
+      {
+        confirmButtonText: '作废',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+  try {
+    await employeeInviteApi.revoke(String(row.id))
+    ElMessage.success('注册码已作废')
+    await fetchList()
+  } catch {
+    // 全局 toast 已提示
+  }
+}
+
+// ============ 生码对话框 ============
 const dialogVisible = ref(false)
-const dialogMode = ref<'create' | 'edit'>('create')
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
-const editingId = ref<string>('')
 
 const form = reactive({
-  name: '',
-  intro: '',
-  license: '',
-  waPhone: '',
+  role: 'WK' as EmployeeInviteRole,
+  maxUses: 1,
+  expiresInDays: 7,
 })
 
 const rules: FormRules = {
-  name: [
-    { required: true, message: '请输入商户名称', trigger: 'blur' },
-    { max: 50, message: '商户名称最多 50 字', trigger: 'blur' },
-  ],
-  waPhone: [
+  role: [{ required: true, message: '请选择角色', trigger: 'change' }],
+  maxUses: [
+    { required: true, message: '请输入可用次数', trigger: 'blur' },
     {
       validator: (_r, v, cb) => {
-        if (v && !/^1\d{10}$/.test(String(v).trim())) {
-          cb(new Error('请输入有效的 11 位手机号'))
+        const n = Number(v)
+        if (!Number.isInteger(n) || n < 1 || n > 999) {
+          cb(new Error('可用次数为 1-999 的整数'))
+        } else {
+          cb()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+  expiresInDays: [
+    { required: true, message: '请输入有效天数', trigger: 'blur' },
+    {
+      validator: (_r, v, cb) => {
+        const n = Number(v)
+        if (!Number.isInteger(n) || n < 1 || n > 365) {
+          cb(new Error('有效天数为 1-365 的整数'))
         } else {
           cb()
         }
@@ -185,28 +242,10 @@ const rules: FormRules = {
   ],
 }
 
-const resetForm = () => {
-  form.name = ''
-  form.intro = ''
-  form.license = ''
-  form.waPhone = ''
-  editingId.value = ''
-}
-
 const openCreate = () => {
-  resetForm()
-  dialogMode.value = 'create'
-  dialogVisible.value = true
-  formRef.value?.clearValidate()
-}
-
-const openEdit = (row: Wholesaler) => {
-  resetForm()
-  dialogMode.value = 'edit'
-  editingId.value = String(row.id)
-  form.name = row.name
-  form.intro = row.intro ?? ''
-  form.license = row.license ?? ''
+  form.role = 'WK'
+  form.maxUses = 1
+  form.expiresInDays = 7
   dialogVisible.value = true
   formRef.value?.clearValidate()
 }
@@ -218,23 +257,29 @@ const onSubmit = async () => {
 
   submitting.value = true
   try {
-    if (dialogMode.value === 'create') {
-      const payload: CreateWholesalerRequest = { name: form.name.trim() }
-      if (form.intro.trim()) payload.intro = form.intro.trim()
-      if (form.license.trim()) payload.license = form.license.trim()
-      if (form.waPhone.trim()) payload.waPhone = form.waPhone.trim()
-      await wholesalerApi.create(payload)
-      ElMessage.success('商户创建成功')
-    } else {
-      const payload: UpdateWholesalerRequest = {
-        intro: form.intro.trim() || undefined,
-        license: form.license.trim() || undefined,
-      }
-      await wholesalerApi.update(editingId.value, payload)
-      ElMessage.success('商户资料已更新')
+    const payload: CreateEmployeeInviteRequest = {
+      role: form.role,
+      maxUses: form.maxUses,
+      expiresInDays: form.expiresInDays,
     }
+    const created = await employeeInviteApi.create(payload)
     dialogVisible.value = false
     await fetchList()
+    // 生码后引导复制
+    try {
+      await ElMessageBox.confirm(
+        `注册码：${created.code}（${roleLabel(created.role)}，可用 ${created.maxUses} 次）`,
+        '生成成功',
+        {
+          confirmButtonText: '复制注册码',
+          cancelButtonText: '关闭',
+          type: 'success',
+        },
+      )
+      await copyCode(created.code)
+    } catch {
+      /* 关闭 */
+    }
   } catch {
     // 全局 toast 已提示
   } finally {
@@ -292,10 +337,12 @@ onMounted(fetchList)
       <main class="ta-main">
         <header class="page-head">
           <div>
-            <h2 class="page-head__title">入驻商户</h2>
-            <p class="page-head__sub">本店自营 / 入驻的批发商商户，可在此创建与维护资料</p>
+            <h2 class="page-head__title">员工</h2>
+            <p class="page-head__sub">
+              生成员工注册码，库管员（WK）/ 结算员（ST）凭码注册即自动绑定本仓库
+            </p>
           </div>
-          <el-button type="primary" :icon="Plus" @click="openCreate">新建商户</el-button>
+          <el-button type="primary" :icon="Plus" @click="openCreate">生成注册码</el-button>
         </header>
 
         <section class="card">
@@ -303,16 +350,35 @@ onMounted(fetchList)
             v-loading="loading"
             :data="list"
             stripe
-            class="wholesaler-table"
-            empty-text="暂无商户，点击右上角「新建商户」开始"
+            class="invite-table"
+            empty-text="暂无注册码，点击右上角「生成注册码」开始"
           >
-            <el-table-column prop="name" label="商户名称" min-width="160">
+            <el-table-column label="注册码" min-width="160">
               <template #default="{ row }">
-                <span class="cell-name">{{ row.name }}</span>
+                <span class="cell-code">{{ row.code }}</span>
+                <el-button
+                  link
+                  type="primary"
+                  :icon="CopyDocument"
+                  class="copy-inline"
+                  @click="copyCode(row.code)"
+                />
               </template>
             </el-table-column>
-            <el-table-column label="来源" width="110">
-              <template #default="{ row }">{{ sourceLabel(row.source) }}</template>
+            <el-table-column label="角色" width="110">
+              <template #default="{ row }">{{ roleLabel(row.role) }}</template>
+            </el-table-column>
+            <el-table-column label="已用 / 上限" width="120">
+              <template #default="{ row }">
+                <span class="cell-muted">{{ row.usedCount }} / {{ row.maxUses }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="剩余" width="90">
+              <template #default="{ row }">
+                <span :class="row.remaining > 0 ? 'cell-name' : 'cell-muted'">
+                  {{ row.remaining }}
+                </span>
+              </template>
             </el-table-column>
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
@@ -323,35 +389,22 @@ onMounted(fetchList)
                 />
               </template>
             </el-table-column>
-            <el-table-column prop="license" label="营业资质" min-width="140">
+            <el-table-column label="过期时间" width="160">
               <template #default="{ row }">
-                <span class="cell-muted">{{ row.license || '—' }}</span>
+                <span class="cell-muted">{{ formatTime(row.expireAt) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="intro" label="简介" min-width="180" show-overflow-tooltip>
+            <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
-                <span class="cell-muted">{{ row.intro || '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="WA 账号" width="100">
-              <template #default="{ row }">
-                <StatusBadge
-                  v-if="row.waUserId"
-                  variant="success"
-                  text="已开通"
-                  :dot="true"
-                />
-                <span v-else class="cell-muted">未开通</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="创建时间" width="160">
-              <template #default="{ row }">
-                <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="90" fixed="right">
-              <template #default="{ row }">
-                <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+                <el-button link type="primary" @click="copyCode(row.code)">复制</el-button>
+                <el-button
+                  link
+                  type="danger"
+                  :disabled="row.status === 'REVOKED'"
+                  @click="revoke(row)"
+                >
+                  作废
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -359,11 +412,11 @@ onMounted(fetchList)
       </main>
     </div>
 
-    <!-- 新建 / 编辑对话框 -->
+    <!-- 生成注册码对话框 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="dialogMode === 'create' ? '新建商户' : '编辑商户资料'"
-      width="480px"
+      title="生成员工注册码"
+      width="440px"
       :close-on-click-modal="false"
     >
       <el-form
@@ -373,43 +426,27 @@ onMounted(fetchList)
         label-position="top"
         @submit.prevent="onSubmit"
       >
-        <el-form-item label="商户名称" prop="name">
-          <el-input
-            v-model="form.name"
-            placeholder="如：XX 海鲜批发"
-            maxlength="50"
-            show-word-limit
-            :disabled="dialogMode === 'edit'"
-          />
-          <span v-if="dialogMode === 'edit'" class="form-hint">名称暂不支持修改</span>
+        <el-form-item label="角色" prop="role">
+          <el-radio-group v-model="form.role">
+            <el-radio-button label="WK">库管员（WK）</el-radio-button>
+            <el-radio-button label="ST">结算员（ST）</el-radio-button>
+          </el-radio-group>
         </el-form-item>
 
-        <el-form-item label="营业资质（可选）" prop="license">
-          <el-input v-model="form.license" placeholder="统一社会信用代码等" maxlength="64" />
+        <el-form-item label="可用次数" prop="maxUses">
+          <el-input-number v-model="form.maxUses" :min="1" :max="999" :step="1" />
+          <span class="form-hint">同一个码可被多少人用于注册（默认 1）</span>
         </el-form-item>
 
-        <el-form-item label="简介（可选）" prop="intro">
-          <el-input
-            v-model="form.intro"
-            type="textarea"
-            :rows="3"
-            placeholder="经营品类、特色等"
-            maxlength="200"
-            show-word-limit
-          />
-        </el-form-item>
-
-        <el-form-item v-if="dialogMode === 'create'" label="负责人手机号（可选）" prop="waPhone">
-          <el-input v-model="form.waPhone" placeholder="填写则为该商户开通 WA 账号" maxlength="11" />
-          <span class="form-hint">传入手机号将为商户负责人创建/绑定 WA 账号</span>
+        <el-form-item label="有效天数" prop="expiresInDays">
+          <el-input-number v-model="form.expiresInDays" :min="1" :max="365" :step="1" />
+          <span class="form-hint">超过该天数后注册码自动失效（默认 7）</span>
         </el-form-item>
       </el-form>
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="onSubmit">
-          {{ dialogMode === 'create' ? '创建' : '保存' }}
-        </el-button>
+        <el-button type="primary" :loading="submitting" @click="onSubmit">生成</el-button>
       </template>
     </el-dialog>
   </div>
@@ -423,7 +460,7 @@ onMounted(fetchList)
   flex-direction: column;
 }
 
-/* ===== 顶栏（复用 Dashboard 风格） ===== */
+/* ===== 顶栏 ===== */
 .ta-topbar {
   height: 56px;
   background: var(--color-brand-primary);
@@ -542,8 +579,18 @@ onMounted(fetchList)
   padding: var(--space-5);
   box-shadow: var(--shadow-base);
 }
-.wholesaler-table {
+.invite-table {
   width: 100%;
+}
+.cell-code {
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-fg-1);
+  letter-spacing: 0.5px;
+}
+.copy-inline {
+  margin-left: var(--space-1);
+  vertical-align: middle;
 }
 .cell-name {
   font-weight: var(--font-weight-medium);

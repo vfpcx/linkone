@@ -130,7 +130,7 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ta/settings' || key === '/ta/wholesalers') {
+  if (key === '/ta/settings' || key === '/ta/wholesalers' || key === '/ta/employees') {
     router.push(key)
     return
   }

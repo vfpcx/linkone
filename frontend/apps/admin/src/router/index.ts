@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '店铺设置' },
   },
   {
+    path: '/ta/employees',
+    name: 'ta-employees',
+    component: () => import('@/views/ta/Employees.vue'),
+    meta: { role: 'TA', title: '员工' },
+  },
+  {
     path: '/ta/wholesalers',
     name: 'ta-wholesalers',
     component: () => import('@/views/ta/Wholesalers.vue'),
