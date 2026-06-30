@@ -68,8 +68,10 @@ const http: AxiosInstance = axios.create({
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const auth = useAuthStore()
   if (auth.token) {
-    config.headers.set('Authorization', `Bearer ${auth.token}`)
-    config.headers.set('satoken', auth.token) // Sa-Token 兼容
+    // 后端 sa-token：token-name=Authorization 且未配置 token-prefix，
+    // 因此 Authorization 头需放「裸 token」（不带 Bearer 前缀），否则被判未登录(41001)。
+    config.headers.set('Authorization', auth.token)
+    config.headers.set('satoken', auth.token) // Sa-Token 兼容（备用读取头）
   }
   return config
 })

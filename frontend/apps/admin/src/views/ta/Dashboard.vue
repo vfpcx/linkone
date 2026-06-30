@@ -130,8 +130,8 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ta/settings') {
-    router.push('/ta/settings')
+  if (key === '/ta/settings' || key === '/ta/wholesalers') {
+    router.push(key)
     return
   }
   ElMessage.info(`「${menus.value.find((m) => m.key === key)?.label}」页面留给后续 Agent 实现`)
