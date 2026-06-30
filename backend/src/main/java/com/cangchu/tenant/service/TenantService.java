@@ -1,9 +1,12 @@
 package com.cangchu.tenant.service;
 
 import com.cangchu.tenant.dto.*;
+import com.cangchu.tenant.entity.InviteCode;
 import com.cangchu.tenant.vo.CapacityVo;
+import com.cangchu.tenant.vo.EmployeeInviteVo;
 import com.cangchu.tenant.vo.TenantDetailVo;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,6 +42,27 @@ public interface TenantService {
 
     /** 生成员工注册码 */
     Map<String, Object> generateInviteCode(Long userId, String targetRole, Integer maxUses, Integer expireDays);
+
+    // ==================== 员工注册码（phase-1：解锁 WK 入库） ====================
+
+    /**
+     * TA 生成员工注册码（role 仅 WK/ST）。tenant_id 由登录态(TA 绑定租户)推导，不取客户端。
+     * 需 TA 登录态（requireTaRole）；非 TA / 未绑定租户拒绝。
+     */
+    EmployeeInviteVo createEmployeeInvite(Long taUserId, EmployeeInviteCreateDto dto);
+
+    /** 列出本租户的员工注册码（按创建时间倒序）。 */
+    List<EmployeeInviteVo> listEmployeeInvites(Long taUserId);
+
+    /** 作废某员工注册码（置 status=REVOKED）；仅本租户、仅 TA。 */
+    void revokeEmployeeInvite(Long taUserId, Long inviteId);
+
+    /**
+     * 凭码注册时消费员工注册码：校验(存在/未作废/未过期/未超次/角色 WK-ST)，
+     * used_count+1（到 maxUses 置 EXHAUSTED），返回该码用于绑定 user_roles。
+     * 校验失败抛 BizException（AUTH_INVITE_001..004 / INVITE_*）。
+     */
+    InviteCode consumeInviteForRegister(String code);
 
     /** 查实时容量 */
     CapacityVo getCapacity(Long tenantId);

@@ -16,6 +16,7 @@ import com.cangchu.tenant.entity.*;
 import com.cangchu.tenant.mapper.*;
 import com.cangchu.tenant.service.TenantService;
 import com.cangchu.tenant.vo.CapacityVo;
+import com.cangchu.tenant.vo.EmployeeInviteVo;
 import com.cangchu.tenant.vo.TenantDetailVo;
 import cn.hutool.crypto.digest.DigestUtil;
 import lombok.RequiredArgsConstructor;
@@ -393,6 +394,133 @@ public class TenantServiceImpl implements TenantService {
         return result;
     }
 
+    // ==================== 员工注册码（phase-1：解锁 WK 入库） ====================
+
+    /** TA 生成员工内部角色(WK/ST)注册码。tenant_id 由登录态推导，role 白名单二次校验。 */
+    @Override
+    @Transactional
+    public EmployeeInviteVo createEmployeeInvite(Long taUserId, EmployeeInviteCreateDto dto) {
+        Long tenantId = requireTaRole(taUserId);
+
+        // role 仅 WK/ST（仓库内部员工角色），其余一律拒绝
+        String role = dto.getRole() != null ? dto.getRole().trim().toUpperCase() : "";
+        if (!"WK".equals(role) && !"ST".equals(role)) {
+            throw new BizException(ErrorCode.INVITE_ROLE_NOT_ALLOWED);
+        }
+
+        int maxUses = dto.getMaxUses() != null ? dto.getMaxUses() : 1;
+        int expiresInDays = dto.getExpiresInDays() != null ? dto.getExpiresInDays() : 7;
+
+        // 随机码：12 位大写字母数字，碰撞概率极低；uk_code 唯一索引兜底
+        String code = RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 12);
+
+        InviteCode invite = new InviteCode();
+        invite.setId(snowflakeIdUtil.nextId());
+        invite.setTenantId(tenantId);
+        invite.setCode(code);
+        invite.setTargetRole(role);
+        invite.setMaxUses(maxUses);
+        invite.setUsedCount(0);
+        invite.setExpireAt(LocalDateTime.now().plusDays(expiresInDays));
+        invite.setStatus("ACTIVE");
+        invite.setCreatedAt(LocalDateTime.now());
+        invite.setCreatedBy(taUserId);
+        inviteCodeMapper.insert(invite);
+
+        log.info("[员工注册码] TA {} 为租户 {} 生成 {} 码 maxUses={} expiresInDays={}",
+                taUserId, tenantId, role, maxUses, expiresInDays);
+        return toEmployeeInviteVo(invite);
+    }
+
+    @Override
+    public List<EmployeeInviteVo> listEmployeeInvites(Long taUserId) {
+        Long tenantId = requireTaRole(taUserId);
+        List<InviteCode> list = inviteCodeMapper.selectList(new LambdaQueryWrapper<InviteCode>()
+                .eq(InviteCode::getTenantId, tenantId)
+                .orderByDesc(InviteCode::getCreatedAt));
+        return list.stream().map(this::toEmployeeInviteVo).toList();
+    }
+
+    @Override
+    @Transactional
+    public void revokeEmployeeInvite(Long taUserId, Long inviteId) {
+        Long tenantId = requireTaRole(taUserId);
+        InviteCode invite = inviteCodeMapper.selectById(inviteId);
+        // 跨租户/不存在统一按不存在处理（不泄漏他租户码的存在性）
+        if (invite == null || !tenantId.equals(invite.getTenantId())) {
+            throw new BizException(ErrorCode.INVITE_CODE_NOT_FOUND);
+        }
+        invite.setStatus("REVOKED");
+        inviteCodeMapper.updateById(invite);
+        log.info("[员工注册码] TA {} 作废注册码 {}（租户 {}）", taUserId, inviteId, tenantId);
+    }
+
+    /**
+     * 凭码注册消费：校验 + used_count+1（CAS 防并发超发）。
+     * 校验顺序：存在 → 角色 WK/ST → 未作废 → 未过期 → 未超次。失败抛对应错误码。
+     */
+    @Override
+    @Transactional
+    public InviteCode consumeInviteForRegister(String code) {
+        if (code == null || code.isBlank()) {
+            throw new BizException(ErrorCode.AUTH_INVITE_001);
+        }
+        InviteCode invite = inviteCodeMapper.selectOne(new LambdaQueryWrapper<InviteCode>()
+                .eq(InviteCode::getCode, code.trim()));
+        if (invite == null) {
+            throw new BizException(ErrorCode.AUTH_INVITE_001);
+        }
+        // 仅 WK/ST 员工码可用于员工注册（防止历史 WA 入驻码等被误用）
+        String role = invite.getTargetRole();
+        if (!"WK".equals(role) && !"ST".equals(role)) {
+            throw new BizException(ErrorCode.AUTH_INVITE_004);
+        }
+        if ("REVOKED".equals(invite.getStatus())) {
+            throw new BizException(ErrorCode.INVITE_CODE_REVOKED);
+        }
+        if (invite.getExpireAt() != null && invite.getExpireAt().isBefore(LocalDateTime.now())) {
+            throw new BizException(ErrorCode.AUTH_INVITE_002);
+        }
+        int used = invite.getUsedCount() != null ? invite.getUsedCount() : 0;
+        int max = invite.getMaxUses() != null ? invite.getMaxUses() : 1;
+        if (used >= max || "EXHAUSTED".equals(invite.getStatus())) {
+            throw new BizException(ErrorCode.AUTH_INVITE_003);
+        }
+
+        // CAS 自增 used_count：仅当当前 used_count 仍等于读到的值才更新，避免并发重复消费同一名额
+        InviteCode update = new InviteCode();
+        update.setUsedCount(used + 1);
+        if (used + 1 >= max) {
+            update.setStatus("EXHAUSTED");
+        }
+        int affected = inviteCodeMapper.update(update, new LambdaQueryWrapper<InviteCode>()
+                .eq(InviteCode::getId, invite.getId())
+                .eq(InviteCode::getUsedCount, used));
+        if (affected == 0) {
+            // 并发抢占了最后名额
+            throw new BizException(ErrorCode.AUTH_INVITE_003);
+        }
+        invite.setUsedCount(used + 1);
+        return invite;
+    }
+
+    private EmployeeInviteVo toEmployeeInviteVo(InviteCode invite) {
+        int used = invite.getUsedCount() != null ? invite.getUsedCount() : 0;
+        int max = invite.getMaxUses() != null ? invite.getMaxUses() : 1;
+        return EmployeeInviteVo.builder()
+                .id(invite.getId())
+                .tenantId(invite.getTenantId())
+                .code(invite.getCode())
+                .role(invite.getTargetRole())
+                .maxUses(max)
+                .usedCount(used)
+                .remaining(Math.max(0, max - used))
+                .expireAt(invite.getExpireAt())
+                .status(invite.getStatus())
+                .createdAt(invite.getCreatedAt())
+                .build();
+    }
+
     @Override
     public CapacityVo getCapacity(Long tenantId) {
         // 从 capacity_publish 表查最新快照
@@ -568,6 +696,32 @@ public class TenantServiceImpl implements TenantService {
         if (opsCount == 0) {
             throw new BizException(ErrorCode.PERMISSION_ROLE_002);
         }
+    }
+
+    /**
+     * 校验用户具备有效 TA 角色且已绑定租户，返回其可信 tenant_id（员工注册码生成/管理鉴权）。
+     * 以 user_roles（登录态推导）为唯一可信来源，不信任客户端传参（G-1.3 / G-2.1）。
+     * 非 TA → 越权(42001)；TA 未绑定租户(尚未建仓) → 租户不存在(50210)。
+     */
+    private Long requireTaRole(Long userId) {
+        UserRole taRole = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRole, "TA")
+                .eq(UserRole::getStatus, "ACTIVE")
+                .isNotNull(UserRole::getTenantId)
+                .last("LIMIT 1"));
+        if (taRole == null) {
+            // 区分：有 TA 角色但未绑租户 → 50210；完全无 TA 角色 → 42001 越权
+            long anyTa = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
+                    .eq(UserRole::getUserId, userId)
+                    .eq(UserRole::getRole, "TA")
+                    .eq(UserRole::getStatus, "ACTIVE"));
+            if (anyTa > 0) {
+                throw new BizException(ErrorCode.TENANT_NOT_FOUND, "请先完成建仓后再生成员工注册码");
+            }
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001);
+        }
+        return taRole.getTenantId();
     }
 
     /** 创建租户 + 店铺 + 设置 */

@@ -106,7 +106,13 @@ public enum ErrorCode {
     INQUIRY_NOT_FOUND(50284, "询价单不存在"),
     INQUIRY_STATUS_INVALID(50285, "询价单状态不允许此操作"),
     INQUIRY_OPERATOR_NOT_WA(50286, "仅该批发商(WA)可确认询价"),
-    OUTBOUND_GENERATE_FAILED(50287, "出库单生成失败，请稍后重试");
+    OUTBOUND_GENERATE_FAILED(50287, "出库单生成失败，请稍后重试"),
+
+    // ==================== EMPLOYEE INVITE (phase-1 员工注册码：解锁 WK 入库) ====================
+    // 凭码注册时的码校验复用 AUTH_INVITE_001..004（41301-41304）；以下为 TA 生码/管理侧补充错误码。
+    INVITE_ROLE_NOT_ALLOWED(50290, "员工注册码角色仅允许 WK 或 ST"),
+    INVITE_CODE_NOT_FOUND(50291, "员工注册码不存在"),
+    INVITE_CODE_REVOKED(50292, "员工注册码已作废");
 
     private final int code;
     private final String message;
