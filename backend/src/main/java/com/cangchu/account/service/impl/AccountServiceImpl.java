@@ -174,6 +174,17 @@ public class AccountServiceImpl implements AccountService {
         // 验证验证码
         verifySmsCode(phone, "REGISTER", dto.getSmsCode());
 
+        // ---- 员工注册码路径（WK/ST 等仓库员工凭码绑定到既有租户）----
+        // inviteCode 非空时：以码上的 role/tenant_id 为准（覆盖入口 role），不建租户、不要求 tenantName。
+        // 校验(存在/未过期/未超 maxUses/角色∈WK,ST)与 used_count+1 在 consumeInviteForRegister 内完成，
+        // 先于建账号执行，校验失败抛 AUTH_INVITE_* / INVITE_*，避免脏数据。
+        boolean viaInvite = dto.getInviteCode() != null && !dto.getInviteCode().isBlank();
+        com.cangchu.tenant.entity.InviteCode invite = null;
+        if (viaInvite) {
+            invite = tenantService.consumeInviteForRegister(dto.getInviteCode());
+            role = invite.getTargetRole();   // 以码上的可信角色为准（WK/ST）
+        }
+
         // 检查手机号是否已注册
         User existUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
@@ -184,11 +195,14 @@ public class AccountServiceImpl implements AccountService {
         // 创建用户（D-16：realName 独立落库，区别于展示昵称 nickname）
         User user = createUser(phone, phoneHash, dto.getPassword(), dto.getNickname(), dto.getRealName(), "SELF");
 
-        // 创建角色绑定
+        // 创建角色绑定（员工注册码路径：tenant_id 取码上的可信租户，绑定后即可被 requireWkRole 认到 → 解锁 C1 入库）
         UserRole userRole = new UserRole();
         userRole.setId(snowflakeIdUtil.nextId());
         userRole.setUserId(user.getId());
         userRole.setRole(role);
+        if (viaInvite) {
+            userRole.setTenantId(invite.getTenantId());
+        }
         userRole.setStatus("ACTIVE");
         userRole.setPriority(getRolePriority(role));
         userRole.setCreatedAt(LocalDateTime.now());
@@ -199,7 +213,8 @@ public class AccountServiceImpl implements AccountService {
         // D-16：TA 注册且填了仓库名 → 创建 PENDING 租户壳并绑定 tenantId（进入 OPS 待审核）。
         // 后续 /tenant/apply 完善详细资料时会复用此壳，避免重复建仓。
         // 不填 tenantName（如纯账号注册 / 历史测试路径）则只建账号，建仓延后到 apply。
-        if ("TA".equals(role) && dto.getTenantName() != null && !dto.getTenantName().isBlank()) {
+        // 员工注册码路径(viaInvite)不建租户、不进入此分支。
+        if (!viaInvite && "TA".equals(role) && dto.getTenantName() != null && !dto.getTenantName().isBlank()) {
             tenantService.createPendingTenantShell(user.getId(), dto.getTenantName().trim(), phone);
         }
         // WA/WE 入驻（wholesalerName/targetTenantId）依赖批发商入驻模块（wholesalers 表/服务尚未落地），
