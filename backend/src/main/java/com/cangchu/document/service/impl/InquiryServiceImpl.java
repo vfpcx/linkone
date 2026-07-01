@@ -1,6 +1,7 @@
 package com.cangchu.document.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.common.exception.BizException;
@@ -162,21 +163,24 @@ public class InquiryServiceImpl implements InquiryService {
         // S4：操作人必须在该 inquiry 的 wholesaler 下有 ACTIVE 的 WA 角色（user_roles 唯一可信来源）
         requireWaRole(inquiry.getWholesalerId(), waUserId);
 
-        // S5：状态机——仅 PENDING 可确认
+        // S5 + 并发（§10 P2 状态条件 CAS）：仅 PENDING 可确认；用 UPDATE...WHERE status=PENDING
+        // 校验 affected==1，防止并发双击两个请求都读到 PENDING 而重复建出库单/重复扣库存。
         if (!InquiryRequest.STATUS_PENDING.equals(inquiry.getStatus())) {
+            throw new BizException(ErrorCode.INQUIRY_STATUS_INVALID);
+        }
+        int cas = inquiryRequestMapper.update(null, new LambdaUpdateWrapper<InquiryRequest>()
+                .set(InquiryRequest::getStatus, InquiryRequest.STATUS_CONFIRMED)
+                .set(InquiryRequest::getConfirmedAt, java.time.LocalDateTime.now())
+                .eq(InquiryRequest::getId, inquiry.getId())
+                .eq(InquiryRequest::getStatus, InquiryRequest.STATUS_PENDING));
+        if (cas != 1) {
+            // 并发竞争失败或已被他人确认 → 拒绝，避免重复出库
             throw new BizException(ErrorCode.INQUIRY_STATUS_INVALID);
         }
 
         Long tenantId = inquiry.getTenantId();
         Long wholesalerId = inquiry.getWholesalerId();
         String simpleCode = resolveSimpleCode(tenantId);
-
-        // PENDING → CONFIRMED（记 confirmed_at）
-        InquiryRequest upd = new InquiryRequest();
-        upd.setId(inquiry.getId());
-        upd.setStatus(InquiryRequest.STATUS_CONFIRMED);
-        upd.setConfirmedAt(java.time.LocalDateTime.now());
-        inquiryRequestMapper.updateById(upd);
 
         // 遍历 items → 每条生成出库单 + 扣库存（库存不足整体回滚）
         List<InquiryItem> items = inquiryItemMapper.selectList(new LambdaQueryWrapper<InquiryItem>()
