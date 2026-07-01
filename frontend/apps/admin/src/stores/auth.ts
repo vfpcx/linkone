@@ -81,7 +81,7 @@ export const useAuthStore = defineStore('auth', {
         TA: '/ta/dashboard',
         ST: '/st/dashboard',
         WK: '/ta/dashboard', // 兼任时回 TA
-        WA: '/ta/dashboard',
+        WA: '/wa/inquiry', // WA 主页 = 询价确认（phase-1 C2）
         WE: '/ta/dashboard',
         RT: '/ta/dashboard',
       }

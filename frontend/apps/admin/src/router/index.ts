@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '店铺设置' },
   },
   {
+    path: '/ta/employees',
+    name: 'ta-employees',
+    component: () => import('@/views/ta/Employees.vue'),
+    meta: { role: 'TA', title: '员工' },
+  },
+  {
     path: '/ta/wholesalers',
     name: 'ta-wholesalers',
     component: () => import('@/views/ta/Wholesalers.vue'),
@@ -52,6 +58,26 @@ const routes: RouteRecordRaw[] = [
     name: 'ta-skus',
     component: () => import('@/views/ta/Skus.vue'),
     meta: { role: 'TA', title: '商品管理' },
+  },
+  {
+    path: '/ta/inbound',
+    name: 'ta-inbound',
+    component: () => import('@/views/ta/Inbound.vue'),
+    meta: { role: 'TA', title: '入库登记' },
+  },
+
+  // WA 工作台（批发商）
+  {
+    path: '/wa',
+    name: 'wa-root',
+    redirect: '/wa/inquiry',
+    meta: { role: 'WA' },
+  },
+  {
+    path: '/wa/inquiry',
+    name: 'wa-inquiry',
+    component: () => import('@/views/wa/Inquiry.vue'),
+    meta: { role: 'WA', title: '询价确认' },
   },
 
   // OPS / ST 工作台占位（后续 Agent 实现）

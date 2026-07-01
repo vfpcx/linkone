@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
- * TA 商品 SKU 管理（PC）— phase-1 D1a 卖家侧上架
+ * WK 入库登记（PC）— phase-1 C1 仓管员登记入库
  *
  * 来源：
- *  - 契约：backend/.../product/controller/SkuController.java
- *      GET  /tenant/skus?wholesalerId=          商户 SKU 列表（含下架）
- *      POST /tenant/skus?wholesalerId=          上架 SKU（name + unitPrice 必填）
- *      PUT  /tenant/skus/{id}/listing?on=       上下架
- *  - 视觉：沿用 Wholesalers.vue 的顶栏 + 左侧菜单 shell + el-table/el-dialog 风格
+ *  - 契约：backend/.../document/controller/InboundController.java
+ *      POST /api/v1/tenant/inbound   {wholesalerId, skuId, qty, palletQty?}  登记入库（单事务：建单 + 增库存）
+ *      GET  /api/v1/tenant/inbound?wholesalerId=   列出本租户入库单
+ *    选商户/SKU 复用：wholesalerApi.list / skuApi.list?wholesalerId=
+ *  - 视觉：沿用 Skus.vue 的顶栏 + 左侧菜单 shell + el-table/el-form 风格
  *
- * 范围：仅 SKU 管理（选商户 → 列表 → 上架 → 上下架），不碰入库/询价/RT。
+ * 范围：仅 WK 入库登记（选商户 → 选 SKU → 数量/托盘数 → 登记 → 刷新记录），
+ *       不碰出库/询价/审批。归属/tenantId 由后端登录态推导，前端只传 4 字段。
  */
 
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -27,13 +28,13 @@ import {
   Setting,
   TrendCharts,
   Goods,
-  Plus,
+  Box,
 } from '@element-plus/icons-vue'
-import { StatusBadge } from '@cangchu/ui-shared'
-import type { Wholesaler, Sku, CreateSkuRequest } from '@cangchu/api-types'
+import type { Wholesaler, Sku, InboundRequest, InboundRegisterRequest } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import { wholesalerApi } from '@/api/wholesaler'
 import { skuApi } from '@/api/sku'
+import { inboundApi } from '@/api/inbound'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -70,7 +71,7 @@ const handleProfileMenu = async (key: string) => {
 }
 
 // ============ 菜单 ============
-const activeMenu = ref('/ta/skus')
+const activeMenu = ref('/ta/inbound')
 
 interface MenuItem {
   key: string
@@ -84,6 +85,7 @@ const menus: MenuItem[] = [
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
   { key: '/ta/skus', label: '商品', icon: Goods },
+  { key: '/ta/inbound', label: '入库', icon: Box },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '单据审批', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -91,7 +93,7 @@ const menus: MenuItem[] = [
 ]
 
 const handleMenuSelect = (key: string) => {
-  if (key === '/ta/skus') {
+  if (key === '/ta/inbound') {
     activeMenu.value = key
     return
   }
@@ -99,7 +101,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/dashboard' ||
     key === '/ta/settings' ||
     key === '/ta/wholesalers' ||
-    key === '/ta/employees'
+    key === '/ta/employees' ||
+    key === '/ta/skus'
   ) {
     router.push(key)
     return
@@ -112,14 +115,20 @@ const wholesalerLoading = ref(false)
 const wholesalers = ref<Wholesaler[]>([])
 const selectedWholesalerId = ref<string>('')
 
+/** 商户 id → 名称，供入库记录表回显（VO 只回 wholesalerId） */
+const wholesalerNameMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const w of wholesalers.value) map[String(w.id)] = w.name
+  return map
+})
+
 const fetchWholesalers = async () => {
   wholesalerLoading.value = true
   try {
     wholesalers.value = await wholesalerApi.list()
-    // 默认选中第一个商户
     if (!selectedWholesalerId.value && wholesalers.value.length > 0) {
       selectedWholesalerId.value = String(wholesalers.value[0].id)
-      await fetchSkus()
+      await onWholesalerChange()
     }
   } catch {
     // 全局 toast 已提示
@@ -128,80 +137,99 @@ const fetchWholesalers = async () => {
   }
 }
 
-const onWholesalerChange = () => {
-  void fetchSkus()
+const onWholesalerChange = async () => {
+  // 换商户：重置已选 SKU，重新拉该商户 SKU 与入库记录
+  form.skuId = ''
+  await Promise.all([fetchSkus(), fetchRecords()])
 }
 
-// ============ SKU 列表 ============
-const loading = ref(false)
-const list = ref<Sku[]>([])
+// ============ SKU 选择器（选定商户后拉其在售/全部 SKU） ============
+const skuLoading = ref(false)
+const skus = ref<Sku[]>([])
+
+/** SKU id → 名称，供入库记录表回显（VO 只回 skuId） */
+const skuNameMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const s of skus.value) map[String(s.id)] = s.name
+  return map
+})
 
 const fetchSkus = async () => {
   if (!selectedWholesalerId.value) {
-    list.value = []
+    skus.value = []
     return
   }
-  loading.value = true
+  skuLoading.value = true
   try {
-    list.value = await skuApi.list(selectedWholesalerId.value)
+    skus.value = await skuApi.list(selectedWholesalerId.value)
   } catch {
     // 全局 toast 已提示
   } finally {
-    loading.value = false
+    skuLoading.value = false
   }
 }
 
-const formatPrice = (v: number | null): string => {
-  if (v === null || v === undefined) return '—'
-  const n = Number(v)
-  if (Number.isNaN(n)) return '—'
-  return `¥${n.toFixed(2)}`
-}
+// ============ 入库记录表 ============
+const recordsLoading = ref(false)
+const records = ref<InboundRequest[]>([])
 
-// ============ 上下架切换 ============
-const togglingId = ref<string>('')
-
-const onToggleListing = async (row: Sku) => {
-  const next = !row.listed
-  togglingId.value = String(row.id)
+const fetchRecords = async () => {
+  if (!selectedWholesalerId.value) {
+    records.value = []
+    return
+  }
+  recordsLoading.value = true
   try {
-    const updated = await skuApi.toggleListing(String(row.id), next)
-    row.listed = updated.listed
-    ElMessage.success(next ? '已上架' : '已下架')
+    records.value = await inboundApi.list(selectedWholesalerId.value)
   } catch {
-    // 全局 toast 已提示；状态不回写（保持原值）
+    // 全局 toast 已提示
   } finally {
-    togglingId.value = ''
+    recordsLoading.value = false
   }
 }
 
-// ============ 上架对话框 ============
-const dialogVisible = ref(false)
+const formatTime = (v: string | null): string => {
+  if (!v) return '—'
+  // 后端 createdAt 为 LocalDateTime（无时区偏移），直接格式化本地展示串，不做时区转换
+  return String(v).replace('T', ' ').slice(0, 19)
+}
+
+// ============ 登记入库表单 ============
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
 
 const form = reactive({
-  name: '',
-  spec: '',
-  unitPrice: undefined as number | undefined,
-  moqPrice: undefined as number | undefined,
-  moqQty: undefined as number | undefined,
-  mainImage: '',
+  skuId: '' as string,
+  qty: undefined as number | undefined,
+  palletQty: undefined as number | undefined,
 })
 
 const rules: FormRules = {
-  name: [
-    { required: true, message: '请输入商品名称', trigger: 'blur' },
-    { max: 128, message: '商品名称最多 128 字', trigger: 'blur' },
-  ],
-  unitPrice: [
-    { required: true, message: '请输入单价', trigger: 'blur' },
+  skuId: [{ required: true, message: '请选择商品 SKU', trigger: 'change' }],
+  qty: [
+    { required: true, message: '请输入入库数量', trigger: 'blur' },
     {
       validator: (_r, v, cb) => {
-        if (v === undefined || v === null || v === '') {
-          cb(new Error('请输入单价'))
+        if (v === undefined || v === null || (v as unknown) === '') {
+          cb(new Error('请输入入库数量'))
+        } else if (!Number.isInteger(Number(v))) {
+          cb(new Error('入库数量必须为整数'))
         } else if (Number(v) <= 0) {
-          cb(new Error('单价必须大于 0'))
+          cb(new Error('入库数量必须大于 0'))
+        } else {
+          cb()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+  palletQty: [
+    {
+      validator: (_r, v, cb) => {
+        if (v === undefined || v === null || (v as unknown) === '') {
+          cb()
+        } else if (!Number.isInteger(Number(v)) || Number(v) < 0) {
+          cb(new Error('托盘数须为不小于 0 的整数'))
         } else {
           cb()
         }
@@ -212,17 +240,8 @@ const rules: FormRules = {
 }
 
 const resetForm = () => {
-  form.name = ''
-  form.spec = ''
-  form.unitPrice = undefined
-  form.moqPrice = undefined
-  form.moqQty = undefined
-  form.mainImage = ''
-}
-
-const openCreate = () => {
-  resetForm()
-  dialogVisible.value = true
+  form.qty = undefined
+  form.palletQty = undefined
   formRef.value?.clearValidate()
 }
 
@@ -237,23 +256,25 @@ const onSubmit = async () => {
 
   submitting.value = true
   try {
-    const payload: CreateSkuRequest = {
-      name: form.name.trim(),
-      unitPrice: Number(form.unitPrice),
+    const payload: InboundRegisterRequest = {
+      wholesalerId: selectedWholesalerId.value,
+      skuId: form.skuId,
+      qty: Number(form.qty),
     }
-    if (form.spec.trim()) payload.spec = form.spec.trim()
-    if (form.moqPrice !== undefined && form.moqPrice !== null)
-      payload.moqPrice = Number(form.moqPrice)
-    if (form.moqQty !== undefined && form.moqQty !== null)
-      payload.moqQty = Number(form.moqQty)
-    if (form.mainImage.trim()) payload.mainImage = form.mainImage.trim()
+    if (form.palletQty !== undefined && form.palletQty !== null) {
+      payload.palletQty = Number(form.palletQty)
+    }
 
-    await skuApi.create(selectedWholesalerId.value, payload)
-    ElMessage.success('SKU 上架成功')
-    dialogVisible.value = false
-    await fetchSkus()
+    const created = await inboundApi.register(payload)
+    const stockTip =
+      created.currentStock !== null && created.currentStock !== undefined
+        ? `，当前库存 ${created.currentStock}`
+        : ''
+    ElMessage.success(`入库登记成功（单号 ${created.docNo}）${stockTip}`)
+    resetForm()
+    await fetchRecords()
   } catch {
-    // 全局 toast 已提示
+    // 全局 toast 已提示（40x 校验 / 50270-50274 状态类）
   } finally {
     submitting.value = false
   }
@@ -309,21 +330,13 @@ onMounted(fetchWholesalers)
       <main class="ta-main">
         <header class="page-head">
           <div>
-            <h2 class="page-head__title">商品管理</h2>
-            <p class="page-head__sub">为商户上架 SKU、维护价格，并控制上下架状态</p>
+            <h2 class="page-head__title">入库登记</h2>
+            <p class="page-head__sub">仓管员为商户 SKU 登记入库数量，登记后库存实时增加</p>
           </div>
-          <el-button
-            type="primary"
-            :icon="Plus"
-            :disabled="!selectedWholesalerId"
-            @click="openCreate"
-          >
-            上架 SKU
-          </el-button>
         </header>
 
+        <!-- 商户选择器 -->
         <section class="card">
-          <!-- 商户选择器 -->
           <div class="toolbar">
             <span class="toolbar__label">商户</span>
             <el-select
@@ -346,135 +359,122 @@ onMounted(fetchWholesalers)
             </span>
           </div>
 
-          <el-table
-            v-loading="loading"
-            :data="list"
-            stripe
-            class="sku-table"
-            empty-text="该商户暂无 SKU，点击右上角「上架 SKU」开始"
+          <!-- 登记入库表单 -->
+          <el-form
+            ref="formRef"
+            :model="form"
+            :rules="rules"
+            label-position="top"
+            class="inbound-form"
+            @submit.prevent="onSubmit"
           >
-            <el-table-column prop="name" label="商品名称" min-width="180">
-              <template #default="{ row }">
-                <span class="cell-name">{{ row.name }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="spec" label="规格" min-width="120">
-              <template #default="{ row }">
-                <span class="cell-muted">{{ row.spec || '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="单价" width="120" align="right">
-              <template #default="{ row }">
-                <span class="cell-price">{{ formatPrice(row.unitPrice) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="起批价" width="120" align="right">
-              <template #default="{ row }">
-                <span class="cell-muted">{{ formatPrice(row.moqPrice) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="起批量" width="100" align="right">
-              <template #default="{ row }">
-                <span class="cell-muted">{{ row.moqQty ?? '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="110">
-              <template #default="{ row }">
-                <StatusBadge
-                  :variant="row.listed ? 'success' : 'default'"
-                  :text="row.listed ? '已上架' : '已下架'"
-                  :dot="true"
+            <div class="inbound-form__row">
+              <el-form-item label="商品 SKU" prop="skuId" class="inbound-form__item">
+                <el-select
+                  v-model="form.skuId"
+                  placeholder="请选择商品"
+                  :loading="skuLoading"
+                  :disabled="!selectedWholesalerId"
+                  filterable
+                  class="full-width"
+                >
+                  <el-option
+                    v-for="s in skus"
+                    :key="String(s.id)"
+                    :label="s.spec ? `${s.name}（${s.spec}）` : s.name"
+                    :value="String(s.id)"
+                  />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="入库数量" prop="qty" class="inbound-form__item">
+                <el-input-number
+                  v-model="form.qty"
+                  :min="1"
+                  :precision="0"
+                  :step="1"
+                  :controls="false"
+                  placeholder="必填，大于 0 的整数"
+                  class="full-width"
                 />
+              </el-form-item>
+
+              <el-form-item label="托盘数（可选）" prop="palletQty" class="inbound-form__item">
+                <el-input-number
+                  v-model="form.palletQty"
+                  :min="0"
+                  :precision="0"
+                  :step="1"
+                  :controls="false"
+                  placeholder="本次托盘数，默认 0"
+                  class="full-width"
+                />
+              </el-form-item>
+
+              <el-form-item label=" " class="inbound-form__item inbound-form__submit">
+                <el-button
+                  type="primary"
+                  :icon="Box"
+                  :loading="submitting"
+                  :disabled="!selectedWholesalerId"
+                  @click="onSubmit"
+                >
+                  登记入库
+                </el-button>
+              </el-form-item>
+            </div>
+          </el-form>
+        </section>
+
+        <!-- 入库记录表 -->
+        <section class="card">
+          <div class="card__head">
+            <h3 class="card__title">入库记录</h3>
+            <el-button text :loading="recordsLoading" @click="fetchRecords">刷新</el-button>
+          </div>
+          <el-table
+            v-loading="recordsLoading"
+            :data="records"
+            stripe
+            class="inbound-table"
+            empty-text="该商户暂无入库记录，登记后将在此显示"
+          >
+            <el-table-column prop="docNo" label="入库单号" min-width="180">
+              <template #default="{ row }">
+                <span class="cell-name">{{ row.docNo }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="上架" width="120" fixed="right">
+            <el-table-column label="商户" min-width="140">
               <template #default="{ row }">
-                <el-switch
-                  :model-value="row.listed"
-                  :loading="togglingId === String(row.id)"
-                  :disabled="togglingId === String(row.id)"
-                  @click="onToggleListing(row)"
-                />
+                <span class="cell-muted">
+                  {{ wholesalerNameMap[String(row.wholesalerId)] || row.wholesalerId }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="商品 SKU" min-width="160">
+              <template #default="{ row }">
+                <span>{{ skuNameMap[String(row.skuId)] || row.skuId }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="数量" width="100" align="right">
+              <template #default="{ row }">
+                <span class="cell-name">{{ row.qty }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="托盘数" width="100" align="right">
+              <template #default="{ row }">
+                <span class="cell-muted">{{ row.palletQty ?? '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="登记时间" width="180">
+              <template #default="{ row }">
+                <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
             </el-table-column>
           </el-table>
         </section>
       </main>
     </div>
-
-    <!-- 上架 SKU 对话框 -->
-    <el-dialog
-      v-model="dialogVisible"
-      title="上架 SKU"
-      width="480px"
-      :close-on-click-modal="false"
-    >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        @submit.prevent="onSubmit"
-      >
-        <el-form-item label="商品名称" prop="name">
-          <el-input
-            v-model="form.name"
-            placeholder="如：东海带鱼（鲜）"
-            maxlength="128"
-            show-word-limit
-          />
-        </el-form-item>
-
-        <el-form-item label="规格（可选）" prop="spec">
-          <el-input v-model="form.spec" placeholder="如：5kg/箱" maxlength="64" />
-        </el-form-item>
-
-        <el-form-item label="单价（元）" prop="unitPrice">
-          <el-input-number
-            v-model="form.unitPrice"
-            :min="0.01"
-            :precision="2"
-            :step="1"
-            :controls="false"
-            placeholder="必填，大于 0"
-            class="full-width"
-          />
-        </el-form-item>
-
-        <el-form-item label="起批价（元，可选）" prop="moqPrice">
-          <el-input-number
-            v-model="form.moqPrice"
-            :min="0"
-            :precision="2"
-            :step="1"
-            :controls="false"
-            placeholder="达起批量时的单价"
-            class="full-width"
-          />
-        </el-form-item>
-
-        <el-form-item label="起批量（可选）" prop="moqQty">
-          <el-input-number
-            v-model="form.moqQty"
-            :min="1"
-            :precision="0"
-            :step="1"
-            :controls="false"
-            placeholder="享受起批价的最小数量"
-            class="full-width"
-          />
-        </el-form-item>
-
-        <el-form-item label="主图 URL（可选）" prop="mainImage">
-          <el-input v-model="form.mainImage" placeholder="https://..." maxlength="255" />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="onSubmit">上架</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -598,12 +598,24 @@ onMounted(fetchWholesalers)
   font-size: var(--font-size-caption);
 }
 
-/* ===== 卡片 + 工具栏 + 表格 ===== */
+/* ===== 卡片 + 工具栏 ===== */
 .card {
   background: var(--color-bg-1);
   border-radius: var(--radius-md);
   padding: var(--space-5);
   box-shadow: var(--shadow-base);
+}
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.card__title {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-fg-1);
 }
 .toolbar {
   display: flex;
@@ -623,14 +635,27 @@ onMounted(fetchWholesalers)
   color: var(--color-fg-4);
   font-size: var(--font-size-caption);
 }
-.sku-table {
+
+/* ===== 登记表单 ===== */
+.inbound-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-end;
+}
+.inbound-form__item {
+  flex: 1 1 200px;
+  margin-bottom: 0;
+}
+.inbound-form__submit {
+  flex: 0 0 auto;
+}
+
+/* ===== 记录表 ===== */
+.inbound-table {
   width: 100%;
 }
 .cell-name {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-fg-1);
-}
-.cell-price {
   font-weight: var(--font-weight-medium);
   color: var(--color-fg-1);
 }
@@ -648,6 +673,9 @@ onMounted(fetchWholesalers)
   }
   .toolbar__select {
     width: 100%;
+  }
+  .inbound-form__item {
+    flex: 1 1 100%;
   }
 }
 </style>

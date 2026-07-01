@@ -30,6 +30,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -353,5 +358,88 @@ class InquiryScenarioTest {
         assertThat(countOutbound(wid, sku)).isZero();
         assertThat(currentStock(wid, sku)).isEqualTo(5);
         assertThat(countOutboundMovements(wid, sku)).isZero();
+    }
+
+    // ======================================================================
+    // S6 幂等 / 重复提交（§10 P2 状态条件 CAS 加固）
+    // ======================================================================
+
+    @Test
+    @DisplayName("INQ-S6-01 顺序重复确认 → 第二次拒绝，不产生第二张出库单、不重复扣库存")
+    void s6_duplicateConfirm() {
+        long tenantId = baseTenant(710_000_800_001L);
+        long store = seedStore(tenantId);
+        long wid = seedWholesaler(tenantId);
+        long sku = seedSku(tenantId, wid);
+        seedStock(tenantId, wid, sku, 100);
+        long wa = seedWaUser(tenantId, wid);
+
+        TenantContext.clear();
+        InquiryVo submitted = inquiryService.submitByRt(dto(store, wid, sku, 30));
+        long inquiryId = submitted.getId();
+
+        TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
+        // 第一次确认成功
+        InquiryVo first = inquiryService.confirmByWa(inquiryId, wa);
+        assertThat(first.getStatus()).isEqualTo(InquiryRequest.STATUS_COMPLETED);
+        // 第二次确认被状态机拒绝（非 PENDING）
+        BizException ex = Assertions.assertThrows(BizException.class,
+                () -> inquiryService.confirmByWa(inquiryId, wa));
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INQUIRY_STATUS_INVALID);
+
+        // 幂等：只 1 张出库单、库存只扣一次（100→70）、1 条 OUTBOUND 流水
+        assertThat(countOutbound(wid, sku)).isEqualTo(1);
+        assertThat(currentStock(wid, sku)).isEqualTo(70);
+        assertThat(countOutboundMovements(wid, sku)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("INQ-S7-01 并发双击确认（10 线程）→ 仅 1 成功，库存只扣一次、不重复出库")
+    void s7_concurrentConfirm() throws InterruptedException {
+        long tenantId = baseTenant(710_000_900_001L);
+        long store = seedStore(tenantId);
+        long wid = seedWholesaler(tenantId);
+        long sku = seedSku(tenantId, wid);
+        seedStock(tenantId, wid, sku, 100);
+        long wa = seedWaUser(tenantId, wid);
+
+        TenantContext.clear();
+        InquiryVo submitted = inquiryService.submitByRt(dto(store, wid, sku, 30));
+        long inquiryId = submitted.getId();
+
+        int threads = 10;
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger rejected = new AtomicInteger();
+        try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < threads; i++) {
+                exec.submit(() -> {
+                    ready.countDown();
+                    try {
+                        start.await();
+                        // 每线程各自持有登录态上下文
+                        TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
+                        inquiryService.confirmByWa(inquiryId, wa);
+                        ok.incrementAndGet();
+                    } catch (BizException e) {
+                        rejected.incrementAndGet();
+                    } catch (Exception ignore) {
+                        rejected.incrementAndGet();
+                    } finally {
+                        TenantContext.clear();
+                    }
+                });
+            }
+            ready.await();
+            start.countDown();       // 同时放行，制造并发双击
+        }
+
+        // 状态 CAS 保证只有 1 个赢：仅 1 成功、1 张出库单、库存只扣一次
+        assertThat(ok.get()).isEqualTo(1);
+        assertThat(rejected.get()).isEqualTo(threads - 1);
+        assertThat(countOutbound(wid, sku)).isEqualTo(1);
+        assertThat(currentStock(wid, sku)).isEqualTo(70);
+        assertThat(countOutboundMovements(wid, sku)).isEqualTo(1);
     }
 }
