@@ -234,3 +234,39 @@ export interface ArbitrateInboundRequest {
   qty?: number
   remark: string
 }
+
+// ============ WK 入库登记（phase-1 C1，已上线） ============
+/**
+ * 后端契约（InboundController + InboundRegisterDto + InboundRequestVo，已上线）：
+ *  - POST /api/v1/tenant/inbound   WK 登记入库（单事务：建单 + 增库存）
+ *  - GET  /api/v1/tenant/inbound?wholesalerId=  列出本租户入库单（wholesalerId 可选过滤）
+ * 错误码 50270-50274（qty 非法 / 缺商户 / sku 不属商户 等）。
+ * tenantId 不由客户端传入——后端由 wholesaler 真实归属推导（G-2.1）。
+ * ⚠️ createdAt 后端为 LocalDateTime（无时区偏移），见契约出入说明。
+ */
+export interface InboundRegisterRequest {
+  /** 批发商商户 id（必填） */
+  wholesalerId: SnowflakeId
+  /** 商品 SKU id（必填） */
+  skuId: SnowflakeId
+  /** 入库数量（>0） */
+  qty: number
+  /** 本次托盘数（可空，默认 0；>=0） */
+  palletQty?: number
+}
+
+/** 入库单视图对象（InboundRequestVo） */
+export interface InboundRequest {
+  id: SnowflakeId
+  docNo: string
+  wholesalerId: SnowflakeId
+  tenantId: SnowflakeId
+  skuId: SnowflakeId
+  qty: number
+  palletQty: number | null
+  status: string
+  wkUserId: SnowflakeId
+  /** 登记后该 sku 最新库存（便于前端回显） */
+  currentStock: number | null
+  createdAt: string
+}

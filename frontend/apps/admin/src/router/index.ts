@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ta/Skus.vue'),
     meta: { role: 'TA', title: '商品管理' },
   },
+  {
+    path: '/ta/inbound',
+    name: 'ta-inbound',
+    component: () => import('@/views/ta/Inbound.vue'),
+    meta: { role: 'TA', title: '入库登记' },
+  },
 
   // OPS / ST 工作台占位（后续 Agent 实现）
   {
