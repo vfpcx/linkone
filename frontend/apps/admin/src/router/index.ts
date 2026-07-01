@@ -66,6 +66,20 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '入库登记' },
   },
 
+  // WA 工作台（批发商）
+  {
+    path: '/wa',
+    name: 'wa-root',
+    redirect: '/wa/inquiry',
+    meta: { role: 'WA' },
+  },
+  {
+    path: '/wa/inquiry',
+    name: 'wa-inquiry',
+    component: () => import('@/views/wa/Inquiry.vue'),
+    meta: { role: 'WA', title: '询价确认' },
+  },
+
   // OPS / ST 工作台占位（后续 Agent 实现）
   {
     path: '/ops/dashboard',
