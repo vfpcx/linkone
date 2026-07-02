@@ -729,7 +729,6 @@ public class TenantServiceImpl implements TenantService {
                                  Long contactUserId, String contactPhone, boolean createdByOps) {
         Tenant tenant = new Tenant();
         tenant.setId(snowflakeIdUtil.nextId());
-        tenant.setTenantSimpleCode(generateSimpleCode());
         tenant.setName(name);
         tenant.setLegalName(legalName);
         tenant.setLicenseNo(licenseNo);
@@ -741,7 +740,9 @@ public class TenantServiceImpl implements TenantService {
         tenant.setCreatedAt(LocalDateTime.now());
         tenant.setUpdatedAt(LocalDateTime.now());
         tenant.setCreatedBy(contactUserId);
-        tenantMapper.insert(tenant);
+        // F6 修复(§10 P5)：简码随机生成 + 唯一索引 uk_simple_code 冲突重试，
+        // 替代原 count+1)%100（回绕撞码 + 先查后拼 TOCTOU → RT 扫码串店/建仓失败）
+        insertTenantWithUniqueSimpleCode(tenant);
 
         // 默认店铺
         Store store = new Store();
@@ -773,10 +774,27 @@ public class TenantServiceImpl implements TenantService {
         return tenant;
     }
 
-    /** 生成4位租户简码 */
+    /** 生成租户简码：CC + 4 位大写字母数字随机串（不回绕、非顺序、不可枚举）。 */
     private String generateSimpleCode() {
-        long count = tenantMapper.selectCount(null);
-        return String.format("CC%02d", (count + 1) % 100);
+        return "CC" + RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 4);
+    }
+
+    /**
+     * 插入租户并保证简码唯一（F6，§10 P5）：随机码 + uk_simple_code 唯一约束兜底，
+     * 冲突则换码重试；重试上限内失败抛系统繁忙，避免建仓静默失败或简码碰撞导致 RT 扫码串店。
+     */
+    private void insertTenantWithUniqueSimpleCode(Tenant tenant) {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            tenant.setTenantSimpleCode(generateSimpleCode());
+            try {
+                tenantMapper.insert(tenant);
+                return;
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // 简码撞唯一索引 → 换新码重试
+                log.warn("[tenant] 简码冲突，重试 {} : {}", attempt + 1, tenant.getTenantSimpleCode());
+            }
+        }
+        throw new BizException(ErrorCode.SYSTEM_INTERNAL_001);
     }
 
     /** 判断是否有开关字段变更 */
