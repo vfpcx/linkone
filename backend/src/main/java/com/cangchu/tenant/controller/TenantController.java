@@ -47,6 +47,20 @@ public class TenantController {
         return R.ok(result);
     }
 
+    /** 老板多仓：已登录 TA 新建一个仓库 */
+    @PostMapping("/api/v1/tenant/warehouses")
+    public R<Map<String, Object>> createWarehouse(@Valid @RequestBody TenantApplyDto dto) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(tenantService.createWarehouse(userId, dto));
+    }
+
+    /** 老板多仓：当前账号名下所有仓库（顶栏切换器用） */
+    @GetMapping("/api/v1/tenant/warehouses")
+    public R<List<com.cangchu.tenant.vo.WarehouseVo>> listMyWarehouses() {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(tenantService.listMyWarehouses(userId));
+    }
+
     /** 查当前 TA 的本店设置 */
     @GetMapping("/api/v1/tenant/me")
     public R<TenantDetailVo> getMyStore() {

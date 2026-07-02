@@ -17,6 +17,7 @@ import com.cangchu.tenant.service.TenantService;
 import com.cangchu.tenant.vo.CapacityVo;
 import com.cangchu.tenant.vo.EmployeeInviteVo;
 import com.cangchu.tenant.vo.TenantDetailVo;
+import com.cangchu.tenant.vo.WarehouseVo;
 import cn.hutool.crypto.digest.DigestUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -203,6 +204,49 @@ public class TenantServiceImpl implements TenantService {
         result.put("isNewUser", isNewUser);
         result.put("status", "ACTIVE");
         return result;
+    }
+
+    // ==================== 老板多仓 ====================
+
+    @Override
+    @Transactional
+    public Map<String, Object> createWarehouse(Long userId, TenantApplyDto dto) {
+        // 资格：仅已是 ACTIVE TA(老板) 可再建仓；纯员工/无 TA 角色拒绝（鉴权走 account.AuthService）
+        if (!authService.hasRole(userId, "TA")) {
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅仓库管理员可新建仓库");
+        }
+        // 建 PENDING 租户（含默认 store/settings；简码随机+唯一重试），并把新仓 TA 角色绑定到同一账号
+        Tenant tenant = createTenant(dto.getName(), dto.getLegalName(), dto.getLicenseNo(),
+                dto.getLicenseUrl(), userId, dto.getContactPhone(), false);
+        authService.ensureTenantRole(userId, "TA", tenant.getId(), userId);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("tenantId", tenant.getId().toString());
+        result.put("simpleCode", tenant.getTenantSimpleCode());
+        result.put("status", tenant.getStatus());
+        return result;
+    }
+
+    @Override
+    public List<WarehouseVo> listMyWarehouses(Long userId) {
+        // 取该账号所有 ACTIVE TA 角色绑定的 tenantId（user_roles 走 AuthService），再取各仓概要（tenant 自有表）
+        List<Long> tenantIds = authService.listActiveRoles(userId).stream()
+                .filter(v -> "TA".equals(v.getRole()) && v.getTenantId() != null)
+                .map(com.cangchu.account.vo.UserRoleView::getTenantId)
+                .distinct()
+                .toList();
+        List<WarehouseVo> list = new java.util.ArrayList<>();
+        for (Long tid : tenantIds) {
+            Tenant t = tenantMapper.selectById(tid);
+            if (t == null) continue;
+            list.add(WarehouseVo.builder()
+                    .tenantId(t.getId().toString())
+                    .name(t.getName())
+                    .simpleCode(t.getTenantSimpleCode())
+                    .status(t.getStatus())
+                    .build());
+        }
+        return list;
     }
 
     @Override

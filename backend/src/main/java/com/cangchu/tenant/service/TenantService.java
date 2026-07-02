@@ -31,6 +31,16 @@ public interface TenantService {
     /** OPS 代建租户 */
     Map<String, Object> createByOps(Long opsUserId, TenantCreateDto dto);
 
+    /**
+     * 老板多仓：已登录的 TA(老板)直接新建一个仓库（PENDING）+ 默认 store/settings，
+     * 并把新仓 TA 角色绑定到同一账号。要求调用者已是 ACTIVE TA（否则拒绝）。
+     * @return tenantId / simpleCode / status
+     */
+    Map<String, Object> createWarehouse(Long userId, TenantApplyDto dto);
+
+    /** 老板多仓：当前账号名下所有 TA 绑定的仓库列表（顶栏切换器用）。 */
+    java.util.List<com.cangchu.tenant.vo.WarehouseVo> listMyWarehouses(Long userId);
+
     /** 查当前 TA 的本店设置 */
     TenantDetailVo getMyStore(Long userId);
 
