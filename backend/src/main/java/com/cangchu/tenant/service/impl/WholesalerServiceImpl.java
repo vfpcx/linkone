@@ -120,6 +120,14 @@ public class WholesalerServiceImpl implements WholesalerService {
         return list.stream().map(w -> toVo(w, null)).toList();
     }
 
+    @Override
+    public WholesalerVo getById(Long wholesalerId) {
+        // 只读跨域出口（G-S1/G-S2）：内部同经 wholesalerMapper.selectById，隔离行为与原直连一致
+        // （受 TenantLine 兜底），跨租户不可见返回 null；存在性判断留给调用方。
+        Wholesaler wholesaler = wholesalerMapper.selectById(wholesalerId);
+        return wholesaler == null ? null : toVo(wholesaler, null);
+    }
+
     // ==================== 私有方法 ====================
 
     /**

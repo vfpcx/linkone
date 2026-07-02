@@ -153,6 +153,14 @@ public class SkuServiceImpl implements SkuService {
         return skuMapper.selectList(qw).stream().map(this::toVo).toList();
     }
 
+    @Override
+    public SkuVo getById(Long skuId) {
+        // 只读跨域出口（G-S1/G-S2）：内部同经 skuMapper.selectById，隔离行为与原直连一致
+        // （受 TenantLine 兜底），跨租户不可见返回 null；归属核对留给调用方。
+        Sku sku = skuMapper.selectById(skuId);
+        return sku == null ? null : toVo(sku);
+    }
+
     // ==================== 私有方法 ====================
 
     /**

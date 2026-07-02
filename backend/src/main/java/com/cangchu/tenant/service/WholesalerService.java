@@ -25,4 +25,13 @@ public interface WholesalerService {
 
     /** 列出本租户商户。 */
     List<WholesalerVo> listByTenant(Long tenantId);
+
+    /**
+     * 只读：按 id 取单个批发商（供 document 等编排域读取，替代跨域直连 WholesalerMapper，符合 G-S1/G-S2）。
+     * 隔离行为等同于原 {@code wholesalerMapper.selectById}——内部同经 WholesalerMapper，受 TenantLine 兜底过滤，
+     * 跨租户不可见时返回 {@code null}；调用方负责存在性判断与业务错误码。
+     *
+     * @return 命中的批发商视图；不存在（含被 TenantLine 过滤）返回 null
+     */
+    WholesalerVo getById(Long wholesalerId);
 }

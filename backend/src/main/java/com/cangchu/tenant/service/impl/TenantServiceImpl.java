@@ -594,6 +594,17 @@ public class TenantServiceImpl implements TenantService {
     }
 
     @Override
+    public String getSimpleCode(Long tenantId) {
+        // 只读跨域出口（G-S1/G-S2）：内部同经 tenantMapper.selectById，隔离/查找行为与原直连一致；
+        // 未命中或简码为空返回 null，占位策略（如 "T"+tenantId）由调用方保留。
+        Tenant tenant = tenantMapper.selectById(tenantId);
+        if (tenant != null && tenant.getTenantSimpleCode() != null && !tenant.getTenantSimpleCode().isBlank()) {
+            return tenant.getTenantSimpleCode();
+        }
+        return null;
+    }
+
+    @Override
     @Transactional
     public Long createPendingTenantShell(Long taUserId, String tenantName, String contactPhone) {
         // 创建 PENDING 租户壳（tenant + 默认 store + settings）

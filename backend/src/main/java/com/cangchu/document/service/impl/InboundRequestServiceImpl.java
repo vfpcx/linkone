@@ -16,12 +16,11 @@ import com.cangchu.document.vo.InboundRequestVo;
 import com.cangchu.inventory.dto.InboundContext;
 import com.cangchu.inventory.service.InventoryService;
 import com.cangchu.inventory.vo.InventoryVo;
-import com.cangchu.product.entity.Sku;
-import com.cangchu.product.mapper.SkuMapper;
-import com.cangchu.tenant.entity.Tenant;
-import com.cangchu.tenant.entity.Wholesaler;
-import com.cangchu.tenant.mapper.TenantMapper;
-import com.cangchu.tenant.mapper.WholesalerMapper;
+import com.cangchu.product.service.SkuService;
+import com.cangchu.product.vo.SkuVo;
+import com.cangchu.tenant.service.TenantService;
+import com.cangchu.tenant.service.WholesalerService;
+import com.cangchu.tenant.vo.WholesalerVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -53,9 +52,12 @@ import java.util.List;
 public class InboundRequestServiceImpl implements InboundRequestService {
 
     private final InboundRequestMapper inboundRequestMapper;
-    private final WholesalerMapper wholesalerMapper;
-    private final SkuMapper skuMapper;
-    private final TenantMapper tenantMapper;
+    // G-S1/G-S2 还债：他域数据只走对方 Service（不再直连 WholesalerMapper/SkuMapper/TenantMapper）
+    private final WholesalerService wholesalerService;
+    private final SkuService skuService;
+    private final TenantService tenantService;
+    // TODO(G-S1 待抽 AuthService)：user_roles 属 account 域，requireWkRole 暂直连，
+    //   待抽 account.AuthService.hasRole(...) 后改走 Service（P2 剩余债，已登记 Team Lead）。
     private final UserRoleMapper userRoleMapper;
     private final DocumentNumberService documentNumberService;
     private final InventoryService inventoryService;
@@ -79,8 +81,8 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             throw new BizException(ErrorCode.INBOUND_QTY_INVALID);
         }
 
-        // 校验 wholesaler 存在且属当前租户（TenantLine 兜底注入 tenant 条件，跨租户不可见）
-        Wholesaler wholesaler = wholesalerMapper.selectById(dto.getWholesalerId());
+        // 校验 wholesaler 存在且属当前租户（经 WholesalerService，内部同受 TenantLine 兜底，跨租户不可见）
+        WholesalerVo wholesaler = wholesalerService.getById(dto.getWholesalerId());
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
@@ -90,8 +92,8 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         // S4：operator 必须是该租户 WK
         requireWkRole(tenantId, wkUserId);
 
-        // 校验 sku 存在、属该 wholesaler（且同租户，TenantLine 兜底）
-        Sku sku = skuMapper.selectById(dto.getSkuId());
+        // 校验 sku 存在、属该 wholesaler（且同租户，经 SkuService，内部同受 TenantLine 兜底）
+        SkuVo sku = skuService.getById(dto.getSkuId());
         if (sku == null || !dto.getWholesalerId().equals(sku.getWholesalerId())) {
             throw new BizException(ErrorCode.SKU_NOT_FOUND);
         }
@@ -163,11 +165,11 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         }
     }
 
-    /** 取租户简码用于 docNo；查不到则用 tenantId 尾号占位。 */
+    /** 取租户简码用于 docNo；查不到则用 tenantId 尾号占位。经 TenantService 取值（G-S2，不直连 TenantMapper）。 */
     private String resolveSimpleCode(Long tenantId) {
-        Tenant tenant = tenantMapper.selectById(tenantId);
-        if (tenant != null && tenant.getTenantSimpleCode() != null && !tenant.getTenantSimpleCode().isBlank()) {
-            return tenant.getTenantSimpleCode();
+        String simpleCode = tenantService.getSimpleCode(tenantId);
+        if (simpleCode != null && !simpleCode.isBlank()) {
+            return simpleCode;
         }
         return "T" + String.valueOf(tenantId);
     }

@@ -66,4 +66,14 @@ public interface TenantService {
 
     /** 查实时容量 */
     CapacityVo getCapacity(Long tenantId);
+
+    /**
+     * 只读：取租户简码（供 document 等编排域生成单据号，替代跨域直连 TenantMapper，符合 G-S1/G-S2）。
+     * 隔离/查找行为等同于原 {@code tenantMapper.selectById(tenantId).getTenantSimpleCode()}——
+     * 内部同经 TenantMapper（受 TenantLine 兜底）。租户不存在或未设简码时返回 {@code null}，
+     * 由调用方决定占位策略（如 "T"+tenantId）。
+     *
+     * @return 租户简码；不存在或未设置返回 null
+     */
+    String getSimpleCode(Long tenantId);
 }

@@ -20,13 +20,12 @@ import com.cangchu.document.service.InquiryService;
 import com.cangchu.document.vo.InquiryVo;
 import com.cangchu.inventory.dto.OutboundContext;
 import com.cangchu.inventory.service.InventoryService;
-import com.cangchu.product.entity.Sku;
-import com.cangchu.product.mapper.SkuMapper;
+import com.cangchu.product.service.SkuService;
+import com.cangchu.product.vo.SkuVo;
 import com.cangchu.storefront.service.StoreFrontService;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
-import com.cangchu.tenant.entity.Tenant;
-import com.cangchu.tenant.mapper.TenantMapper;
+import com.cangchu.tenant.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -64,8 +63,11 @@ public class InquiryServiceImpl implements InquiryService {
     private final InquiryRequestMapper inquiryRequestMapper;
     private final InquiryItemMapper inquiryItemMapper;
     private final OutboundRequestMapper outboundRequestMapper;
-    private final SkuMapper skuMapper;
-    private final TenantMapper tenantMapper;
+    // G-S1/G-S2 还债：他域数据只走对方 Service（不再直连 SkuMapper/TenantMapper）
+    private final SkuService skuService;
+    private final TenantService tenantService;
+    // TODO(G-S1 待抽 AuthService)：user_roles 属 account 域，requireWaRole/listForWa 暂直连，
+    //   待抽 account.AuthService.hasRole(...) 后改走 Service（P2 剩余债，已登记 Team Lead）。
     private final UserRoleMapper userRoleMapper;
     private final StoreFrontService storeFrontService;
     private final DocumentNumberService documentNumberService;
@@ -122,7 +124,7 @@ public class InquiryServiceImpl implements InquiryService {
 
         // 建明细（含公开价快照）。每个 sku 必须属该 wholesaler 且同租户（显式核对）。
         for (SubmitInquiryDto.InquiryItemDto it : dto.getItems()) {
-            Sku sku = skuMapper.selectById(it.getSkuId());
+            SkuVo sku = skuService.getById(it.getSkuId());
             if (sku == null
                     || !tenantId.equals(sku.getTenantId())
                     || !dto.getWholesalerId().equals(sku.getWholesalerId())) {
@@ -266,11 +268,11 @@ public class InquiryServiceImpl implements InquiryService {
         }
     }
 
-    /** 取租户简码用于 docNo；查不到则用 tenantId 占位。 */
+    /** 取租户简码用于 docNo；查不到则用 tenantId 占位。经 TenantService 取值（G-S2，不直连 TenantMapper）。 */
     private String resolveSimpleCode(Long tenantId) {
-        Tenant tenant = tenantMapper.selectById(tenantId);
-        if (tenant != null && tenant.getTenantSimpleCode() != null && !tenant.getTenantSimpleCode().isBlank()) {
-            return tenant.getTenantSimpleCode();
+        String simpleCode = tenantService.getSimpleCode(tenantId);
+        if (simpleCode != null && !simpleCode.isBlank()) {
+            return simpleCode;
         }
         return "T" + tenantId;
     }
