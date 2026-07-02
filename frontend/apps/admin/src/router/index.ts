@@ -22,6 +22,21 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true, title: '找回密码' },
   },
 
+  // RT 扫码进店 H5（phase-1 B2/C2 · 移动优先 · 公开无需登录）
+  // 进店码走 query：/rt/store?code=<租户简码>；兼容 path：/rt/:code
+  {
+    path: '/rt/store',
+    name: 'rt-store',
+    component: () => import('@/views/rt/Store.vue'),
+    meta: { public: true, title: '进店浏览' },
+  },
+  {
+    path: '/rt/:code',
+    name: 'rt-store-code',
+    component: () => import('@/views/rt/Store.vue'),
+    meta: { public: true, title: '进店浏览' },
+  },
+
   // TA 工作台
   {
     path: '/ta',
