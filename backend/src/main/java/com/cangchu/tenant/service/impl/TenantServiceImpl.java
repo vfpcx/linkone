@@ -4,9 +4,8 @@ import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.User;
-import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserMapper;
-import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
@@ -47,7 +46,8 @@ public class TenantServiceImpl implements TenantService {
     private final CapacityPublishMapper capacityPublishMapper;
     private final TenantApplicationMapper tenantApplicationMapper;
     private final UserMapper userMapper;
-    private final UserRoleMapper userRoleMapper;
+    // user_roles 归 account 域，跨域鉴权/角色绑定经 AuthService（G-S1/G-S2）
+    private final AuthService authService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final SmsUtil smsUtil;
 
@@ -69,14 +69,9 @@ public class TenantServiceImpl implements TenantService {
 
         // D-16 对齐：若注册阶段已为该 TA 建了 PENDING 租户壳（user_roles 已绑定 tenantId），
         // 则 apply 视为「完善资料」——更新既有 PENDING 租户 + store，绝不再新建第二个租户（避免重复建仓）。
-        UserRole boundTa = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getStatus, "ACTIVE")
-                .isNotNull(UserRole::getTenantId)
-                .last("LIMIT 1"));
-        if (boundTa != null && boundTa.getTenantId() != null) {
-            Tenant existing = tenantMapper.selectById(boundTa.getTenantId());
+        Long boundTenantId = authService.findBoundTenantId(userId, "TA");
+        if (boundTenantId != null) {
+            Tenant existing = tenantMapper.selectById(boundTenantId);
             if (existing != null && "PENDING".equals(existing.getStatus())) {
                 return completePendingTenant(userId, existing, dto);
             }
@@ -110,31 +105,9 @@ public class TenantServiceImpl implements TenantService {
         tenant.setStatus("PENDING");
         tenantMapper.updateById(tenant);
 
-        // 绑定 TA 角色到新建租户
+        // 绑定 TA 角色到新建租户（user_roles 归 account 域，经 AuthService）
         // 注册时已经插入 UserRole(role=TA, tenantId=null)，apply 时应该绑定 tenantId 而不是再插一行
-        UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .isNull(UserRole::getTenantId)
-                .eq(UserRole::getStatus, "ACTIVE")
-                .last("LIMIT 1"));
-        if (existing != null) {
-            existing.setTenantId(tenant.getId());
-            existing.setUpdatedAt(LocalDateTime.now());
-            userRoleMapper.updateById(existing);
-        } else {
-            UserRole taRole = new UserRole();
-            taRole.setId(snowflakeIdUtil.nextId());
-            taRole.setUserId(userId);
-            taRole.setRole("TA");
-            taRole.setTenantId(tenant.getId());
-            taRole.setStatus("ACTIVE");
-            taRole.setPriority(10);
-            taRole.setCreatedAt(LocalDateTime.now());
-            taRole.setUpdatedAt(LocalDateTime.now());
-            taRole.setCreatedBy(userId);
-            userRoleMapper.insert(taRole);
-        }
+        authService.bindOrCreateTenantRole(userId, "TA", tenant.getId(), userId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("applicationId", application.getId().toString());
@@ -221,24 +194,8 @@ public class TenantServiceImpl implements TenantService {
         Tenant tenant = createTenant(dto.getName(), dto.getLegalName(), dto.getLicenseNo(),
                 dto.getLicenseUrl(), user.getId(), dto.getContactPhone(), true);
 
-        // 绑定 TA 角色
-        boolean alreadyTa = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, user.getId())
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getTenantId, tenant.getId())) > 0;
-        if (!alreadyTa) {
-            UserRole taRole = new UserRole();
-            taRole.setId(snowflakeIdUtil.nextId());
-            taRole.setUserId(user.getId());
-            taRole.setRole("TA");
-            taRole.setTenantId(tenant.getId());
-            taRole.setStatus("ACTIVE");
-            taRole.setPriority(10);
-            taRole.setCreatedAt(LocalDateTime.now());
-            taRole.setUpdatedAt(LocalDateTime.now());
-            taRole.setCreatedBy(opsUserId);
-            userRoleMapper.insert(taRole);
-        }
+        // 绑定 TA 角色（存在即跳过；user_roles 归 account 域，经 AuthService）
+        authService.ensureTenantRole(user.getId(), "TA", tenant.getId(), opsUserId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("tenantId", tenant.getId().toString());
@@ -250,34 +207,22 @@ public class TenantServiceImpl implements TenantService {
 
     @Override
     public TenantDetailVo getMyStore(Long userId) {
-        // 查找用户的 TA 角色
-        UserRole taRole = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getStatus, "ACTIVE")
-                .isNotNull(UserRole::getTenantId)
-                .last("LIMIT 1"));
-        if (taRole == null || taRole.getTenantId() == null) {
+        // 查找用户的 TA 角色已绑定租户（user_roles 归 account 域，经 AuthService）
+        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND, "未找到您的租户");
         }
 
-        return buildTenantDetail(taRole.getTenantId());
+        return buildTenantDetail(tenantId);
     }
 
     @Override
     @Transactional
     public void updateMyStore(Long userId, StoreSettingsDto dto) {
-        UserRole taRole = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getStatus, "ACTIVE")
-                .isNotNull(UserRole::getTenantId)
-                .last("LIMIT 1"));
-        if (taRole == null || taRole.getTenantId() == null) {
+        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
         }
-
-        Long tenantId = taRole.getTenantId();
 
         // D-05 状态机：仅已审核通过(ACTIVE)的租户才可修改店铺设置；PENDING/REJECTED/冻结一律拒绝
         Tenant tenantForState = tenantMapper.selectById(tenantId);
@@ -338,17 +283,12 @@ public class TenantServiceImpl implements TenantService {
 
     @Override
     public Map<String, String> getStoreQr(Long userId) {
-        UserRole taRole = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getStatus, "ACTIVE")
-                .isNotNull(UserRole::getTenantId)
-                .last("LIMIT 1"));
-        if (taRole == null || taRole.getTenantId() == null) {
+        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
         }
 
-        Tenant tenant = tenantMapper.selectById(taRole.getTenantId());
+        Tenant tenant = tenantMapper.selectById(tenantId);
         // TODO: 实际对接二维码生成 SDK（如 ZXing）；MVP 返回签名 URL
         String qrUrl = "https://cangchu.com/store/" + tenant.getTenantSimpleCode();
 
@@ -362,13 +302,8 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public Map<String, Object> generateInviteCode(Long userId, String targetRole, Integer maxUses, Integer expireDays) {
-        UserRole taRole = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getStatus, "ACTIVE")
-                .isNotNull(UserRole::getTenantId)
-                .last("LIMIT 1"));
-        if (taRole == null || taRole.getTenantId() == null) {
+        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
         }
 
@@ -376,7 +311,7 @@ public class TenantServiceImpl implements TenantService {
 
         InviteCode inviteCode = new InviteCode();
         inviteCode.setId(snowflakeIdUtil.nextId());
-        inviteCode.setTenantId(taRole.getTenantId());
+        inviteCode.setTenantId(tenantId);
         inviteCode.setCode(code);
         inviteCode.setTargetRole(targetRole != null ? targetRole : "WK");
         inviteCode.setMaxUses(maxUses != null ? maxUses : 1);
@@ -613,29 +548,8 @@ public class TenantServiceImpl implements TenantService {
         tenantMapper.updateById(tenant);
 
         // 绑定 tenantId 到该 TA 的 user_roles（注册时已插入 TA 角色 tenantId=null，这里回填）
-        UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, taUserId)
-                .eq(UserRole::getRole, "TA")
-                .isNull(UserRole::getTenantId)
-                .eq(UserRole::getStatus, "ACTIVE")
-                .last("LIMIT 1"));
-        if (existing != null) {
-            existing.setTenantId(tenant.getId());
-            existing.setUpdatedAt(LocalDateTime.now());
-            userRoleMapper.updateById(existing);
-        } else {
-            UserRole taRole = new UserRole();
-            taRole.setId(snowflakeIdUtil.nextId());
-            taRole.setUserId(taUserId);
-            taRole.setRole("TA");
-            taRole.setTenantId(tenant.getId());
-            taRole.setStatus("ACTIVE");
-            taRole.setPriority(10);
-            taRole.setCreatedAt(LocalDateTime.now());
-            taRole.setUpdatedAt(LocalDateTime.now());
-            taRole.setCreatedBy(taUserId);
-            userRoleMapper.insert(taRole);
-        }
+        // user_roles 归 account 域，经 AuthService（幂等语义等价：优先回填 tenantId=null 记录，否则新建）
+        authService.bindOrCreateTenantRole(taUserId, "TA", tenant.getId(), taUserId);
 
         log.info("[D-16] 注册建仓：TA {} 创建 PENDING 租户壳 {} ({})", taUserId, tenant.getId(), tenantName);
         return tenant.getId();
@@ -700,11 +614,8 @@ public class TenantServiceImpl implements TenantService {
      * 以 user_roles（登录态推导）为唯一可信来源，不信任客户端传参。
      */
     private void requireOpsRole(Long userId) {
-        long opsCount = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "OPS")
-                .eq(UserRole::getStatus, "ACTIVE"));
-        if (opsCount == 0) {
+        // OPS 平台角色不绑租户；user_roles 归 account 域，经 AuthService（语义等价：role=OPS & ACTIVE）
+        if (!authService.hasRole(userId, "OPS")) {
             throw new BizException(ErrorCode.PERMISSION_ROLE_002);
         }
     }
@@ -715,24 +626,16 @@ public class TenantServiceImpl implements TenantService {
      * 非 TA → 越权(42001)；TA 未绑定租户(尚未建仓) → 租户不存在(50210)。
      */
     private Long requireTaRole(Long userId) {
-        UserRole taRole = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getStatus, "ACTIVE")
-                .isNotNull(UserRole::getTenantId)
-                .last("LIMIT 1"));
-        if (taRole == null) {
+        // user_roles 归 account 域，经 AuthService（语义等价：优先取已绑租户的 TA 记录）
+        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        if (tenantId == null) {
             // 区分：有 TA 角色但未绑租户 → 50210；完全无 TA 角色 → 42001 越权
-            long anyTa = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                    .eq(UserRole::getUserId, userId)
-                    .eq(UserRole::getRole, "TA")
-                    .eq(UserRole::getStatus, "ACTIVE"));
-            if (anyTa > 0) {
+            if (authService.hasRole(userId, "TA")) {
                 throw new BizException(ErrorCode.TENANT_NOT_FOUND, "请先完成建仓后再生成员工注册码");
             }
             throw new BizException(ErrorCode.PERMISSION_ROLE_001);
         }
-        return taRole.getTenantId();
+        return tenantId;
     }
 
     /** 创建租户 + 店铺 + 设置 */

@@ -1,9 +1,8 @@
 package com.cangchu.common.tenant;
 
 import cn.dev33.satoken.stp.StpUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.cangchu.account.entity.UserRole;
-import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
+import com.cangchu.account.vo.UserRoleView;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,7 +26,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TenantInterceptor implements HandlerInterceptor {
 
-    private final UserRoleMapper userRoleMapper;
+    // user_roles 归 account 域，经 AuthService 取只读角色视图（G-S1/G-S2）
+    private final AuthService authService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -39,15 +39,13 @@ public class TenantInterceptor implements HandlerInterceptor {
         Long userId = StpUtil.getLoginIdAsLong();
 
         // 查询该用户全部有效角色绑定，得到其可信租户集合
-        List<UserRole> roles = userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getStatus, "ACTIVE"));
+        List<UserRoleView> roles = authService.listActiveRoles(userId);
 
         TenantContext.TenantInfo info = new TenantContext.TenantInfo();
         info.setUserId(userId);
 
         // 主角色（按 priority 取最高，缺省取第一条）
-        UserRole primary = roles.stream()
+        UserRoleView primary = roles.stream()
                 .max((a, b) -> {
                     int pa = a.getPriority() != null ? a.getPriority() : 0;
                     int pb = b.getPriority() != null ? b.getPriority() : 0;
@@ -80,7 +78,7 @@ public class TenantInterceptor implements HandlerInterceptor {
         } else {
             // 未显式切换：以登录态推导的可信租户为准（取唯一非空绑定租户）
             List<Long> tenantIds = roles.stream()
-                    .map(UserRole::getTenantId)
+                    .map(UserRoleView::getTenantId)
                     .filter(java.util.Objects::nonNull)
                     .distinct()
                     .toList();

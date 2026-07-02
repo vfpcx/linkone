@@ -1,8 +1,7 @@
 package com.cangchu.document.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.cangchu.account.entity.UserRole;
-import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -56,9 +55,8 @@ public class InboundRequestServiceImpl implements InboundRequestService {
     private final WholesalerService wholesalerService;
     private final SkuService skuService;
     private final TenantService tenantService;
-    // TODO(G-S1 待抽 AuthService)：user_roles 属 account 域，requireWkRole 暂直连，
-    //   待抽 account.AuthService.hasRole(...) 后改走 Service（P2 剩余债，已登记 Team Lead）。
-    private final UserRoleMapper userRoleMapper;
+    // G-S1/G-S2 还债：user_roles 归 account 域，requireWkRole 经 AuthService 鉴权。
+    private final AuthService authService;
     private final DocumentNumberService documentNumberService;
     private final InventoryService inventoryService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -155,12 +153,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
      * （写法对齐 A1 requireTaRole / A2 requireWaOrTa）。
      */
     private void requireWkRole(Long tenantId, Long userId) {
-        long wkCount = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "WK")
-                .eq(UserRole::getTenantId, tenantId)
-                .eq(UserRole::getStatus, "ACTIVE"));
-        if (wkCount == 0) {
+        if (!authService.hasRole(userId, "WK", tenantId)) {
             throw new BizException(ErrorCode.INBOUND_OPERATOR_NOT_WK);
         }
     }

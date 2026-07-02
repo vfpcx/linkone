@@ -4,9 +4,8 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.User;
-import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserMapper;
-import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -45,7 +44,7 @@ import java.util.List;
 public class WholesalerServiceImpl implements WholesalerService {
 
     private final WholesalerMapper wholesalerMapper;
-    private final UserRoleMapper userRoleMapper;
+    private final AuthService authService;
     private final UserMapper userMapper;
     private final SnowflakeIdUtil snowflakeIdUtil;
 
@@ -136,12 +135,8 @@ public class WholesalerServiceImpl implements WholesalerService {
      * （写法参考 {@code TenantServiceImpl.requireOpsRole}，增加 tenant 维度。）
      */
     private void requireTaRole(Long tenantId, Long userId) {
-        long taCount = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getTenantId, tenantId)
-                .eq(UserRole::getStatus, "ACTIVE"));
-        if (taCount == 0) {
+        // user_roles 归 account 域，走 AuthService（语义等价：role=TA & tenant_id & ACTIVE）
+        if (!authService.hasRole(userId, "TA", tenantId)) {
             throw new BizException(ErrorCode.PERMISSION_TENANT_001);
         }
     }
@@ -171,27 +166,9 @@ public class WholesalerServiceImpl implements WholesalerService {
             log.info("[A1][WA开通] 新建 WA 用户 phone={} 临时密码={}", waPhone, tempPwd);
         }
 
-        UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, user.getId())
-                .eq(UserRole::getRole, "WA")
-                .eq(UserRole::getWholesalerId, wholesalerId)
-                .eq(UserRole::getStatus, "ACTIVE")
-                .last("LIMIT 1"));
-        if (existing != null) {
-            return existing.getId();
-        }
-
-        UserRole waRole = new UserRole();
-        waRole.setId(snowflakeIdUtil.nextId());
-        waRole.setUserId(user.getId());
-        waRole.setRole("WA");
-        waRole.setTenantId(tenantId);
-        waRole.setWholesalerId(wholesalerId);
-        waRole.setStatus("ACTIVE");
-        waRole.setPriority(5);
-        waRole.setCreatedBy(operatorUserId);
-        userRoleMapper.insert(waRole);
-        return waRole.getId();
+        // WA 角色绑定（user_roles 归 account 域）走 AuthService；幂等语义等价：
+        // 已有 (WA, wholesaler_id, ACTIVE) → 返回其 id；否则新建 (priority=5) 返回新 id。
+        return authService.ensureWholesalerRole(user.getId(), "WA", tenantId, wholesalerId, operatorUserId);
     }
 
     private WholesalerVo toVo(Wholesaler w, Long waUserId) {

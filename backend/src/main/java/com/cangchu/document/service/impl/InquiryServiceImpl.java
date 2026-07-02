@@ -2,8 +2,7 @@ package com.cangchu.document.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.cangchu.account.entity.UserRole;
-import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -66,9 +65,8 @@ public class InquiryServiceImpl implements InquiryService {
     // G-S1/G-S2 还债：他域数据只走对方 Service（不再直连 SkuMapper/TenantMapper）
     private final SkuService skuService;
     private final TenantService tenantService;
-    // TODO(G-S1 待抽 AuthService)：user_roles 属 account 域，requireWaRole/listForWa 暂直连，
-    //   待抽 account.AuthService.hasRole(...) 后改走 Service（P2 剩余债，已登记 Team Lead）。
-    private final UserRoleMapper userRoleMapper;
+    // G-S1/G-S2 还债：user_roles 归 account 域，requireWaRole/listForWa 经 AuthService 鉴权/查询。
+    private final AuthService authService;
     private final StoreFrontService storeFrontService;
     private final DocumentNumberService documentNumberService;
     private final InventoryService inventoryService;
@@ -232,14 +230,8 @@ public class InquiryServiceImpl implements InquiryService {
 
     @Override
     public List<InquiryVo> listForWa(Long tenantId, Long waUserId) {
-        // 该用户在本租户下作为 WA 归属的所有 wholesaler
-        List<Long> waWholesalerIds = userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
-                        .eq(UserRole::getUserId, waUserId)
-                        .eq(UserRole::getRole, "WA")
-                        .eq(UserRole::getStatus, "ACTIVE")).stream()
-                .map(UserRole::getWholesalerId)
-                .filter(java.util.Objects::nonNull)
-                .toList();
+        // 该用户作为 WA 归属的所有 wholesaler（跨租户集合，随后按 tenantId 过滤 inquiry）
+        List<Long> waWholesalerIds = authService.listActiveWholesalerIds(waUserId, "WA");
         if (waWholesalerIds.isEmpty()) {
             return List.of();
         }
@@ -258,12 +250,7 @@ public class InquiryServiceImpl implements InquiryService {
 
     /** S4：用户在指定 wholesaler 下须有 ACTIVE 的 WA 角色，否则越权拒绝。 */
     private void requireWaRole(Long wholesalerId, Long userId) {
-        long c = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "WA")
-                .eq(UserRole::getWholesalerId, wholesalerId)
-                .eq(UserRole::getStatus, "ACTIVE"));
-        if (c == 0) {
+        if (!authService.hasWholesalerRole(userId, "WA", wholesalerId)) {
             throw new BizException(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
         }
     }

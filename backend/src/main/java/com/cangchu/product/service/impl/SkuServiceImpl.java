@@ -1,8 +1,7 @@
 package com.cangchu.product.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.cangchu.account.entity.UserRole;
-import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -12,8 +11,8 @@ import com.cangchu.product.entity.Sku;
 import com.cangchu.product.mapper.SkuMapper;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
-import com.cangchu.tenant.entity.Wholesaler;
-import com.cangchu.tenant.mapper.WholesalerMapper;
+import com.cangchu.tenant.service.WholesalerService;
+import com.cangchu.tenant.vo.WholesalerVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,15 +43,15 @@ import java.util.List;
 public class SkuServiceImpl implements SkuService {
 
     private final SkuMapper skuMapper;
-    private final WholesalerMapper wholesalerMapper;
-    private final UserRoleMapper userRoleMapper;
+    private final WholesalerService wholesalerService;
+    private final AuthService authService;
     private final SnowflakeIdUtil snowflakeIdUtil;
 
     @Override
     @Transactional
     public SkuVo createSku(Long wholesalerId, SkuCreateDto dto, Long operatorUserId) {
-        // 校验 wholesaler 存在且属当前租户（TenantLine 兜底注入 tenant 条件，跨租户不可见）
-        Wholesaler wholesaler = wholesalerMapper.selectById(wholesalerId);
+        // 校验 wholesaler 存在且属当前租户（走 tenant 域 Service，隔离行为等同原 selectById）
+        WholesalerVo wholesaler = wholesalerService.getById(wholesalerId);
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
@@ -126,7 +125,7 @@ public class SkuServiceImpl implements SkuService {
 
     @Override
     public List<SkuVo> listByWholesaler(Long wholesalerId, Long operatorUserId) {
-        Wholesaler wholesaler = wholesalerMapper.selectById(wholesalerId);
+        WholesalerVo wholesaler = wholesalerService.getById(wholesalerId);
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
@@ -167,21 +166,12 @@ public class SkuServiceImpl implements SkuService {
      * S4 归属鉴权：operator 须为该商户的 WA（role=WA & wholesaler_id=商户 & ACTIVE）
      * 或该商户所属租户的 TA（role=TA & tenant_id=租户 & ACTIVE）。皆非则越权拒绝。
      */
-    private void requireWaOrTa(Wholesaler wholesaler, Long userId) {
-        long waCount = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "WA")
-                .eq(UserRole::getWholesalerId, wholesaler.getId())
-                .eq(UserRole::getStatus, "ACTIVE"));
-        if (waCount > 0) {
+    private void requireWaOrTa(WholesalerVo wholesaler, Long userId) {
+        // WA（批发商维度）或该商户所属租户的 TA；语义与原 user_roles 直连逐一等价
+        if (authService.hasWholesalerRole(userId, "WA", wholesaler.getId())) {
             return;
         }
-        long taCount = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
-                .eq(UserRole::getUserId, userId)
-                .eq(UserRole::getRole, "TA")
-                .eq(UserRole::getTenantId, wholesaler.getTenantId())
-                .eq(UserRole::getStatus, "ACTIVE"));
-        if (taCount == 0) {
+        if (!authService.hasRole(userId, "TA", wholesaler.getTenantId())) {
             throw new BizException(ErrorCode.PERMISSION_TENANT_001);
         }
     }
@@ -192,7 +182,7 @@ public class SkuServiceImpl implements SkuService {
         if (sku == null) {
             throw new BizException(ErrorCode.SKU_NOT_FOUND);
         }
-        Wholesaler wholesaler = wholesalerMapper.selectById(sku.getWholesalerId());
+        WholesalerVo wholesaler = wholesalerService.getById(sku.getWholesalerId());
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
