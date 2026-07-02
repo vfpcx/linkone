@@ -259,16 +259,15 @@ class AccountScenarioTest {
     }
 
     @Test
-    @DisplayName("AC-S2-05 角色枚举外值注册 → 期望 40001(实现无枚举校验，预计暴露缺陷)")
+    @DisplayName("AC-S2-05 角色枚举外值注册 → 40001 拒绝(角色白名单校验已加固 D-07)")
     void acS2_05_invalidRoleEnum() {
         RegisterDto dto = validReg(uniquePhone());
         dto.setRole("HACKER");              // 非 TA/WK/ST/WA/WE/RT
         R<LoginVo> body = register(dto);
         assertThat(body).isNotNull();
-        // 文档期望：非法角色应被拒绝（40001）。实现：RegisterDto.role 无 @Pattern/枚举校验，
-        // 服务层原样存入 user_roles ⇒ 此断言预计 FAIL，作为“发现的缺陷”保留正确预期。
+        // D-07 已加固：register 校验 role ∈ 白名单，非法角色返回 40001。
         assertThat(body.getCode())
-                .as("非法角色应被拒绝；若返回 0 说明后端缺角色枚举校验（缺陷）")
+                .as("非法角色应被拒绝（40001）")
                 .isEqualTo(40001);
     }
 

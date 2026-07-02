@@ -153,7 +153,7 @@ class TenantScenarioTest {
     }
 
     @Test
-    @DisplayName("TN-S2-02 经纬度越界(lat=200) → 期望校验失败(实现无范围校验，预计暴露缺陷)")
+    @DisplayName("TN-S2-02 经纬度越界(lat=200) → 校验失败(范围校验已加固 D-08)")
     void tnS2_02_lngLatOutOfRange() {
         String phone = uniquePhone(PHONE_PREFIX_TA);
         String token = registerAndLogin(phone, "TaPass123", "TA");
@@ -178,7 +178,7 @@ class TenantScenarioTest {
     // ======================================================================
 
     @Test
-    @DisplayName("TN-S4-01 非 OPS(TA) 调 /admin/tenant/*/audit → 期望被拒(实现无角色校验，预计暴露缺陷)")
+    @DisplayName("TN-S4-01 非 OPS(TA) 调 /admin/tenant/*/audit → 被拒(OPS 角色校验已加固 D-02)")
     void tnS4_01_nonOpsAudit() {
         TaContext victim = registerTa();          // 待审核租户
         // 另一个普通 TA（非 OPS）尝试审核
@@ -229,7 +229,7 @@ class TenantScenarioTest {
     // ======================================================================
 
     @Test
-    @DisplayName("TN-S5-01 重复审核已通过(ACTIVE)的租户 → 期望被拒(实现无状态机校验，预计暴露缺陷)")
+    @DisplayName("TN-S5-01 重复审核已通过(ACTIVE)的租户 → 被拒(状态机校验已加固 D-05)")
     void tnS5_01_reAuditApproved() {
         TaContext ta = registerTa();
         String opsToken = registerOps();
@@ -245,7 +245,7 @@ class TenantScenarioTest {
     }
 
     @Test
-    @DisplayName("TN-S5-02 审核已驳回(REJECTED)租户后再操作 → 期望被拒(实现无状态机校验，预计暴露缺陷)")
+    @DisplayName("TN-S5-02 审核已驳回(REJECTED)租户后再操作 → 被拒(状态机校验已加固 D-05)")
     void tnS5_02_reAuditRejected() {
         TaContext ta = registerTa();
         String opsToken = registerOps();
@@ -259,7 +259,7 @@ class TenantScenarioTest {
     }
 
     @Test
-    @DisplayName("TN-S5-03 未审核(PENDING)就改店铺设置 → 期望被拒(实现无已审核校验，预计暴露缺陷)")
+    @DisplayName("TN-S5-03 未审核(PENDING)就改店铺设置 → 被拒(已审核校验已加固 D-05)")
     void tnS5_03_updateStoreWhileUnaudited() {
         TaContext ta = registerTa();   // 未审核，租户 PENDING
 
@@ -281,7 +281,7 @@ class TenantScenarioTest {
     // ======================================================================
 
     @Test
-    @DisplayName("TN-S6-01 同名仓库重复注册 → 期望被拒(实现无唯一性校验，预计暴露缺陷)")
+    @DisplayName("TN-S6-01 同名仓库重复注册 → 被拒(唯一性校验已加固 D-06)")
     void tnS6_01_duplicateWarehouseName() {
         String phone = uniquePhone(PHONE_PREFIX_TA);
         String token = registerAndLogin(phone, "TaPass123", "TA");
