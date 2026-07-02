@@ -64,7 +64,9 @@
 
 ---
 
-## 4. 当前架构债（拆分前需偿还的跨域直连点）
+## 4. 当前架构债（跨域直连点）—— ✅ 已于 2026-07-03 偿还（commit 1882851 + f159fa3）
+
+> 状态：document/product 对 Sku/Tenant/Wholesaler 的直连已改走各域 Service；各域 requireXxRole 直连 user_roles 已抽 `account.AuthService` 统一鉴权。除 account 自有表外**无残留跨域直连**（grep 证明），93 测试全绿、行为零变化。下表为历史记录。
 
 从现状代码识别（示例，非穷举）：
 
