@@ -201,4 +201,39 @@ class InventoryScenarioTest {
         assertThat(finalQty).as("最终库存必须为 0，不超卖").isZero();
         assertThat(outboundCount).as("成功扣减数 = OUTBOUND 流水数").isEqualTo(50);
     }
+
+    @Test
+    @DisplayName("INV-S7-02 100 虚拟线程并发入库同一(空)sku各+1 → 全部成功、库存=100、无脏异常(F1加固)")
+    void s7_concurrentAddStockNoLostUpdate() throws Exception {
+        long w = nextWholesaler();
+        long sku = nextSku(); // 全新 sku，制造并发"首次入库 + 累加"竞争
+        int threads = 100;
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger fail = new AtomicInteger();
+
+        try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(exec.submit(() -> {
+                    try {
+                        inventoryService.addStock(InboundContext.builder()
+                                .wholesalerId(w).tenantId(TENANT_ID).skuId(sku)
+                                .qty(1).refDocNo("IN-C").operatorUserId(33L).build());
+                        ok.incrementAndGet();
+                    } catch (Exception e) {
+                        fail.incrementAndGet(); // 加锁后不应有 DuplicateKey/其它脏异常
+                    }
+                }));
+            }
+            for (var f : futures) f.get();
+        }
+
+        int finalQty = inventoryService.queryInventory(w, sku).get(0).getQty();
+        long inboundCount = countMovements(w, sku, StockMovement.TYPE_INBOUND);
+
+        assertThat(fail.get()).as("加锁后并发入库不应有 DuplicateKey/脏异常").isZero();
+        assertThat(ok.get()).isEqualTo(threads);
+        assertThat(finalQty).as("100 次各+1 必须累加到 100，无 lost-update").isEqualTo(100);
+        assertThat(inboundCount).as("INBOUND 流水数 = 入库次数").isEqualTo(100);
+    }
 }

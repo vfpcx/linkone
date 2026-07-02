@@ -16,10 +16,17 @@ import java.util.List;
 public interface InventoryService {
 
     /**
-     * 入库：单事务内库存 upsert 增量 + 写 INBOUND 流水。
+     * 入库：在 Redisson 锁 {@code lock:inv:{wholesalerId}:{skuId}} 内单事务执行 upsert 增量 + 写 INBOUND 流水。
+     * 与出库对称加锁，防并发首入撞唯一索引 / 累加 lost-update。
      * @return 入库后该 sku 的最新库存
      */
     InventoryVo addStock(InboundContext ctx);
+
+    /**
+     * 入库事务体（内部用）：仅由 {@link #addStock} 在持有 Redisson 锁后经代理调用，
+     * 以保证 {@code @Transactional} 生效。<b>勿直接调用</b>（绕过锁会有并发写冲突）。
+     */
+    InventoryVo doAddInTx(InboundContext ctx);
 
     /**
      * 出库：在 Redisson 锁 {@code lock:inv:{wholesalerId}:{skuId}} 内单事务执行——

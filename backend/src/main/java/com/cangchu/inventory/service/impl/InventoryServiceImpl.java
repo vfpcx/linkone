@@ -61,17 +61,46 @@ public class InventoryServiceImpl implements InventoryService {
     // ==================== 入库 ====================
 
     @Override
-    @Transactional
     public InventoryVo addStock(InboundContext ctx) {
         validateCtx(ctx.getWholesalerId(), ctx.getTenantId(), ctx.getSkuId(), ctx.getQty());
-        int palletDelta = ctx.getPalletQty() != null ? ctx.getPalletQty() : 0;
-        if (palletDelta < 0) {
+        if (ctx.getPalletQty() != null && ctx.getPalletQty() < 0) {
             throw new BizException(ErrorCode.STOCK_QTY_INVALID);
         }
 
+        // §10 P1（F1 修复）：入库与出库对称——先获 Redisson 锁（同一 (wholesaler,sku) 锁 key）再开事务，
+        // 经 self 代理保证 @Transactional 生效。防并发首入两路都走 insert 撞唯一索引（脏 DuplicateKey），
+        // 以及已有行并发累加的 lost-update（读同 qty、后写覆盖前写、总量少加）。
+        String lockKey = "lock:inv:" + ctx.getWholesalerId() + ":" + ctx.getSkuId();
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean acquired;
+        try {
+            acquired = lock.tryLock(LOCK_WAIT_SECONDS, LOCK_LEASE_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException(ErrorCode.INVENTORY_LOCK_FAILED);
+        }
+        if (!acquired) {
+            throw new BizException(ErrorCode.INVENTORY_LOCK_FAILED);
+        }
+        try {
+            return self.doAddInTx(ctx);
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 入库事务体（仅供 {@link #addStock} 在持锁状态下经代理调用）。upsert 库存行 + 写 INBOUND 流水。
+     */
+    @Override
+    @Transactional
+    public InventoryVo doAddInTx(InboundContext ctx) {
+        int palletDelta = ctx.getPalletQty() != null ? ctx.getPalletQty() : 0;
         Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
         if (inv == null) {
-            // 首次入库：新建库存行（唯一索引 uk_inv_wholesaler_sku 双保险）
+            // 首次入库：新建库存行（唯一索引 uk_inv_wholesaler_sku 双保险；并发已由外层锁互斥）
             inv = new Inventory();
             inv.setId(snowflakeIdUtil.nextId());
             inv.setTenantId(ctx.getTenantId());
