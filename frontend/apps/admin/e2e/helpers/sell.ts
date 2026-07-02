@@ -274,6 +274,114 @@ export function stockOfSku(store: RtStoreFront, skuId: string): number | null {
   return null
 }
 
+/**
+ * 直接经 RT 公开端点提交询价（业务旅程造数：缺货下单 B-RT-03 / 卖光 B-RT-02 / 越权 B-WA-04）。
+ * 无登录态（/rt/** 公开，tenantId 由 store→tenant 解析，前端不传，G-2.1）。
+ * 返回完整响应包：成功时 data 含 id/docNo/status（雪花 id 后端序列化为 string，勿丢精度）。
+ */
+export async function apiSubmitInquiry(args: {
+  code: string
+  wholesalerId: string
+  skuId: string
+  qty: number
+  rtPhone?: string
+}): Promise<Envelope<{ id: string; docNo: string; status: string }>> {
+  return post<{ id: string; docNo: string; status: string }>('/rt/inquiry', {
+    body: {
+      code: args.code,
+      wholesalerId: args.wholesalerId,
+      rtPhone: args.rtPhone ?? uniqPhone(),
+      items: [{ skuId: args.skuId, qty: args.qty }],
+    },
+  })
+}
+
+/**
+ * TA 生成员工注册码（B-EMP-02 离职旅程用）。返回码字符串（data.code）。
+ * maxUses 用尽后再注册 → 41303（AUTH_INVITE_003 邀请码已用完）。
+ */
+export async function apiCreateInvite(
+  taToken: string,
+  role = 'WK',
+  maxUses = 1,
+  expiresInDays = 7,
+): Promise<string> {
+  const data = ok(
+    await post<{ id: string; code: string; role: string }>('/tenant/employee-invites', {
+      token: taToken,
+      body: { role, maxUses, expiresInDays },
+    }),
+    '生成员工注册码',
+  )
+  return data.code
+}
+
+/**
+ * 单次注册（不重试），返回完整响应包——用于「期望失败」的断言（如离职后凭已用尽码再注册应拒）。
+ * registerWithRetry 会对非零码重试，不适合断言失败场景，故单列此函数。
+ */
+export async function apiRegisterOnce(
+  body: Record<string, unknown>,
+): Promise<Envelope<LoginData>> {
+  return post<LoginData>('/account/register', { body })
+}
+
+export interface EmptyStoreSeed {
+  storeCode: string
+  wholesalerId: string
+  taToken: string
+}
+
+/**
+ * 造「空店」：TA 建仓 → 店铺码 → 自营建商户，但**不上架 SKU、不入库**（B-RT-07）。
+ * 结果：RT 进店店内有 ACTIVE 商户但无在售 SKU → 页面渲染商户空态、不报错。
+ */
+export async function seedEmptyStore(): Promise<EmptyStoreSeed> {
+  const taPhone = uniqPhone()
+  const ta = await registerWithRetry(
+    {
+      phone: taPhone,
+      password: SEED_PWD,
+      smsCode: SMS_CODE,
+      role: 'TA',
+      realName: 'EmptyTA',
+      tenantName: 'EmptyShop' + taPhone.slice(-4),
+      agreedTerms: true,
+    },
+    'TA 注册(空店)',
+  )
+  const taToken = ta.token
+
+  const qr = ok(
+    await post<{ tenantId: string; tenantSimpleCode: string; qrUrl: string }>('/tenant/store-qr', {
+      token: taToken,
+    }),
+    '生成店铺码(空店)',
+  )
+
+  const waPhone = uniqPhone()
+  await registerWithRetry(
+    {
+      phone: waPhone,
+      password: SEED_PWD,
+      smsCode: SMS_CODE,
+      role: 'RT',
+      realName: 'EmptyWA',
+      agreedTerms: true,
+    },
+    'WA 预注册(空店)',
+  )
+  const wholesaler = ok(
+    await post<{ id: string; name: string }>('/tenant/wholesalers', {
+      token: taToken,
+      body: { name: 'EmptyWholesaler' + waPhone.slice(-4), waPhone },
+    }),
+    '建商户(空店)',
+  )
+
+  return { storeCode: qr.tenantSimpleCode, wholesalerId: wholesaler.id, taToken }
+}
+
 /** 直接经 API 确认询价（S6 幂等断言 / UI 联动兜底）。返回完整响应包（便于断言 code）。 */
 export async function apiConfirmInquiry(
   inquiryId: string,
