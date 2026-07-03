@@ -21,8 +21,10 @@ import com.cangchu.inventory.service.InventoryService;
 import com.cangchu.product.entity.Sku;
 import com.cangchu.product.mapper.SkuMapper;
 import com.cangchu.tenant.entity.Store;
+import com.cangchu.tenant.entity.Tenant;
 import com.cangchu.tenant.entity.Wholesaler;
 import com.cangchu.tenant.mapper.StoreMapper;
+import com.cangchu.tenant.mapper.TenantMapper;
 import com.cangchu.tenant.mapper.WholesalerMapper;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,6 +63,8 @@ class InquiryScenarioTest {
     private InquiryService inquiryService;
     @Autowired
     private InventoryService inventoryService;
+    @Autowired
+    private TenantMapper tenantMapper;
     @Autowired
     private StoreMapper storeMapper;
     @Autowired
@@ -176,8 +180,24 @@ class InquiryScenarioTest {
         return list.isEmpty() ? 0 : list.get(0).getQty();
     }
 
+    private static final AtomicInteger TENANT_CODE_SEQ = new AtomicInteger(0);
+
+    /**
+     * seed 一个 ACTIVE 租户行并返回其 id。
+     * RT 进店(resolve)要求 store 所属 tenant 存在且 ACTIVE；旧写法只算 id、不建 tenant 行，
+     * 在"进店拒绝非 ACTIVE 仓"上线后会被 STORE_NOT_FOUND 拦下，故这里补齐 tenant 记录。
+     */
     private long baseTenant(long bucket) {
-        return bucket + (snowflakeIdUtil.nextId() & 0xFFFF);
+        long tenantId = bucket + (snowflakeIdUtil.nextId() & 0xFFFF);
+        Tenant t = new Tenant();
+        t.setId(tenantId);
+        t.setTenantSimpleCode("T" + String.format("%07d", TENANT_CODE_SEQ.incrementAndGet()));
+        t.setName("测试仓-" + tenantId);
+        t.setContactUserId(snowflakeIdUtil.nextId());
+        t.setContactPhone("13800000000");
+        t.setStatus("ACTIVE");
+        tenantMapper.insert(t);
+        return tenantId;
     }
 
     // ======================================================================

@@ -190,6 +190,13 @@ public class StoreFrontServiceImpl implements StoreFrontService {
             throw new BizException(ErrorCode.VALIDATION_BASIC_003, "storeId 与 code 至少传一个");
         }
 
+        // 显式拒绝非 ACTIVE 仓进店：仅已审核通过(ACTIVE)的仓库可被 RT 扫码进店，
+        // 不再靠"无 ACTIVE 商户=空店"隐性兜底（PENDING/REJECTED 仓一律 STORE_NOT_FOUND，不泄漏存在性）
+        Tenant owner = tenantMapper.selectById(tenantId);
+        if (owner == null || !"ACTIVE".equals(owner.getStatus())) {
+            throw new BizException(ErrorCode.STORE_NOT_FOUND);
+        }
+
         String storeCode = resolveStoreCode(tenantId);
         return new ResolvedStore(store, tenantId, storeCode);
     }

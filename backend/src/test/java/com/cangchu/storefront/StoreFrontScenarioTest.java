@@ -51,6 +51,16 @@ class StoreFrontScenarioTest {
     @Autowired
     private InventoryService inventoryService;
 
+    @Autowired
+    private com.cangchu.tenant.mapper.TenantMapper tenantMapper;
+
+    /** 把仓审核通过为 ACTIVE（RT 进店要求 ACTIVE 仓；等价 OPS audit 结果）。 */
+    private void activateTenant(Long tenantId) {
+        com.cangchu.tenant.entity.Tenant t = tenantMapper.selectById(tenantId);
+        t.setStatus("ACTIVE");
+        tenantMapper.updateById(t);
+    }
+
     private static final String PHONE_PREFIX_TA =
             "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
     private static final AtomicLong SEQ = new AtomicLong(0);
@@ -123,6 +133,9 @@ class StoreFrontScenarioTest {
         assertThat(mine).isNotNull();
         assertThat(mine.getCode()).as("tenant/me %s", phone).isEqualTo(0);
         Long storeId = Long.valueOf(mine.getData().get("storeId").toString());
+
+        // RT 进店要求 ACTIVE 仓：审核通过（等价 OPS audit）
+        activateTenant(tenantId);
 
         return new StoreCtx(phone, token, tenantId, storeId);
     }
@@ -271,6 +284,32 @@ class StoreFrontScenarioTest {
         R<Map<String, Object>> page = rtStore(99999999999L);
         assertThat(page).isNotNull();
         assertThat(page.getCode()).isEqualTo(50260);
+    }
+
+    @Test
+    @DisplayName("SF-S4-01 非 ACTIVE(PENDING)仓 RT 扫码进店 → STORE_NOT_FOUND(50260)，不泄漏存在性")
+    void s4_pendingTenantRejected() {
+        // 建仓但不激活（保持 PENDING），且建了 ACTIVE 商户+在售SKU（证明拒绝来自 tenant 状态，非"空店"兜底）
+        String phone = uniquePhone(PHONE_PREFIX_TA);
+        String token = registerAndLogin(phone, "TaPass123", "TA");
+        TenantApplyDto dto = new TenantApplyDto();
+        dto.setName("待审仓-" + phone);
+        dto.setContactPhone(phone);
+        dto.setAddressText("浙江省杭州市");
+        R<Map<String, Object>> apply = restTemplate.exchange(baseTenant + "/apply", HttpMethod.POST,
+                new HttpEntity<>(dto, bearer(token)), MAP).getBody();
+        Long tenantId = Long.valueOf(apply.getData().get("tenantId").toString());
+        R<Map<String, Object>> mine = restTemplate.exchange(baseTenant + "/me", HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), MAP).getBody();
+        Long storeId = Long.valueOf(mine.getData().get("storeId").toString());
+        StoreCtx pendingCtx = new StoreCtx(phone, token, tenantId, storeId);
+        String wid = createWholesaler(pendingCtx, "商户-" + phone);
+        String sku = createSku(pendingCtx, wid, "有货SKU-" + phone);
+        addStock(pendingCtx, wid, sku, 100);
+        // 仓仍 PENDING（未 activate）→ 进店应被拒（50260），而非返回空店
+        R<Map<String, Object>> page = rtStore(storeId);
+        assertThat(page).isNotNull();
+        assertThat(page.getCode()).as("PENDING 仓进店应拒绝").isEqualTo(50260);
     }
 
     @Test
