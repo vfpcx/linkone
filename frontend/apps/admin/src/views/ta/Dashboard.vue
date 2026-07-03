@@ -38,6 +38,7 @@ import {
 } from '@element-plus/icons-vue'
 import { CapacityBar, StatusBadge } from '@cangchu/ui-shared'
 import { useAuthStore } from '@/stores/auth'
+import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { accountApi } from '@/api/account'
 import { mockTenantDashboard, mockNotifications, mockMyRoles } from '@/mocks/dashboard'
 
@@ -190,7 +191,7 @@ onMounted(fetchDashboard)
       <div class="ta-topbar__left">
         <span class="ta-topbar__brand">仓储云</span>
         <span class="ta-topbar__divider">·</span>
-        <span class="ta-topbar__store">{{ storeNameDisplay }}</span>
+        <WarehouseSwitcher />
       </div>
 
       <div class="ta-topbar__right">

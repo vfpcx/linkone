@@ -37,6 +37,7 @@ import type {
   PhotoMode,
 } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
+import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { tenantApi } from '@/api/tenant'
 import { accountApi } from '@/api/account'
 
@@ -334,7 +335,7 @@ onMounted(fetchSettings)
       <div class="ta-topbar__left">
         <span class="ta-topbar__brand">仓储云</span>
         <span class="ta-topbar__divider">·</span>
-        <span class="ta-topbar__store">{{ storeNameDisplay }}</span>
+        <WarehouseSwitcher />
       </div>
 
       <div class="ta-topbar__right">

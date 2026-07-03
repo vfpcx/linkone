@@ -27,6 +27,7 @@ import {
 } from '@cangchu/error-codes'
 import type { ApiResponse } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
+import { readCurrentTenant } from '@/utils/currentTenant'
 
 /**
  * 雪花 ID 反序列化：把响应文本中长数字（≥ 16 位）替换为字符串
@@ -72,6 +73,13 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     // 因此 Authorization 头需放「裸 token」（不带 Bearer 前缀），否则被判未登录(41001)。
     config.headers.set('Authorization', auth.token)
     config.headers.set('satoken', auth.token) // Sa-Token 兼容（备用读取头）
+  }
+  // 多仓：注入当前仓 X-Tenant-Id（后端校验该用户确属该仓，TenantLine 按此隔离）。
+  // 仅当本地记录属当前登录用户时才带，避免换账号后残留上一用户的仓被判 42101。
+  // RT 公开接口 / 登录注册端点后端不校验此头（有则无害），故不特判。
+  const tenant = readCurrentTenant()
+  if (tenant && auth.userId && tenant.userId === auth.userId) {
+    config.headers.set('X-Tenant-Id', tenant.tenantId)
   }
   return config
 })

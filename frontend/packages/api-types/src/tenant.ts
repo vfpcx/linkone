@@ -5,6 +5,44 @@
 
 import type { SnowflakeId, PageRequest, PageData } from './common'
 
+// ============ 老板多仓（已上线：TenantController.createWarehouse / listMyWarehouses） ============
+/**
+ * 后端契约（权威：backend/.../tenant TenantController + WarehouseVo + TenantApplyDto）：
+ *  - POST /api/v1/tenant/warehouses  已登录 TA 新建一个仓（TenantApplyDto，name+contactPhone 必填）
+ *      → { tenantId, simpleCode, status }
+ *  - GET  /api/v1/tenant/warehouses  当前账号名下所有仓（顶栏切换器用）→ WarehouseVo[]
+ * 多仓切换：前端保存"当前仓 tenantId"，各请求带头 X-Tenant-Id；
+ *   后端 TenantInterceptor 校验该用户确属该仓（不属→42101），TenantLine 按此隔离。
+ */
+export type WarehouseStatus = 'PENDING' | 'ACTIVE' | 'REJECTED'
+
+/** WarehouseVo：名下单个仓库概要（顶栏切换器 / 多仓列表） */
+export interface Warehouse {
+  tenantId: SnowflakeId
+  name: string
+  simpleCode: string
+  status: WarehouseStatus
+}
+
+/** 新建仓库入参（TenantApplyDto 子集；name + contactPhone 必填） */
+export interface CreateWarehouseRequest {
+  name: string
+  contactPhone: string
+  addressText?: string
+  legalName?: string
+  licenseNo?: string
+  licenseUrl?: string
+  lng?: number
+  lat?: number
+}
+
+/** 新建仓库返回（后端 Map<String,Object>：tenantId / simpleCode / status） */
+export interface CreateWarehouseResponse {
+  tenantId: SnowflakeId
+  simpleCode: string
+  status: WarehouseStatus
+}
+
 // ============ 店铺设置（5 开关） ============
 export type CapacityVisibility = 'PRIVATE' | 'WA_ONLY' | 'PUBLIC'
 export type CapacityPrecision = 'EXACT' | 'TIER'

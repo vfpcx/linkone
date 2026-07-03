@@ -24,10 +24,12 @@ import { accountApi } from '@/api/account'
 import { ApiError } from '@/api/http'
 import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
+import { useWarehouseStore } from '@/stores/warehouse'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const warehouseStore = useWarehouseStore()
 
 // ============ Tab 切换 ============
 type LoginMode = 'password' | 'sms'
@@ -155,6 +157,8 @@ const onSubmit = async () => {
     }
 
     auth.setLoginPayload(payload)
+    // 换账号：清空上一用户的多仓状态，避免内存残留 + 强制切换器重新拉取
+    warehouseStore.clear()
     ElMessage.success('登录成功')
 
     // 多角色：弹切换器
