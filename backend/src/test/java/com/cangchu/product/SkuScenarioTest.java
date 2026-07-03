@@ -14,10 +14,14 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -246,5 +250,73 @@ class SkuScenarioTest {
         assertThat(body.getCode())
                 .as("跨租户为他人商户建 SKU 应被拒（50230 / 42101）")
                 .isIn(50230, 42101);
+    }
+
+    // ======================================================================
+    // S7 并发一致性：改价 与 上下架 并发不 lost-update（F5 加固）
+    // ======================================================================
+
+    @Test
+    @DisplayName("SKU-S7-01 并发改价 + 下架 → 两改动都在，不互相覆盖(partial update)")
+    void s7_concurrentUpdateNoLostUpdate() throws Exception {
+        TaContext ta = registerTaWithTenant();
+        String wid = createWholesaler(ta, "并发商户-" + ta.phone());
+
+        // 初始 SKU：unitPrice=9.90、listed=true
+        R<Map<String, Object>> created = createSku(ta.token(), wid, validSku("并发品-" + ta.phone()));
+        assertThat(created.getCode()).isEqualTo(0);
+        String skuId = created.getData().get("id").toString();
+
+        BigDecimal newPrice = new BigDecimal("18.88");
+
+        // 线程A：只改单价（updateSku 仅传 unitPrice）；线程B：下架（toggleListing on=false）
+        // 用 CyclicBarrier 让两操作尽量同时进入，制造"读整行→改局部→写"竞态。
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        AtomicReference<Throwable> err = new AtomicReference<>();
+
+        Runnable priceTask = () -> {
+            try {
+                barrier.await();
+                Map<String, Object> upd = new HashMap<>();
+                upd.put("unitPrice", newPrice);
+                R<Map<String, Object>> r = restTemplate.exchange(baseSku + "/" + skuId,
+                        HttpMethod.PUT, new HttpEntity<>(upd, bearer(ta.token())), MAP).getBody();
+                assertThat(r).isNotNull();
+                assertThat(r.getCode()).as("改价应成功").isEqualTo(0);
+            } catch (Throwable t) {
+                err.compareAndSet(null, t);
+            }
+        };
+        Runnable listingTask = () -> {
+            try {
+                barrier.await();
+                R<Map<String, Object>> r = restTemplate.exchange(baseSku + "/" + skuId + "/listing?on=false",
+                        HttpMethod.PUT, new HttpEntity<>(bearer(ta.token())), MAP).getBody();
+                assertThat(r).isNotNull();
+                assertThat(r.getCode()).as("下架应成功").isEqualTo(0);
+            } catch (Throwable t) {
+                err.compareAndSet(null, t);
+            }
+        };
+
+        try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
+            var f1 = exec.submit(priceTask);
+            var f2 = exec.submit(listingTask);
+            f1.get();
+            f2.get();
+        }
+        assertThat(err.get()).as("并发操作不应抛异常").isNull();
+
+        // 最终态：单价=新价 且 listed=false —— 两改动都保留，partial update 无覆盖
+        R<List<Map<String, Object>>> all = listByWholesaler(ta.token(), wid);
+        assertThat(all.getCode()).isEqualTo(0);
+        Map<String, Object> finalSku = all.getData().stream()
+                .filter(m -> skuId.equals(m.get("id").toString()))
+                .findFirst().orElseThrow();
+
+        assertThat(new BigDecimal(finalSku.get("unitPrice").toString()))
+                .as("改价未被上下架的旧快照覆盖").isEqualByComparingTo(newPrice);
+        assertThat(finalSku.get("listed"))
+                .as("下架未被改价的旧快照覆盖").isEqualTo(false);
     }
 }

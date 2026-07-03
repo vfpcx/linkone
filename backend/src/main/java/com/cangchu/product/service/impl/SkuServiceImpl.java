@@ -1,6 +1,7 @@
 package com.cangchu.product.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
@@ -92,23 +93,48 @@ public class SkuServiceImpl implements SkuService {
     public SkuVo updateSku(Long skuId, SkuUpdateDto dto, Long operatorUserId) {
         Sku sku = requireOwnedSku(skuId, operatorUserId);
 
+        // §10 并发一致性：partial update——只 set 本次真正传入(非空)的列，不再整实体 updateById
+        // 覆盖。原语义为"非空才改"（DTO 字段为 null 即保持不变），此处逐字段等价迁移到
+        // LambdaUpdateWrapper；内存 sku 副本同步合并值，仅用于价格不变量校验与返回 VO，对外行为不变。
+        // 这样"改价"与"上下架"并发时各自只写自己那列，互不覆盖。
+        LambdaUpdateWrapper<Sku> uw = new LambdaUpdateWrapper<Sku>().eq(Sku::getId, skuId);
+
         if (dto.getName() != null) {
             if (dto.getName().isBlank()) {
                 throw new BizException(ErrorCode.SKU_NAME_REQUIRED);
             }
-            sku.setName(dto.getName().trim());
+            String name = dto.getName().trim();
+            sku.setName(name);
+            uw.set(Sku::getName, name);
         }
-        if (dto.getSpec() != null) sku.setSpec(dto.getSpec());
-        if (dto.getUnitPrice() != null) sku.setUnitPrice(dto.getUnitPrice());
-        if (dto.getMoqPrice() != null) sku.setMoqPrice(dto.getMoqPrice());
-        if (dto.getMoqQty() != null) sku.setMoqQty(dto.getMoqQty());
-        if (dto.getMainImage() != null) sku.setMainImage(dto.getMainImage());
+        if (dto.getSpec() != null) {
+            sku.setSpec(dto.getSpec());
+            uw.set(Sku::getSpec, dto.getSpec());
+        }
+        if (dto.getUnitPrice() != null) {
+            sku.setUnitPrice(dto.getUnitPrice());
+            uw.set(Sku::getUnitPrice, dto.getUnitPrice());
+        }
+        if (dto.getMoqPrice() != null) {
+            sku.setMoqPrice(dto.getMoqPrice());
+            uw.set(Sku::getMoqPrice, dto.getMoqPrice());
+        }
+        if (dto.getMoqQty() != null) {
+            sku.setMoqQty(dto.getMoqQty());
+            uw.set(Sku::getMoqQty, dto.getMoqQty());
+        }
+        if (dto.getMainImage() != null) {
+            sku.setMainImage(dto.getMainImage());
+            uw.set(Sku::getMainImage, dto.getMainImage());
+        }
 
-        // 改后整体再校验一次价格不变量（S2）
+        // 改后整体再校验一次价格不变量（S2）——基于合并后的有效值，行为同原
         validatePrice(sku.getUnitPrice(), sku.getMoqPrice(), sku.getMoqQty());
 
-        sku.setUpdatedAt(LocalDateTime.now());
-        skuMapper.updateById(sku);
+        LocalDateTime now = LocalDateTime.now();
+        sku.setUpdatedAt(now);
+        uw.set(Sku::getUpdatedAt, now);
+        skuMapper.update(null, uw);
         return toVo(sku);
     }
 
@@ -116,9 +142,15 @@ public class SkuServiceImpl implements SkuService {
     @Transactional
     public SkuVo toggleListing(Long skuId, boolean on, Long operatorUserId) {
         Sku sku = requireOwnedSku(skuId, operatorUserId);
+        // §10 并发一致性：partial update——只 set listed + updated_at，不覆盖 price 等其它列，
+        // 避免与并发"改价"(updateSku)用旧快照整实体覆盖互相丢改动。
+        LocalDateTime now = LocalDateTime.now();
+        skuMapper.update(null, new LambdaUpdateWrapper<Sku>()
+                .eq(Sku::getId, skuId)
+                .set(Sku::getListed, on)
+                .set(Sku::getUpdatedAt, now));
         sku.setListed(on);
-        sku.setUpdatedAt(LocalDateTime.now());
-        skuMapper.updateById(sku);
+        sku.setUpdatedAt(now);
         log.info("[A2] operator {} 将 SKU {} 上下架置为 listed={}", operatorUserId, skuId, on);
         return toVo(sku);
     }
