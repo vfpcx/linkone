@@ -36,7 +36,7 @@ import {
   Setting,
   TrendCharts,
 } from '@element-plus/icons-vue'
-import { CapacityBar, StatusBadge } from '@cangchu/ui-shared'
+import { CapacityBar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { accountApi } from '@/api/account'
@@ -238,12 +238,7 @@ onMounted(fetchDashboard)
           <el-menu-item v-for="m in menus" :key="m.key" :index="m.key">
             <el-icon><component :is="m.icon" /></el-icon>
             <span>{{ m.label }}</span>
-            <el-badge
-              v-if="m.badge && m.badge > 0"
-              :value="m.badge"
-              :max="99"
-              class="ta-side__badge"
-            />
+            <NavCountBadge :count="m.badge ?? 0" class="ta-side__badge" />
           </el-menu-item>
         </el-menu>
       </aside>
@@ -470,6 +465,8 @@ onMounted(fetchDashboard)
   height: 48px;
   line-height: 48px;
   font-size: var(--font-size-body);
+  display: flex;
+  align-items: center;
 }
 .ta-side__menu :deep(.el-menu-item.is-active) {
   background: var(--color-info-bg);
