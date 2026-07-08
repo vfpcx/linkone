@@ -40,7 +40,9 @@ public class MybatisPlusConfig {
             "stock_movements",
             "inbound_requests",
             "inquiry_requests",
-            "outbound_requests"
+            "outbound_requests",
+            "customer_prices",
+            "price_change_logs"
     );
 
     @Bean
