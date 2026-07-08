@@ -5,6 +5,7 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.response.R;
 import com.cangchu.common.tenant.TenantContext;
+import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.service.InquiryService;
 import com.cangchu.document.vo.InquiryVo;
 import lombok.RequiredArgsConstructor;
@@ -37,10 +38,16 @@ public class InquiryController {
         return R.ok(inquiryService.listForWa(tenantId, userId));
     }
 
-    /** WA 确认询价 → 自动转出库扣库存（库存不足整体回滚）。 */
+    /**
+     * WA 确认询价 → 自动转出库扣库存（库存不足整体回滚）。
+     *
+     * <p>P2 定价 Wave 3a：请求体可空。dto.items 逐条议价、dto.settleAsCustomerPrice 议价沉淀。
+     * 无请求体沿用 phase-1 行为（成交价=公开价快照，不沉淀）。
+     */
     @PostMapping("/{id}/confirm")
-    public R<InquiryVo> confirm(@PathVariable("id") Long id) {
+    public R<InquiryVo> confirm(@PathVariable("id") Long id,
+                               @RequestBody(required = false) ConfirmInquiryDto dto) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return R.ok(inquiryService.confirmByWa(id, userId));
+        return R.ok(inquiryService.confirmByWa(id, dto, userId));
     }
 }

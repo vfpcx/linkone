@@ -37,6 +37,27 @@ public interface PricingService {
     List<CustomerPriceVo> listCustomerPrices(Long wholesalerId, Long operatorUserId);
 
     /**
+     * 议价沉淀（P2 定价 Wave 3a）：确认询价时把议定成交价落为客户专属价（upsert）。
+     *
+     * <p>按唯一键 (wholesalerId, rtPhone, skuId) upsert：已有 ACTIVE 行则改其 unit_price；
+     * 否则新建（雪花 id、tenantId 取自 wholesaler、{@code source=from_inquiry}、
+     * {@code source_doc_no=sourceDocNo}、status ACTIVE）。复用 {@link #setCustomerPrice} 的
+     * upsert + 写后失效缓存路径。校验 dealPrice&gt;0。
+     *
+     * <p>由 document 域在 confirmByWa 的同一 @Transactional 内调用（document 域不直连
+     * CustomerPriceMapper），故库存不足回滚也会撤销本次沉淀。
+     *
+     * @param wholesalerId   商户
+     * @param rtPhone        客户身份（RT 手机号）
+     * @param skuId          商品
+     * @param dealPrice      议定成交价（&gt;0）
+     * @param sourceDocNo    来源询价单号
+     * @param operatorUserId 操作人（该 wholesaler 的 WA）
+     */
+    void settleFromInquiry(Long wholesalerId, String rtPhone, Long skuId,
+                           BigDecimal dealPrice, String sourceDocNo, Long operatorUserId);
+
+    /**
      * 解析成交价（PRD §14b.1 优先级）：
      * rtPhone 空 → 公开价；否则命中 ACTIVE 专属价则用其 unitPrice；否则公开价。
      * 公开价 = qty >= sku.moqQty ? sku.moqPrice : sku.unitPrice。

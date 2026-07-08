@@ -1,5 +1,6 @@
 package com.cangchu.document.service;
 
+import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
 import com.cangchu.document.vo.InquiryVo;
 
@@ -23,8 +24,13 @@ public interface InquiryService {
     /** RT 提交询价（公开端点，单事务）。 */
     InquiryVo submitByRt(SubmitInquiryDto dto);
 
-    /** WA 确认询价 → 自动转出库扣库存（编排单事务，库存不足整体回滚）。 */
-    InquiryVo confirmByWa(Long inquiryId, Long waUserId);
+    /**
+     * WA 确认询价 → 自动转出库扣库存（编排单事务，库存不足整体回滚）。
+     *
+     * <p>P2 定价 Wave 3a：dto 可空（无请求体沿用 phase-1 成交价=公开价快照）。dto.items 逐条覆盖成交价；
+     * dto.settleAsCustomerPrice=true 时，凡成交价≠提交时公开价快照的明细在同一事务内沉淀为客户专属价。
+     */
+    InquiryVo confirmByWa(Long inquiryId, ConfirmInquiryDto dto, Long waUserId);
 
     /** 列出某租户下的询价单（WA 视角，按归属 wholesaler 过滤）。 */
     List<InquiryVo> listForWa(Long tenantId, Long waUserId);

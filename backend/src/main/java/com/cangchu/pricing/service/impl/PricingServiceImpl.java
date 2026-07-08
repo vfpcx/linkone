@@ -151,6 +151,49 @@ public class PricingServiceImpl implements PricingService {
 
     @Override
     @Transactional
+    public void settleFromInquiry(Long wholesalerId, String rtPhone, Long skuId,
+                                  BigDecimal dealPrice, String sourceDocNo, Long operatorUserId) {
+        validatePrice(dealPrice);
+        WholesalerVo wholesaler = wholesalerService.getById(wholesalerId);
+        if (wholesaler == null) {
+            throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
+        }
+
+        // upsert on 唯一键 (wholesaler_id, rt_phone, sku_id)：已有 ACTIVE 行则改价，否则新建（source=from_inquiry）
+        CustomerPrice existing = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                .eq(CustomerPrice::getRtPhone, rtPhone)
+                .eq(CustomerPrice::getSkuId, skuId)
+                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
+                .last("LIMIT 1"));
+
+        if (existing != null) {
+            customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
+                    .eq(CustomerPrice::getId, existing.getId())
+                    .set(CustomerPrice::getUnitPrice, dealPrice)
+                    .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
+        } else {
+            CustomerPrice cp = new CustomerPrice();
+            cp.setId(snowflakeIdUtil.nextId());
+            cp.setTenantId(wholesaler.getTenantId());
+            cp.setWholesalerId(wholesalerId);
+            cp.setSkuId(skuId);
+            cp.setRtPhone(rtPhone);
+            cp.setUnitPrice(dealPrice);
+            cp.setStatus(CustomerPrice.STATUS_ACTIVE);
+            cp.setSource(CustomerPrice.SOURCE_FROM_INQUIRY);
+            cp.setSourceDocNo(sourceDocNo);
+            cp.setCreatedBy(operatorUserId);
+            customerPriceMapper.insert(cp);
+        }
+
+        invalidate(wholesalerId, rtPhone, skuId);
+        log.info("[P2] operator {} 议价沉淀 wholesaler={} phone={} sku={} price={} src={}",
+                operatorUserId, wholesalerId, rtPhone, skuId, dealPrice, sourceDocNo);
+    }
+
+    @Override
+    @Transactional
     public CustomerPriceVo updateCustomerPrice(Long id, UpdateCustomerPriceDto dto, Long operatorUserId) {
         CustomerPrice cp = requireOwnedCustomerPrice(id, operatorUserId);
 
