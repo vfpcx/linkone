@@ -461,6 +461,23 @@ PC 通用样式：
 - 节点间距 24px
 - 每节点含时间 + 操作人
 
+### 4.11 导航计数徽标（NavCountBadge）— 业务特色组件
+
+用于导航 / 菜单 / 列表**行内的裸计数**（如左侧菜单「站内信 6」「单据审批 12」）。
+
+```
+[TrendCharts] 运营总览
+[Document]    单据审批            12   ← 红胶囊，随行垂直居中
+[ChatLine]    站内信               6
+```
+
+- 渲染为**静态 inline-flex 红色胶囊**，随 flex 菜单行垂直居中（**不用** el-badge 的 `.is-fixed` 绝对定位上标——裸数字用 el-badge 会浮到右上角、脱离文字基线而错位）
+- 规格：`min-width:18px; height:18px; padding:0 6px; border-radius:9px;` `background:var(--color-danger); color:#fff; font-size:12px; line-height:1;` 数字 `tabular-nums`
+- `count <= 0` 不渲染；`count > max`（默认 99）显示 `${max}+`
+- 用法：`<NavCountBadge :count="m.badge ?? 0" />`；在菜单行内配 `margin-left:auto` 靠右
+
+**何时用 el-badge（而非本组件）**：需要作为**上标浮在被包裹内容右上角**时——如顶栏铃铛图标 `<el-badge><Bell/></el-badge>`、按钮上的数量角标。判据：有被包裹子元素 → el-badge；行内裸数字 → NavCountBadge。
+
 ---
 
 ## 5. 数据可视化规范（ECharts / ucharts）

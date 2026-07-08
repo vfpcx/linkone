@@ -6,7 +6,9 @@
   "types": "./src/index.ts",
   "files": ["src"],
   "scripts": {
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "vue": "^3.4.0"
@@ -15,7 +17,11 @@
     "@cangchu/design-tokens": "workspace:*"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^24.0.0",
     "typescript": "^5.4.5",
+    "vitest": "^1.6.0",
     "vue-tsc": "^2.0.16",
     "vue": "^3.4.27"
   }
