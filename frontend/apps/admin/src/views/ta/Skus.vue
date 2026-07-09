@@ -27,6 +27,7 @@ import {
   Setting,
   TrendCharts,
   Goods,
+  PriceTag,
   Plus,
 } from '@element-plus/icons-vue'
 import { StatusBadge } from '@cangchu/ui-shared'
@@ -85,6 +86,7 @@ const menus: MenuItem[] = [
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
   { key: '/ta/skus', label: '商品', icon: Goods },
+  { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '单据审批', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -100,7 +102,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/dashboard' ||
     key === '/ta/settings' ||
     key === '/ta/wholesalers' ||
-    key === '/ta/employees'
+    key === '/ta/employees' ||
+    key === '/ta/pricing'
   ) {
     router.push(key)
     return
