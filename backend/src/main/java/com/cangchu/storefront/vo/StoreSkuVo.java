@@ -40,4 +40,13 @@ public class StoreSkuVo {
 
     /** 当前库存量（qty>0 才会出现在列表中） */
     private Integer stockQty;
+
+    /**
+     * 客户专属价（P2 定价 Wave 3b）：仅当访客为已登录 RT 且该 (RT手机号, sku) 命中有效专属价、
+     * 且专属价 <b>不同于</b>公开单价 {@link #unitPrice} 时才有值；匿名访客 / 无专属价 / 专属价==公开价 → null。
+     *
+     * <p>语义：{@code unitPrice} 恒为公开单价（不因登录态变化）；{@code matchedPrice} 为叠加字段——
+     * 前端有值即展示"您的专属价"，null 则仅展示公开价。qty 恒按 1 解析（进店浏览态无数量）。
+     */
+    private BigDecimal matchedPrice;
 }

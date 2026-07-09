@@ -31,4 +31,13 @@ public interface AccountService {
 
     /** 退出登录 */
     void logout(Long userId);
+
+    /**
+     * 按用户 id 取其手机号（users 表归 account 域，跨域只经此出口，不直连 UserMapper）。
+     *
+     * <p>供 B2 store-front（P2 定价 Wave 3b）把已登录 RT 的 userId 解析为定价身份 rtPhone
+     * （customer_prices.rt_phone 口径）。用户不存在 / 已注销无手机号 → 返回 {@code null}
+     * （调用方据此按匿名走公开价，不抛异常）。
+     */
+    String getPhoneByUserId(Long userId);
 }
