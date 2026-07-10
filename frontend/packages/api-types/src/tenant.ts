@@ -357,6 +357,27 @@ export interface Inquiry {
 }
 
 /**
+ * 确认询价明细项（ConfirmInquiryDto.items[]，P2 议价沉淀）。
+ * inquiryItemId = InquiryItem.id（后端下发的明细行雪花 id）。
+ */
+export interface ConfirmInquiryItem {
+  inquiryItemId: SnowflakeId
+  /** 本行成交价（TA/WA 议价后的实际单价，两位小数） */
+  dealPrice: number
+}
+
+/**
+ * WA 确认询价入参（ConfirmInquiryDto，P2）。
+ * 全部字段可选——整体省略 body 时保持旧行为（成交价=公开价快照，不沉淀专属价）。
+ *  - items：逐行改写成交价；省略的行按公开价快照成交。
+ *  - settleAsCustomerPrice：勾选后，对成交价≠公开价的行沉淀为该买家的客户专属价。
+ */
+export interface ConfirmInquiryRequest {
+  items?: ConfirmInquiryItem[]
+  settleAsCustomerPrice?: boolean
+}
+
+/**
  * RT 提交询价入参（SubmitInquiryDto，公开端点，联调造数据用）。
  * storeId 与 code 二选一（后端解析 store→tenant，不取客户端 tenantId）。
  */

@@ -11,7 +11,7 @@
  */
 
 import { request } from './http'
-import type { Inquiry } from '@cangchu/api-types'
+import type { Inquiry, ConfirmInquiryRequest } from '@cangchu/api-types'
 
 export const inquiryApi = {
   /** WA 列出本人归属 wholesaler 的询价单（后端按 createdAt 倒序） */
@@ -21,10 +21,15 @@ export const inquiryApi = {
       url: '/tenant/inquiry',
     }),
 
-  /** WA 确认询价 → 自动转出库扣库存；返回更新后的单（COMPLETED） */
-  confirm: (id: string) =>
+  /**
+   * WA 确认询价 → 自动转出库扣库存；返回更新后的单（COMPLETED）。
+   * P2：可传 body 逐行改写成交价 / 沉淀客户专属价；省略 body 保持旧行为
+   * （成交价=公开价快照，不沉淀）。body 省略时不下发请求体（data 为 undefined）。
+   */
+  confirm: (id: string, body?: ConfirmInquiryRequest) =>
     request<Inquiry>({
       method: 'POST',
       url: `/tenant/inquiry/${id}/confirm`,
+      data: body,
     }),
 }

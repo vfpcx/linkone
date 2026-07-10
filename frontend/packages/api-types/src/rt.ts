@@ -29,6 +29,12 @@ export interface RtStoreSku {
   moqPrice: number
   /** 公开价：起批量 */
   moqQty: number
+  /**
+   * 命中的客户专属价（P2）：当该买家（手机号）对本 SKU 存在生效中的专属价时下发，
+   * 为客户专属单价；缺省/为 null 表示无专属价，按公开价 unitPrice 成交。
+   * 后端 BigDecimal 序列化为 string（保两位小数）。
+   */
+  matchedPrice?: string | null
   /** 当前库存量（qty>0 才出现在列表中） */
   stockQty: number
 }

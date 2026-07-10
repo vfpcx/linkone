@@ -203,7 +203,12 @@ function resetForNext() {
                 <div class="rt-sku__name">{{ s.name }}</div>
                 <div v-if="s.spec" class="rt-sku__spec">{{ s.spec }}</div>
                 <div class="rt-sku__price">
-                  <span class="rt-sku__unit">¥{{ s.unitPrice }}</span>
+                  <!-- 命中客户专属价：绿色专属价为成交价，公开价划线次要展示 -->
+                  <template v-if="s.matchedPrice != null">
+                    <span class="rt-sku__matched">专属 ¥{{ s.matchedPrice }}</span>
+                    <span class="rt-sku__unit rt-sku__unit--struck">¥{{ s.unitPrice }}</span>
+                  </template>
+                  <span v-else class="rt-sku__unit">¥{{ s.unitPrice }}</span>
                   <span class="rt-sku__moq">起批 ¥{{ s.moqPrice }} / {{ s.moqQty }}件</span>
                 </div>
                 <div class="rt-sku__stock">库存 {{ s.stockQty }}</div>
@@ -360,6 +365,19 @@ function resetForNext() {
   font-size: 16px;
   font-weight: 600;
   color: #f5222d;
+}
+/* 命中专属价时：公开价降级为次要划线小字 */
+.rt-sku__unit--struck {
+  font-size: 12px;
+  font-weight: 400;
+  color: #b0b5bd;
+  text-decoration: line-through;
+}
+/* 客户专属价（成交价）：绿色高亮 */
+.rt-sku__matched {
+  font-size: 16px;
+  font-weight: 600;
+  color: #34a853;
 }
 .rt-sku__moq {
   font-size: 12px;

@@ -24,11 +24,12 @@ import {
   Refresh,
   Check,
 } from '@element-plus/icons-vue'
-import type { Inquiry, InquiryStatus } from '@cangchu/api-types'
+import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { inquiryApi } from '@/api/inquiry'
 import { accountApi } from '@/api/account'
+import PriceSettleDialog from './PriceSettleDialog.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -119,28 +120,28 @@ const fetchList = async () => {
   }
 }
 
-// ============ 确认询价 ============
+// ============ 确认询价（议价沉淀弹窗 · P2 slice 4b） ============
 const confirmingId = ref<string>('')
+const settleVisible = ref(false)
+const settleTarget = ref<Inquiry | null>(null)
 
-const onConfirm = async (row: Inquiry) => {
-  try {
-    await ElMessageBox.confirm(
-      `确认询价单「${row.docNo}」？确认后将自动生成出库单并扣减库存，此操作不可撤销。`,
-      '确认询价',
-      {
-        confirmButtonText: '确认并出库',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
-    )
-  } catch {
-    return // cancel
-  }
+/** 点击「确认」→ 打开议价沉淀弹窗（逐行成交价 + 可选沉淀专属价） */
+const onConfirm = (row: Inquiry) => {
+  settleTarget.value = row
+  settleVisible.value = true
+}
+
+/** 弹窗确认 → 携带 body 调用 confirm；成功后 toast + 刷新，保留 50251/50285 处理 */
+const onSettleConfirm = async (payload: ConfirmInquiryRequest) => {
+  const row = settleTarget.value
+  if (!row) return
 
   confirmingId.value = String(row.id)
   try {
-    const updated = await inquiryApi.confirm(String(row.id))
-    ElMessage.success(`询价单 ${updated.docNo} 已确认并转出库`)
+    const updated = await inquiryApi.confirm(String(row.id), payload)
+    settleVisible.value = false
+    const settledTip = payload.settleAsCustomerPrice ? '，专属价已沉淀' : ''
+    ElMessage.success(`询价单 ${updated.docNo} 已确认并转出库${settledTip}`)
     await fetchList()
   } catch (e) {
     // 库存不足 / 状态冲突等由全局 toast 提示；此处对典型码补充友好文案
@@ -148,7 +149,8 @@ const onConfirm = async (row: Inquiry) => {
       if (e.code === 50251) {
         ElMessage.error('库存不足，已整体回滚，询价单仍为待确认')
       } else if (e.code === 50285) {
-        // 并发/重复点击导致状态已变，刷新以回显最新状态
+        // 并发/重复点击导致状态已变，关闭弹窗并刷新以回显最新状态
+        settleVisible.value = false
         await fetchList()
       }
     }
@@ -298,6 +300,14 @@ onMounted(fetchList)
         </section>
       </main>
     </div>
+
+    <!-- 议价沉淀弹窗（逐行成交价 + 可选沉淀客户专属价） -->
+    <PriceSettleDialog
+      v-model="settleVisible"
+      :inquiry="settleTarget"
+      :submitting="confirmingId !== ''"
+      @confirm="onSettleConfirm"
+    />
   </div>
 </template>
 
