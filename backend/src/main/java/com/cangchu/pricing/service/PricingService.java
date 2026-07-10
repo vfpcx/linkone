@@ -33,6 +33,22 @@ public interface PricingService {
     /** 作废专属价（status=DISABLED），归属校验 + 失效缓存。 */
     void revokeCustomerPrice(Long id, Long operatorUserId);
 
+    /**
+     * SKU 删除级联失效（P2 定价 Wave 3c）：把该 SKU 下所有 ACTIVE 专属价批量置 DISABLED，
+     * 并逐行失效其 Redis 价格匹配缓存，使后续 resolvePrice 回退公开价（无脏缓存）。
+     *
+     * <p>供 product 域在**删除 SKU**（不可逆）时经本接口调用（product 域不直连
+     * CustomerPriceMapper）。仅用于删除；**下架（toggleListing，可逆）不得级联**。
+     * 无归属鉴权入参：删除动作本身在 product 域已完成 S4 归属校验，本方法只做数据级联。
+     *
+     * <p>注：截至 Wave 3c，SkuService 尚无删除/软删操作可挂接（仅 create/update/toggleListing），
+     * 故本级联能力已就绪但暂无触发点（见 TODO Wave-later）。
+     *
+     * @param skuId 被删除的 SKU
+     * @return 本次被置为 DISABLED 的专属价行数
+     */
+    int disableBySku(Long skuId);
+
     /** 列出某商户的专属价（归属校验），仅未软删记录。 */
     List<CustomerPriceVo> listCustomerPrices(Long wholesalerId, Long operatorUserId);
 

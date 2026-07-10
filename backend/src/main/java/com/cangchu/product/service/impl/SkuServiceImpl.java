@@ -142,6 +142,10 @@ public class SkuServiceImpl implements SkuService {
     @Transactional
     public SkuVo toggleListing(Long skuId, boolean on, Long operatorUserId) {
         Sku sku = requireOwnedSku(skuId, operatorUserId);
+        // 上下架（可逆）——注意：**不**级联作废专属价。下架是临时行为，重新上架后专属价应仍有效。
+        // TODO Wave-later: 当新增「删除 SKU」（不可逆软删/hard delete）操作时，在该删除路径调用
+        //   pricingService.disableBySku(skuId) 级联作废专属价；退驻/RT 注销亦在 later wave。
+        //   现阶段 SkuService 无删除操作，disableBySku 能力已就绪但无触发点。
         // §10 并发一致性：partial update——只 set listed + updated_at，不覆盖 price 等其它列，
         // 避免与并发"改价"(updateSku)用旧快照整实体覆盖互相丢改动。
         LocalDateTime now = LocalDateTime.now();

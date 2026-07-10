@@ -236,6 +236,29 @@ public class PricingServiceImpl implements PricingService {
     }
 
     @Override
+    @Transactional
+    public int disableBySku(Long skuId) {
+        // 先查出该 SKU 所有 ACTIVE 专属价（需其 wholesaler/rtPhone 才能逐行失效缓存），
+        // 再批量置 DISABLED；DB 状态更新与缓存失效同步，后续 resolvePrice 回退公开价（无脏缓存）。
+        List<CustomerPrice> rows = customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getSkuId, skuId)
+                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE));
+        if (rows.isEmpty()) {
+            return 0;
+        }
+        customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getSkuId, skuId)
+                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
+                .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
+                .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
+        for (CustomerPrice cp : rows) {
+            invalidate(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+        }
+        log.info("[P2] SKU {} 删除级联：作废专属价 {} 行", skuId, rows.size());
+        return rows.size();
+    }
+
+    @Override
     public List<CustomerPriceVo> listCustomerPrices(Long wholesalerId, Long operatorUserId) {
         WholesalerVo wholesaler = wholesalerService.getById(wholesalerId);
         if (wholesaler == null) {
