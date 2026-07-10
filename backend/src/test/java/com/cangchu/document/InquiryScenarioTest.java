@@ -244,7 +244,7 @@ class InquiryScenarioTest {
 
         // WA 确认（登录态 = 本租户）
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
-        InquiryVo confirmed = inquiryService.confirmByWa(inquiryId, wa);
+        InquiryVo confirmed = inquiryService.confirmByWa(inquiryId, null, wa);
 
         assertThat(confirmed.getStatus()).isEqualTo(InquiryRequest.STATUS_COMPLETED);
         assertThat(confirmed.getConfirmedAt()).isNotNull();
@@ -319,7 +319,7 @@ class InquiryScenarioTest {
         long notWa = snowflakeIdUtil.nextId(); // 无任何 WA 角色
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, notWa, "TA"));
         BizException ex = Assertions.assertThrows(BizException.class,
-                () -> inquiryService.confirmByWa(submitted.getId(), notWa));
+                () -> inquiryService.confirmByWa(submitted.getId(), null, notWa));
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
 
         // 未扣库存、无出库
@@ -343,7 +343,7 @@ class InquiryScenarioTest {
 
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, waOfB, "WA"));
         BizException ex = Assertions.assertThrows(BizException.class,
-                () -> inquiryService.confirmByWa(submitted.getId(), waOfB));
+                () -> inquiryService.confirmByWa(submitted.getId(), null, waOfB));
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
         assertThat(currentStock(widA, skuA)).isEqualTo(100);
     }
@@ -368,7 +368,7 @@ class InquiryScenarioTest {
         long wa = seedWaUser(tenantId, wid);
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         BizException ex = Assertions.assertThrows(BizException.class,
-                () -> inquiryService.confirmByWa(inquiryId, wa));
+                () -> inquiryService.confirmByWa(inquiryId, null, wa));
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.STOCK_NOT_ENOUGH);
 
         // 整体回滚：inquiry 仍 PENDING、无 outbound、库存未扣、无 OUTBOUND 流水
@@ -400,11 +400,11 @@ class InquiryScenarioTest {
 
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         // 第一次确认成功
-        InquiryVo first = inquiryService.confirmByWa(inquiryId, wa);
+        InquiryVo first = inquiryService.confirmByWa(inquiryId, null, wa);
         assertThat(first.getStatus()).isEqualTo(InquiryRequest.STATUS_COMPLETED);
         // 第二次确认被状态机拒绝（非 PENDING）
         BizException ex = Assertions.assertThrows(BizException.class,
-                () -> inquiryService.confirmByWa(inquiryId, wa));
+                () -> inquiryService.confirmByWa(inquiryId, null, wa));
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INQUIRY_STATUS_INVALID);
 
         // 幂等：只 1 张出库单、库存只扣一次（100→70）、1 条 OUTBOUND 流水
@@ -440,7 +440,7 @@ class InquiryScenarioTest {
                         start.await();
                         // 每线程各自持有登录态上下文
                         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
-                        inquiryService.confirmByWa(inquiryId, wa);
+                        inquiryService.confirmByWa(inquiryId, null, wa);
                         ok.incrementAndGet();
                     } catch (BizException e) {
                         rejected.incrementAndGet();

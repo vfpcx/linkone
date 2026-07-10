@@ -5,6 +5,7 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.inventory.service.InventoryService;
 import com.cangchu.inventory.vo.InventoryVo;
+import com.cangchu.pricing.service.PricingService;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.storefront.service.StoreFrontService;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -49,12 +51,18 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     private final WholesalerService wholesalerService;
     private final SkuService skuService;
     private final InventoryService inventoryService;
+    private final PricingService pricingService;
 
     @Override
     public StoreFrontVo getStorePage(Long storeId, String code) {
+        return getStorePage(storeId, code, null);
+    }
+
+    @Override
+    public StoreFrontVo getStorePage(Long storeId, String code, String rtPhone) {
         ResolvedStore rs = resolve(storeId, code);
 
-        List<StoreWholesalerVo> wholesalers = aggregateWholesalers(rs.tenantId(), null);
+        List<StoreWholesalerVo> wholesalers = aggregateWholesalers(rs.tenantId(), null, rtPhone);
 
         return StoreFrontVo.builder()
                 .storeId(rs.store().getId())
@@ -87,6 +95,11 @@ public class StoreFrontServiceImpl implements StoreFrontService {
 
     @Override
     public List<StoreSkuVo> listSkus(Long storeId, String code, Long wholesalerId) {
+        return listSkus(storeId, code, wholesalerId, null);
+    }
+
+    @Override
+    public List<StoreSkuVo> listSkus(Long storeId, String code, Long wholesalerId, String rtPhone) {
         ResolvedStore rs = resolve(storeId, code);
         if (wholesalerId == null) {
             throw new BizException(ErrorCode.VALIDATION_BASIC_003, "wholesalerId 不能为空");
@@ -98,7 +111,7 @@ public class StoreFrontServiceImpl implements StoreFrontService {
             // 不属于本店或非 ACTIVE：返回空，不泄漏跨店信息
             return List.of();
         }
-        return buildOnSaleSkus(rs.tenantId(), wholesalerId);
+        return buildOnSaleSkus(rs.tenantId(), wholesalerId, rtPhone);
     }
 
     // ==================== 聚合 ====================
@@ -106,8 +119,9 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     /**
      * 聚合店内（仅 ACTIVE）批发商 + 各自在售 SKU。
      * @param wholesalerId 可空；非空则仅聚合该商户
+     * @param rtPhone      可空；已登录 RT 手机号，用于解析各 SKU 的专属价 matchedPrice
      */
-    private List<StoreWholesalerVo> aggregateWholesalers(Long tenantId, Long wholesalerId) {
+    private List<StoreWholesalerVo> aggregateWholesalers(Long tenantId, Long wholesalerId, String rtPhone) {
         return wholesalerService.listByTenant(tenantId).stream()
                 .filter(w -> "ACTIVE".equals(w.getStatus()))
                 .filter(w -> wholesalerId == null || w.getId().equals(wholesalerId))
@@ -116,7 +130,7 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                         .name(w.getName())
                         .intro(w.getIntro())
                         .status(w.getStatus())
-                        .skus(buildOnSaleSkus(tenantId, w.getId()))
+                        .skus(buildOnSaleSkus(tenantId, w.getId(), rtPhone))
                         .build())
                 .toList();
     }
@@ -124,8 +138,14 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     /**
      * 某商户的在售 SKU：listed=true（A2 listByTenantForRt 已保证）且 库存 qty>0。
      * tenantId 显式传入下游做隔离；库存按 skuId 关联，再次核对 tenantId 一致。
+     *
+     * <p>P2 定价 Wave 3b（可选鉴权）：{@code rtPhone} 非空时对每个 SKU 经 {@link PricingService#resolvePrice}
+     * （qty=1）解析成交价；若解析价与公开单价不同（=命中有效专属价）则填 matchedPrice，unitPrice 恒保持公开价。
+     * {@code rtPhone} 为空（匿名）→ resolvePrice 直接回退公开价，matchedPrice 恒 null。
+     *
+     * @param rtPhone 已登录 RT 手机号；匿名传 null
      */
-    private List<StoreSkuVo> buildOnSaleSkus(Long tenantId, Long wholesalerId) {
+    List<StoreSkuVo> buildOnSaleSkus(Long tenantId, Long wholesalerId, String rtPhone) {
         // A2：仅 listed=true + 公开价，按 tenantId 显式隔离
         List<SkuVo> listedSkus = skuService.listByTenantForRt(tenantId, wholesalerId);
         if (listedSkus.isEmpty()) {
@@ -149,8 +169,28 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                         .moqPrice(sku.getMoqPrice())
                         .moqQty(sku.getMoqQty())
                         .stockQty(stockBySku.get(sku.getId()))
+                        .matchedPrice(resolveMatchedPrice(wholesalerId, sku, rtPhone))
                         .build())
                 .toList();
+    }
+
+    /**
+     * 解析该 SKU 对该 RT 的专属价（叠加字段）：匿名或未命中专属价 → null；命中且不同于公开单价 → 专属价。
+     *
+     * <p>浏览态无数量语境，qty 恒取 1（走单价而非起批价）；故仅当存在真正的客户专属价时
+     * resolved 才可能 ≠ 公开单价，据此把"命中专属价"与"回退公开价"区分开。
+     */
+    private BigDecimal resolveMatchedPrice(Long wholesalerId, SkuVo sku, String rtPhone) {
+        if (rtPhone == null || rtPhone.isBlank()) {
+            return null;
+        }
+        BigDecimal resolved = pricingService.resolvePrice(wholesalerId, sku.getId(), rtPhone, 1);
+        // resolved 与公开单价一致 → 无专属价（或专属价恰等于公开价），不展示 matchedPrice
+        if (resolved == null || sku.getUnitPrice() == null
+                || resolved.compareTo(sku.getUnitPrice()) == 0) {
+            return null;
+        }
+        return resolved;
     }
 
     // ==================== 进店解析（storeId / code → tenant） ====================

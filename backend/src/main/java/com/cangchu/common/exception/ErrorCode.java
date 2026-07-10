@@ -112,7 +112,18 @@ public enum ErrorCode {
     // 凭码注册时的码校验复用 AUTH_INVITE_001..004（41301-41304）；以下为 TA 生码/管理侧补充错误码。
     INVITE_ROLE_NOT_ALLOWED(50290, "员工注册码角色仅允许 WK 或 ST"),
     INVITE_CODE_NOT_FOUND(50291, "员工注册码不存在"),
-    INVITE_CODE_REVOKED(50292, "员工注册码已作废");
+    INVITE_CODE_REVOKED(50292, "员工注册码已作废"),
+
+    // ==================== PRICING (P2 定价 Wave 1) ====================
+    CUSTOMER_PRICE_NOT_FOUND(50300, "客户专属价不存在"),
+    CUSTOMER_PRICE_INVALID(50301, "专属价必须大于0"),
+    PRICE_MATCH_FAILED(50302, "价格匹配失败，请稍后重试"),
+
+    // ==================== PRICING 批量调价 (P2 定价 Wave 2) ====================
+    PRICE_BATCH_TOO_FREQUENT(50303, "调价操作过于频繁，请5分钟后再试"),
+    PRICE_BATCH_MODE_INVALID(50304, "调价方式非法或不适用于该价格类型"),
+    PRICE_BATCH_TARGET_REQUIRED(50305, "批量调价目标为空或参数缺失"),
+    PRICE_BATCH_LOCK_FAILED(50306, "调价繁忙，请稍后重试");
 
     private final int code;
     private final String message;

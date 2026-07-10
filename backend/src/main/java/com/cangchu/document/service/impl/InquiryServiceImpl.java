@@ -6,6 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
+import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
 import com.cangchu.document.entity.InquiryItem;
 import com.cangchu.document.entity.InquiryRequest;
@@ -19,6 +20,7 @@ import com.cangchu.document.service.InquiryService;
 import com.cangchu.document.vo.InquiryVo;
 import com.cangchu.inventory.dto.OutboundContext;
 import com.cangchu.inventory.service.InventoryService;
+import com.cangchu.pricing.service.PricingService;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.storefront.service.StoreFrontService;
@@ -33,7 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 询价服务实现（phase-1 C2：RT 提交 → WA 确认 → 自动转出库扣库存）。
@@ -70,6 +74,8 @@ public class InquiryServiceImpl implements InquiryService {
     private final StoreFrontService storeFrontService;
     private final DocumentNumberService documentNumberService;
     private final InventoryService inventoryService;
+    // P2 定价 Wave 3a：议价沉淀经 PricingService（document 域不直连 CustomerPriceMapper）
+    private final PricingService pricingService;
     private final SnowflakeIdUtil snowflakeIdUtil;
 
     // ==================== RT 提交询价 ====================
@@ -151,7 +157,22 @@ public class InquiryServiceImpl implements InquiryService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public InquiryVo confirmByWa(Long inquiryId, Long waUserId) {
+    public InquiryVo confirmByWa(Long inquiryId, ConfirmInquiryDto dto, Long waUserId) {
+        // P2 Wave 3a：dto 可空（无请求体沿用 phase-1 行为）
+        if (dto == null) {
+            dto = new ConfirmInquiryDto();
+        }
+        // 逐条议价映射：inquiryItemId → dealPrice（容错缺项/空值）
+        Map<Long, BigDecimal> dealOverrides = new HashMap<>();
+        if (dto.getItems() != null) {
+            for (ConfirmInquiryDto.Item it : dto.getItems()) {
+                if (it != null && it.getInquiryItemId() != null && it.getDealPrice() != null) {
+                    dealOverrides.put(it.getInquiryItemId(), it.getDealPrice());
+                }
+            }
+        }
+        boolean settle = dto.isSettleAsCustomerPrice();
+
         if (inquiryId == null) {
             throw new BizException(ErrorCode.INQUIRY_NOT_FOUND);
         }
@@ -186,6 +207,20 @@ public class InquiryServiceImpl implements InquiryService {
         List<InquiryItem> items = inquiryItemMapper.selectList(new LambdaQueryWrapper<InquiryItem>()
                 .eq(InquiryItem::getInquiryId, inquiry.getId()));
         for (InquiryItem item : items) {
+            // P2 Wave 3a：逐条议价 → 覆盖并落库成交价（phase-1 默认成交价=公开价快照）
+            BigDecimal dealPrice = item.getDealPrice();
+            if (dealOverrides.containsKey(item.getId())) {
+                BigDecimal override = dealOverrides.get(item.getId());
+                if (override.compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BizException(ErrorCode.CUSTOMER_PRICE_INVALID, "议定成交价必须大于0");
+                }
+                dealPrice = override;
+                item.setDealPrice(override);
+                inquiryItemMapper.update(null, new LambdaUpdateWrapper<InquiryItem>()
+                        .eq(InquiryItem::getId, item.getId())
+                        .set(InquiryItem::getDealPrice, override));
+            }
+
             String outDocNo = documentNumberService.generate(DocType.OUTBOUND, simpleCode);
             OutboundRequest out = new OutboundRequest();
             out.setId(snowflakeIdUtil.nextId());
@@ -212,6 +247,16 @@ public class InquiryServiceImpl implements InquiryService {
                     .refDocNo(outDocNo)
                     .operatorUserId(waUserId)
                     .build());
+
+            // P2 Wave 3a：议价沉淀。成交价≠提交时公开价快照才落客户专属价（同事务，回滚一并撤销）。
+            if (settle
+                    && inquiry.getRtPhone() != null && !inquiry.getRtPhone().isBlank()
+                    && dealPrice != null
+                    && (item.getUnitPriceSnapshot() == null
+                        || dealPrice.compareTo(item.getUnitPriceSnapshot()) != 0)) {
+                pricingService.settleFromInquiry(wholesalerId, inquiry.getRtPhone(),
+                        item.getSkuId(), dealPrice, inquiry.getDocNo(), waUserId);
+            }
         }
 
         // 全部成功 → CONFIRMED → COMPLETED

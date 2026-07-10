@@ -492,6 +492,15 @@ public class AccountServiceImpl implements AccountService {
         log.info("User {} logged out", userId);
     }
 
+    @Override
+    public String getPhoneByUserId(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        User user = userMapper.selectById(userId);
+        return user == null ? null : user.getPhone();
+    }
+
     // ==================== 私有方法 ====================
 
     /** 验证短信验证码 */
