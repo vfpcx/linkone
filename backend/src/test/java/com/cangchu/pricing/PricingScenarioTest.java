@@ -322,4 +322,54 @@ class PricingScenarioTest {
         assertThat(pricingService.resolvePrice(widL, skuL, expPhone, 1))
                 .as("过期专属价回退公开价").isEqualByComparingTo("10.00");
     }
+
+    // ======================================================================
+    // F1 回归：set → revoke → set-again 幂等（物理唯一键 upsert，不因 DISABLED 行残留而 500）
+    // ======================================================================
+
+    @Test
+    @DisplayName("PRICE-F1-01 set → revoke → 再 set 同 (商户,手机,SKU) → 成功且 ACTIVE 新价（无 DuplicateKey）")
+    void f1_reSetAfterRevokeIsIdempotent() {
+        TaContext ta = registerTaWithTenant();
+        String wid = createWholesaler(ta, "重设商户-" + ta.phone());
+        String skuId = createSku(ta, wid, "重设品-" + ta.phone());
+        Long widL = Long.valueOf(wid);
+        Long skuL = Long.valueOf(skuId);
+        String phone = rtPhone();
+
+        // set → ACTIVE 6.60
+        R<Map<String, Object>> set1 = setPrice(ta.token(), priceDto(wid, skuId, phone, 6.60));
+        assertThat(set1).isNotNull();
+        assertThat(set1.getCode()).isEqualTo(0);
+        String priceId = set1.getData().get("id").toString();
+        assertThat(pricingService.resolvePrice(widL, skuL, phone, 1)).isEqualByComparingTo("6.60");
+
+        // revoke（DELETE）→ 置 DISABLED（物理行残留，未软删）
+        R<Void> del = restTemplate.exchange(baseCustomerPrice + "/" + priceId, HttpMethod.DELETE,
+                new HttpEntity<>(bearer(ta.token())), VOID).getBody();
+        assertThat(del).isNotNull();
+        assertThat(del.getCode()).as("作废成功").isEqualTo(0);
+        // 作废后回退公开价（qty=1 → 单价 10.00）
+        assertThat(pricingService.resolvePrice(widL, skuL, phone, 1)).isEqualByComparingTo("10.00");
+
+        // 再 set 同 (商户,手机,SKU)：修复前会 selectOne(ACTIVE)=null → insert → DuplicateKey 500；
+        // 修复后按物理键命中 DISABLED 行 → UPDATE 并重置 ACTIVE
+        R<Map<String, Object>> set2 = setPrice(ta.token(), priceDto(wid, skuId, phone, 5.50));
+        assertThat(set2).isNotNull();
+        assertThat(set2.getCode()).as("re-set 应成功，不再 500").isEqualTo(0);
+        assertThat(set2.getData().get("status")).isEqualTo("ACTIVE");
+        assertThat(new BigDecimal(set2.getData().get("unitPrice").toString())).isEqualByComparingTo("5.50");
+
+        // resolvePrice 命中新专属价 5.50
+        assertThat(pricingService.resolvePrice(widL, skuL, phone, 1))
+                .as("re-set 后命中新专属价").isEqualByComparingTo("5.50");
+
+        // 列表中该 (商户,手机,SKU) 仅一条物理行，且 ACTIVE 5.50（未新增重复行）
+        R<List<Map<String, Object>>> list = listPrices(ta.token(), wid);
+        List<Map<String, Object>> forPhone = list.getData().stream()
+                .filter(m -> phone.equals(m.get("rtPhone")) && skuId.equals(m.get("skuId").toString()))
+                .toList();
+        assertThat(forPhone).as("同 (商户,手机,SKU) 仅一条物理行").hasSize(1);
+        assertThat(forPhone.get(0).get("status")).isEqualTo("ACTIVE");
+    }
 }

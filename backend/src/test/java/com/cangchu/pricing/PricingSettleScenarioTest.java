@@ -189,6 +189,36 @@ class PricingSettleScenarioTest {
                 .eq(CustomerPrice::getSource, CustomerPrice.SOURCE_FROM_INQUIRY));
     }
 
+    /** 所有物理行（含 DISABLED，唯一键 (wholesaler, phone, sku)）。 */
+    private List<CustomerPrice> allRows(long wholesalerId, String rtPhone, long skuId) {
+        return customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                .eq(CustomerPrice::getRtPhone, rtPhone)
+                .eq(CustomerPrice::getSkuId, skuId));
+    }
+
+    /** 预置一条 DISABLED 专属价（source=manual），模拟先前被作废/失效的残留物理行。 */
+    private void seedDisabledCustomerPrice(long tenantId, long wholesalerId, long skuId,
+                                           String rtPhone, BigDecimal price) {
+        CustomerPrice cp = new CustomerPrice();
+        cp.setId(snowflakeIdUtil.nextId());
+        cp.setTenantId(tenantId);
+        cp.setWholesalerId(wholesalerId);
+        cp.setSkuId(skuId);
+        cp.setRtPhone(rtPhone);
+        cp.setUnitPrice(price);
+        cp.setStatus(CustomerPrice.STATUS_DISABLED);
+        cp.setSource(CustomerPrice.SOURCE_MANUAL);
+        customerPriceMapper.insert(cp);
+    }
+
+    private int stockQty(long wholesalerId, long skuId) {
+        return inventoryService.queryInventory(wholesalerId, skuId).stream()
+                .filter(v -> skuId == v.getSkuId())
+                .map(com.cangchu.inventory.vo.InventoryVo::getQty)
+                .findFirst().orElse(0);
+    }
+
     // ======================================================================
     // S1 议价沉淀
     // ======================================================================
@@ -254,6 +284,53 @@ class PricingSettleScenarioTest {
         assertThat(settledRows(wid, RT_PHONE, sku)).isEmpty();
         // 无专属价 → resolvePrice 回退公开价（qty=20>=起批量10 → 8.50）
         assertThat(pricingService.resolvePrice(wid, sku, RT_PHONE, 20)).isEqualByComparingTo("8.50");
+    }
+
+    // ======================================================================
+    // F1-b 回归：既有 DISABLED 专属价残留时，settle 不再 DuplicateKey → 确认整单不回滚
+    // ======================================================================
+
+    @Test
+    @DisplayName("SETTLE-F1-01 预置 DISABLED 专属价 + 议价≠公开 + settle → 确认成功、扣库存、专属价重置 ACTIVE 沉淀价")
+    void f1b_settleReactivatesDisabledRowNoRollback() {
+        long tenantId = baseTenant(730_000_610_001L);
+        long store = seedStore(tenantId);
+        long wid = seedWholesaler(tenantId);
+        long sku = seedSku(tenantId, wid);
+        seedStock(tenantId, wid, sku, 100);
+        long wa = seedWaUser(tenantId, wid);
+
+        // 预置：同 (商户,手机,SKU) 已有一条 DISABLED 残留行（旧价 7.77）。
+        // 修复前 settle 走 selectOne(ACTIVE)=null → insert → 撞唯一键 DuplicateKeyException，
+        // 在 confirmByWa 事务内会连累整单（含扣库存）回滚。
+        seedDisabledCustomerPrice(tenantId, wid, sku, RT_PHONE, new BigDecimal("7.77"));
+
+        TenantContext.clear();
+        InquiryVo submitted = inquiryService.submitByRt(submitDto(store, wid, sku, 20));
+        long inquiryId = submitted.getId();
+        long itemId = submitted.getItems().get(0).getId();
+        assertThat(submitted.getItems().get(0).getUnitPriceSnapshot()).isEqualByComparingTo("9.90");
+
+        // 议价 6.00（≠公开价 9.90）+ 沉淀 → 应成功（不再回滚）
+        TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
+        InquiryVo confirmed = inquiryService.confirmByWa(inquiryId,
+                confirmDto(itemId, new BigDecimal("6.00"), true), wa);
+        assertThat(confirmed.getStatus()).as("确认应到 COMPLETED（无回滚）").isEqualTo("COMPLETED");
+
+        // 库存确实被扣减：100 - 20 = 80（证明确认事务未回滚）
+        assertThat(stockQty(wid, sku)).as("库存已扣减 20").isEqualTo(80);
+
+        // 物理行仍只有一条（UPDATE 复用，非新增），状态重置 ACTIVE、价=沉淀价 6.00、source=from_inquiry
+        List<CustomerPrice> all = allRows(wid, RT_PHONE, sku);
+        assertThat(all).as("同 (商户,手机,SKU) 仅一条物理行").hasSize(1);
+        CustomerPrice cp = all.get(0);
+        assertThat(cp.getStatus()).isEqualTo(CustomerPrice.STATUS_ACTIVE);
+        assertThat(cp.getUnitPrice()).isEqualByComparingTo("6.00");
+        assertThat(cp.getSource()).isEqualTo(CustomerPrice.SOURCE_FROM_INQUIRY);
+
+        // resolvePrice 命中重新激活的沉淀价
+        assertThat(pricingService.resolvePrice(wid, sku, RT_PHONE, 1)).isEqualByComparingTo("6.00");
+        assertThat(pricingService.resolvePrice(wid, sku, RT_PHONE, 100)).isEqualByComparingTo("6.00");
     }
 
     // ======================================================================

@@ -34,6 +34,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -84,9 +86,8 @@ public class PricingServiceImpl implements PricingService {
     /** 专属价命中/未命中结论缓存 TTL（秒）。 */
     private static final long MATCH_CACHE_TTL_SEC = 60L;
 
-    /** 批量调价分布式锁 tryLock 等待/租约（秒）。 */
+    /** 批量调价分布式锁 tryLock 等待（秒）；租约交由 Redisson 看门狗自动续租（F4）。 */
     private static final long LOCK_WAIT_SECONDS = 30L;
-    private static final long LOCK_LEASE_SECONDS = 15L;
     /** 批量调价 5 分钟防重冷却（秒）。 */
     private static final long BATCH_COOLDOWN_SEC = 300L;
     /** before_after_json 最多保留的明细条数（防止超大 JSON）。 */
@@ -107,12 +108,14 @@ public class PricingServiceImpl implements PricingService {
         requireWaOrTa(wholesaler, operatorUserId);
         validatePrice(dto.getUnitPrice());
 
-        // upsert on 唯一键 (wholesaler_id, rt_phone, sku_id)：已有 ACTIVE 行则改，否则新建
+        // F1：upsert 必须匹配物理唯一键 (wholesaler_id, rt_phone, sku_id)，不按 status 过滤。
+        // revoke/批量 DISABLE 只置 status=DISABLED（不软删，行仍在），若按 status=ACTIVE 查会 miss
+        // → insert → DuplicateKeyException（未处理 500，且在 confirmByWa 事务内会连累整单回滚）。
+        // 命中任一状态的物理行则改价并重置 status=ACTIVE（重新授予被作废/过期的专属价），仅无行时才 insert。
         CustomerPrice existing = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
                 .eq(CustomerPrice::getWholesalerId, dto.getWholesalerId())
                 .eq(CustomerPrice::getRtPhone, dto.getRtPhone())
                 .eq(CustomerPrice::getSkuId, dto.getSkuId())
-                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
                 .last("LIMIT 1"));
 
         CustomerPrice result;
@@ -122,9 +125,13 @@ public class PricingServiceImpl implements PricingService {
                     .eq(CustomerPrice::getId, existing.getId())
                     .set(CustomerPrice::getUnitPrice, dto.getUnitPrice())
                     .set(CustomerPrice::getExpireAt, dto.getExpireAt())
+                    .set(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
+                    .set(CustomerPrice::getSource, CustomerPrice.SOURCE_MANUAL)
                     .set(CustomerPrice::getUpdatedAt, now));
             existing.setUnitPrice(dto.getUnitPrice());
             existing.setExpireAt(dto.getExpireAt());
+            existing.setStatus(CustomerPrice.STATUS_ACTIVE);
+            existing.setSource(CustomerPrice.SOURCE_MANUAL);
             existing.setUpdatedAt(now);
             result = existing;
         } else {
@@ -143,7 +150,7 @@ public class PricingServiceImpl implements PricingService {
             result = cp;
         }
 
-        invalidate(dto.getWholesalerId(), dto.getRtPhone(), dto.getSkuId());
+        invalidateAfterCommit(dto.getWholesalerId(), dto.getRtPhone(), dto.getSkuId());
         log.info("[P2] operator {} 设置专属价 wholesaler={} phone={} sku={} price={}",
                 operatorUserId, dto.getWholesalerId(), dto.getRtPhone(), dto.getSkuId(), dto.getUnitPrice());
         return toVo(result);
@@ -159,18 +166,24 @@ public class PricingServiceImpl implements PricingService {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
 
-        // upsert on 唯一键 (wholesaler_id, rt_phone, sku_id)：已有 ACTIVE 行则改价，否则新建（source=from_inquiry）
+        // F1：upsert 匹配物理唯一键 (wholesaler_id, rt_phone, sku_id)，不按 status 过滤。
+        // 该方法在 confirmByWa 的 @Transactional 内调用：若因既有 DISABLED/EXPIRED 行 miss→insert
+        // 触发 DuplicateKeyException，会连累整个确认事务（含扣库存）回滚。命中任一状态行则改价并
+        // 重置 status=ACTIVE、source=from_inquiry（重新授予沉淀价），仅无行时才 insert。
         CustomerPrice existing = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
                 .eq(CustomerPrice::getWholesalerId, wholesalerId)
                 .eq(CustomerPrice::getRtPhone, rtPhone)
                 .eq(CustomerPrice::getSkuId, skuId)
-                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
                 .last("LIMIT 1"));
 
         if (existing != null) {
             customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
                     .eq(CustomerPrice::getId, existing.getId())
                     .set(CustomerPrice::getUnitPrice, dealPrice)
+                    .set(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
+                    .set(CustomerPrice::getSource, CustomerPrice.SOURCE_FROM_INQUIRY)
+                    .set(CustomerPrice::getSourceDocNo, sourceDocNo)
+                    .set(CustomerPrice::getExpireAt, (LocalDateTime) null)
                     .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
         } else {
             CustomerPrice cp = new CustomerPrice();
@@ -187,7 +200,7 @@ public class PricingServiceImpl implements PricingService {
             customerPriceMapper.insert(cp);
         }
 
-        invalidate(wholesalerId, rtPhone, skuId);
+        invalidateAfterCommit(wholesalerId, rtPhone, skuId);
         log.info("[P2] operator {} 议价沉淀 wholesaler={} phone={} sku={} price={} src={}",
                 operatorUserId, wholesalerId, rtPhone, skuId, dealPrice, sourceDocNo);
     }
@@ -219,7 +232,7 @@ public class PricingServiceImpl implements PricingService {
         uw.set(CustomerPrice::getUpdatedAt, now);
         customerPriceMapper.update(null, uw);
 
-        invalidate(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+        invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
         return toVo(cp);
     }
 
@@ -231,7 +244,7 @@ public class PricingServiceImpl implements PricingService {
                 .eq(CustomerPrice::getId, id)
                 .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
                 .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
-        invalidate(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+        invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
         log.info("[P2] operator {} 作废专属价 {}", operatorUserId, id);
     }
 
@@ -252,7 +265,7 @@ public class PricingServiceImpl implements PricingService {
                 .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
                 .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
         for (CustomerPrice cp : rows) {
-            invalidate(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
         }
         log.info("[P2] SKU {} 删除级联：作废专属价 {} 行", skuId, rows.size());
         return rows.size();
@@ -431,8 +444,8 @@ public class PricingServiceImpl implements PricingService {
             }
             uw.set(CustomerPrice::getUpdatedAt, now);
             customerPriceMapper.update(null, uw);
-            // 失效价格匹配缓存（复用 Wave 1 私有方法）
-            invalidate(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+            // 失效价格匹配缓存（F3：提交后再删，避免读方回填脏价）
+            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
             recordBeforeAfter(beforeAfter, cp.getId(), before, after);
             affected++;
         }
@@ -483,9 +496,31 @@ public class PricingServiceImpl implements PricingService {
         return "price:match:" + wholesalerId + ":" + rtPhone + ":" + skuId;
     }
 
-    /** 写后失效专属价匹配缓存。 */
+    /** 写后失效专属价匹配缓存（立即删除，用于无事务上下文）。 */
     private void invalidate(Long wholesalerId, String rtPhone, Long skuId) {
         redissonClient.getBucket(matchKey(wholesalerId, rtPhone, skuId)).delete();
+    }
+
+    /**
+     * F3：写后失效缓存必须在事务提交后执行。
+     *
+     * <p>若在提交前删缓存，UPDATE-改价路径下并发的 resolvePrice（读方不加锁）可能
+     * 删→miss→读到未提交的旧价→回填，导致最长 60s TTL 内返回脏价。
+     * 故：有活跃事务时注册 afterCommit 回调删缓存；无事务时立即删除。
+     * key 在注册前捕获，避免闭包引用可变状态。
+     */
+    private void invalidateAfterCommit(Long wholesalerId, String rtPhone, Long skuId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            final String key = matchKey(wholesalerId, rtPhone, skuId);
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    redissonClient.getBucket(key).delete();
+                }
+            });
+        } else {
+            invalidate(wholesalerId, rtPhone, skuId);
+        }
     }
 
     /**
@@ -524,16 +559,23 @@ public class PricingServiceImpl implements PricingService {
     // ---- Wave 2 批量调价私有工具 ----
 
     /**
-     * 批量调价并发/防重护栏：先查 5 分钟冷却，再取 Redisson 锁跑事务体，成功后写冷却。
+     * 批量调价并发/防重护栏：取 Redisson 锁 → 锁内重查/写 5 分钟冷却 → 跑事务体。
      *
-     * <p>冷却用「get 判空 + 成功后 set」（非原子 trySet）：
-     * 并发突发时各线程在首个事务提交前都读到空冷却，遂全部通过冷却门、再由锁串行化（无丢失更新）；
-     * 而串行的两次快速调用，第二次读到冷却 → 拒绝（PRICE_BATCH_TOO_FREQUENT）。
+     * <p>F2：冷却门的权威判定必须在临界区（锁内）。原实现「锁外 get + 解锁后 set」有并发漏洞——
+     * 两个并发调用都在首个事务写冷却前读到空冷却，遂都通过门、再由锁串行执行 → 双双成功
+     * （如 PCT_UP 10% 被叠加两次而复利上涨）。修正：先取锁，锁内 re-check 冷却（有则拒
+     * PRICE_BATCH_TOO_FREQUENT），事务成功后在锁内 set 冷却再释放锁；后到者拿到锁必见冷却 → 拒绝。
+     * 保留锁外快速失败路径，但权威门在锁内。冷却只在成功后设置，失败可立即重试。
+     *
+     * <p>F4：{@code tryLock} 不传显式 leaseTime，启用 Redisson 看门狗自动续租——200 SKU 批量
+     * 可能超过固定租约（旧值 15s）导致租约中途到期、等待者抢锁并发执行（丢失更新）。
+     * 看门狗随持有线程生命周期续租，在 finally 释放。
      */
     private BatchPriceResultVo runGuarded(Long wholesalerId, String changeType,
                                           Supplier<BatchPriceResultVo> txBody) {
         String cdKey = "price:batch:cd:" + wholesalerId + ":" + changeType;
         RBucket<String> cooldown = redissonClient.getBucket(cdKey);
+        // 快速失败路径（非权威）：无需抢锁即可拒绝明显过频的调用
         if (cooldown.get() != null) {
             throw new BizException(ErrorCode.PRICE_BATCH_TOO_FREQUENT);
         }
@@ -541,7 +583,8 @@ public class PricingServiceImpl implements PricingService {
         RLock lock = redissonClient.getLock("lock:price:" + wholesalerId);
         boolean acquired;
         try {
-            acquired = lock.tryLock(LOCK_WAIT_SECONDS, LOCK_LEASE_SECONDS, TimeUnit.SECONDS);
+            // F4：不传 leaseTime → 看门狗自动续租，避免长批量中途租约到期
+            acquired = lock.tryLock(LOCK_WAIT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.PRICE_BATCH_LOCK_FAILED);
@@ -549,18 +592,21 @@ public class PricingServiceImpl implements PricingService {
         if (!acquired) {
             throw new BizException(ErrorCode.PRICE_BATCH_LOCK_FAILED);
         }
-        BatchPriceResultVo result;
         try {
-            // 事务体经 self 代理调用，保证 @Transactional 生效；提交后才在 finally 释放锁
-            result = txBody.get();
+            // F2：权威冷却门——锁内 re-check，后到的并发调用在此被拒绝
+            if (cooldown.get() != null) {
+                throw new BizException(ErrorCode.PRICE_BATCH_TOO_FREQUENT);
+            }
+            // 事务体经 self 代理调用，保证 @Transactional 生效
+            BatchPriceResultVo result = txBody.get();
+            // 仅在成功（未抛异常）后、释放锁前在锁内设置冷却，确保后到者必见
+            cooldown.set("1", BATCH_COOLDOWN_SEC, TimeUnit.SECONDS);
+            return result;
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }
-        // 仅在成功（未抛异常）后设置冷却
-        cooldown.set("1", BATCH_COOLDOWN_SEC, TimeUnit.SECONDS);
-        return result;
     }
 
     /** 公开价批量：仅 PCT_UP/PCT_DOWN/SET_VALUE/DELTA；DISABLE/SET_EXPIRE 拒绝；value 必填。 */
