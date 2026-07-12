@@ -442,4 +442,59 @@ class PricingBatchScenarioTest {
         assertThat(second).isNotNull();
         assertThat(second.getCode()).as("5 分钟内第二次应被防重拒绝").isEqualTo(50303);
     }
+
+    @Test
+    @DisplayName("BATCH-F2-01 并发双提交同商户批调 → 冷却门锁内判定，恰好 1 次成功，另 1 次 50303")
+    void f2_concurrentDoubleSubmitExactlyOneSucceeds() throws InterruptedException {
+        TaContext ta = registerTaWithTenant();
+        String wid = createWholesaler(ta, "并发防重商户-" + ta.phone());
+        // 起始价 100.00：若两次都成功且 PCT_UP 10% 叠加会复利涨到 121.00（修复前的漏洞表征）
+        String skuId = createSku(ta, wid, "并发防重品-" + ta.phone(), 100.00);
+
+        int threads = 2;
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger tooFrequent = new AtomicInteger();
+        AtomicInteger other = new AtomicInteger();
+
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("wholesalerId", wid);
+        dto.put("skuIds", List.of(skuId));
+        dto.put("adjustMode", "PCT_UP");
+        dto.put("value", 10);
+
+        try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < threads; i++) {
+                exec.submit(() -> {
+                    ready.countDown();
+                    try {
+                        start.await();
+                        R<Map<String, Object>> resp = postBatchPublic(ta.token(), dto);
+                        int code = resp == null ? -1 : resp.getCode();
+                        if (code == 0) {
+                            ok.incrementAndGet();
+                        } else if (code == 50303) {
+                            tooFrequent.incrementAndGet();
+                        } else {
+                            other.incrementAndGet();
+                        }
+                    } catch (Exception e) {
+                        other.incrementAndGet();
+                    }
+                });
+            }
+            ready.await();
+            start.countDown();
+        }
+
+        // F2：冷却门在锁内权威判定 → 恰好一次成功，另一次被防重拒绝（50303），无其它错误
+        assertThat(ok.get()).as("恰好 1 次成功").isEqualTo(1);
+        assertThat(tooFrequent.get()).as("另 1 次防重拒绝 50303").isEqualTo(1);
+        assertThat(other.get()).as("无锁失败/其它错误").isZero();
+
+        // 且价格只涨了一次：100 * 1.1 = 110.00（未被双重叠加到 121.00）
+        assertThat(skuUnitPrice(ta, wid, skuId))
+                .as("PCT_UP 只应用一次，未复利叠加").isEqualByComparingTo("110.00");
+    }
 }
