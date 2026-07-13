@@ -6,3 +6,4 @@ backend/logs/
 node_modules/
 target/
 dist/
+dump.rdb
