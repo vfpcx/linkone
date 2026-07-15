@@ -11,6 +11,7 @@ import type {
   ApprovalCenterResponse,
   ApproveWaRequest,
   ArbitrateInboundRequest,
+  AuditWaApplicationRequest,
   BillsOverviewQuery,
   BillsOverviewResponse,
   CreateSelfOperatedWaRequest,
@@ -23,6 +24,7 @@ import type {
   TenantDashboardResponse,
   TenantSettings,
   UpdateTenantSettingsRequest,
+  WaApplicationListQuery,
   WholesalerApplication,
   PageData,
 } from '@cangchu/api-types'
@@ -153,30 +155,43 @@ export const tenantApi = {
   listInviteCodes: () =>
     request<PageData<InviteCode>>({ method: 'GET', url: '/tenant/invite-codes' }),
 
-  /** ⚠️ NOT IMPL · WA 入驻申请列表 */
-  listWaApplications: () =>
+  // ============================================================
+  // P2 入驻生态 · Wave1 契约（后端 feat/p2-onboarding 并行开发中）
+  // ============================================================
+
+  /** ✅ P2 · WA 入驻申请分页列表（TA；status/page/size 均可选） */
+  listWaApplications: (params?: WaApplicationListQuery) =>
     request<PageData<WholesalerApplication>>({
       method: 'GET',
       url: '/tenant/wholesaler-applications',
+      params,
     }),
 
-  /** ⚠️ NOT IMPL · 批准 WA 入驻 */
+  /** ✅ P2 · TA 审批 WA 入驻（统一 audit 端点；REJECTED 时 remark 必填） */
+  auditWaApplication: (id: string, data: AuditWaApplicationRequest) =>
+    request<void>({
+      method: 'POST',
+      url: `/tenant/wholesaler-applications/${id}/audit`,
+      data,
+    }),
+
+  /** ✅ P2 · 批准 WA 入驻（audit 端点包装，保留旧签名兼容） */
   approveWa: (id: string, data?: ApproveWaRequest) =>
     request<void>({
       method: 'POST',
-      url: `/tenant/wholesaler-applications/${id}/approve`,
-      data,
+      url: `/tenant/wholesaler-applications/${id}/audit`,
+      data: { action: 'APPROVED', remark: data?.remark },
     }),
 
-  /** ⚠️ NOT IMPL · 驳回 WA 入驻 */
+  /** ✅ P2 · 驳回 WA 入驻（audit 端点包装；理由必填） */
   rejectWa: (id: string, data: RejectWaRequest) =>
     request<void>({
       method: 'POST',
-      url: `/tenant/wholesaler-applications/${id}/reject`,
-      data,
+      url: `/tenant/wholesaler-applications/${id}/audit`,
+      data: { action: 'REJECTED', remark: data.reason },
     }),
 
-  /** ⚠️ NOT IMPL · 创建自营 WA */
+  /** ✅ P2 · 创建自营 WA（D15 统一入驻链路，后端 Wave1 落地） */
   createSelfOperatedWa: (data: CreateSelfOperatedWaRequest) =>
     request<{ wholesalerId: string }>({
       method: 'POST',
@@ -184,7 +199,7 @@ export const tenantApi = {
       data,
     }),
 
-  /** ⚠️ NOT IMPL · 强制下架 WA */
+  /** ⚠️ NOT IMPL · 强制下架 WA（R14 · 后端 Wave2 落地） */
   forceOfflineWa: (id: string, data: ForceOfflineWaRequest) =>
     request<void>({ method: 'POST', url: `/tenant/wholesalers/${id}/force-offline`, data }),
 

@@ -190,21 +190,76 @@ export interface CreateEmployeeInviteRequest {
   expiresInDays?: number
 }
 
-// ============ WA 入驻审批 ============
+// ============ WA 入驻审批（P2 入驻生态 Wave1 契约） ============
+/**
+ * 契约（shared/task_plan.md 接口契约 + architecture/03-database-schema.sql wholesaler_applications）：
+ *  - POST /api/v1/wholesaler/applications                    WA 提交入驻申请（body: targetTenantId/name/contact/phone/license?）
+ *  - GET  /api/v1/tenant/wholesaler-applications?status=&page=&size=   TA 分页列表
+ *  - POST /api/v1/tenant/wholesaler-applications/{id}/audit  TA 审批（action: APPROVED|REJECTED，驳回 remark 必填）
+ * 错误码：50201 审核中（重复提交）/ 50204 重复入驻 / 50205 黑名单拦截。
+ */
+export type WaApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
 export interface WholesalerApplication {
   applicationId: SnowflakeId
+  /** 目标仓库（tenant）ID */
+  tenantId?: SnowflakeId
+  /** 申请人用户 ID */
+  applicantUserId?: SnowflakeId
   wholesalerName: string
   contactName: string
   contactPhone: string
+  /** 营业执照号（可选键，黑名单双键之一） */
+  licenseNo?: string
   businessLicenseUrl?: string
   appliedAt: string
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: WaApplicationStatus
+  /** 审核备注；REJECTED 时为驳回理由 */
+  remark?: string
+  /** 审核时间 */
+  auditedAt?: string
+  /** 通过后生成的商户 ID */
+  wholesalerId?: SnowflakeId
+}
+
+/** WA 提交入驻申请入参（POST /wholesaler/applications） */
+export interface SubmitWaApplicationRequest {
+  /** 目标仓库 tenantId（雪花字符串） */
+  targetTenantId: SnowflakeId
+  /** 商户名 */
+  name: string
+  /** 联系人 */
+  contact: string
+  /** 联系电话 */
+  phone: string
+  /** 营业执照号（可选） */
+  license?: string
+}
+
+/** WA 提交入驻申请返回 */
+export interface SubmitWaApplicationResponse {
+  applicationId: SnowflakeId
+  status: WaApplicationStatus
+}
+
+/** TA 审批入参（POST /tenant/wholesaler-applications/{id}/audit；REJECTED 时 remark 必填） */
+export interface AuditWaApplicationRequest {
+  action: 'APPROVED' | 'REJECTED'
   remark?: string
 }
 
+/** TA 分页列表查询参数 */
+export interface WaApplicationListQuery {
+  status?: WaApplicationStatus
+  page?: number
+  size?: number
+}
+
+/** @deprecated 后端统一走 audit 端点，保留兼容旧封装 */
 export interface ApproveWaRequest {
   remark?: string
 }
+/** @deprecated 后端统一走 audit 端点，保留兼容旧封装 */
 export interface RejectWaRequest {
   reason: string
 }
