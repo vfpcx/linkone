@@ -271,10 +271,14 @@ export interface CreateSelfOperatedWaRequest {
   contactName?: string
 }
 
-// ============ 强制下架 WA ============
+// ============ 强制下架 WA（R14 · Wave2 契约） ============
+/**
+ * POST /api/v1/tenant/wholesalers/{id}/force-offline
+ * TA 单方即时生效，不走审批；不可原地恢复（已下架→正常不可达）。
+ */
 export interface ForceOfflineWaRequest {
+  /** 下架原因（5~200 字，留痕并通知商户） */
   reason: string
-  effectImmediate: boolean
 }
 
 // ============ 审批中心 ============

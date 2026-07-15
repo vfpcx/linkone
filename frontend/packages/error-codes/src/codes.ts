@@ -110,6 +110,10 @@ export enum ErrorCode {
   // 员工注册码已作废（TA 主动作废 / phase-1 EmployeeInvite REVOKED）
   STATE_INVITE_REVOKED = 50292,
 
+  // R13 退驻前置不满足（P2 入驻生态 · 50310-50329 段为入驻扩展，契约 50312+）
+  // 具体子码由后端 Wave2 落地；前端按 isWithdrawPreconditionFailed 段判断即可
+  STATE_WITHDRAW_PRECONDITION = 50312,
+
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,
   STATE_BILL_PAID = 50303,
@@ -188,4 +192,12 @@ export function isLogoutRequired(code: number): boolean {
     code === ErrorCode.AUTH_TOKEN_INVALID ||
     code === ErrorCode.AUTH_USER_FROZEN
   )
+}
+
+/**
+ * R13 退驻前置不满足段（50310-50329，契约 50312+）
+ * 前端命中时应刷新退驻前置自查清单并回显未通过项
+ */
+export function isWithdrawPreconditionFailed(code: number): boolean {
+  return code >= 50310 && code <= 50329
 }
