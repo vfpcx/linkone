@@ -201,13 +201,24 @@
 
 ### STATE_WHOLESALER（50200–50299）批发商状态
 
+> P2 入驻 Wave1 落地（决策 O-3）：50201–50205 已在 ErrorCode 枚举实现；50203/50204 语义
+> 由原「退驻前置」预留调整为入驻主链实际用途（Team Lead 拍板，Wave1 任务指令）。
+> R13 退驻前置校验（账单未结清/库存未清空）在 Wave2 落地时使用溢出段 50312+。
+
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
 |---|---|---|---|---|---|
-| 50201 | `STATE_WHOLESALER_001` | 200 | 批发商入驻审核中 | Wholesaler pending audit | — |
-| 50202 | `STATE_WHOLESALER_002` | 200 | 批发商已退驻 | Wholesaler withdrawn | — |
-| 50203 | `STATE_WHOLESALER_003` | 200 | 退驻申请前需结清账单 | Cannot withdraw with unpaid bills | — |
-| 50204 | `STATE_WHOLESALER_004` | 200 | 退驻申请前需清空库存 | Cannot withdraw with non-zero stock | — |
-| 50205 | `STATE_WHOLESALER_005` | 200 | 批发商已在黑名单中，无法入驻 | Wholesaler in blacklist | — |
+| 50201 | `WHOLESALER_APPLICATION_PENDING` | 200 | 批发商入驻审核中，请勿重复申请 | Duplicate pending application | 等待 TA 审批 |
+| 50202 | `WHOLESALER_WITHDRAWN` | 200 | 批发商已退驻 | Wholesaler withdrawn | Wave2 R13 使用 |
+| 50203 | `WHOLESALER_APPLICATION_NOT_AUDITABLE` | 200 | 入驻申请不存在或当前状态不可审核 | Application not found / not PENDING（含跨租户不可见、并发审核被抢占） | 刷新列表 |
+| 50204 | `WHOLESALER_ALREADY_ONBOARDED` | 200 | 该账号已入驻批发商，一个账号仅可入驻一个仓库 | WA already bound to an active wholesaler | — |
+| 50205 | `BLACKLIST_HIT` | 200 | 已被列入平台黑名单，无法入驻 | Blacklist hit（自助申请 / OPS 代建 / TA 自营三路径同检，决策 O-2） | 联系平台 |
+
+### 黑名单管理（50310–50329，O-3 溢出段，P2 Wave1）
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50310 | `BLACKLIST_ENTRY_EXISTS` | 200 | 黑名单条目已存在 | Duplicate blacklist entry (type,value) | — |
+| 50311 | `BLACKLIST_ENTRY_NOT_FOUND` | 200 | 黑名单条目不存在 | Entry not found or already removed | — |
 
 ### STATE_BILL（50300–50399）账单状态
 
