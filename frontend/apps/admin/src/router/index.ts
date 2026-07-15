@@ -122,6 +122,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'OPS', title: 'OPS 控制台' },
   },
   {
+    path: '/ops/tenant-audit',
+    name: 'ops-tenant-audit',
+    component: () => import('@/views/ops/TenantAudit.vue'),
+    meta: { role: 'OPS', title: '租户审核' },
+  },
+  {
     path: '/ops/blacklist',
     name: 'ops-blacklist',
     component: () => import('@/views/ops/Blacklist.vue'),

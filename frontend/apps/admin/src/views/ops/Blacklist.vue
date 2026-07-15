@@ -20,6 +20,7 @@ import {
   Bell,
   Monitor,
   CircleClose,
+  Stamp,
   Plus,
   Refresh,
 } from '@element-plus/icons-vue'
@@ -65,6 +66,7 @@ const activeMenu = ref('/ops/blacklist')
 
 const menus = [
   { key: '/ops/dashboard', label: '运营控制台', icon: Monitor },
+  { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
 ]
 
@@ -73,7 +75,7 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ops/dashboard') {
+  if (key === '/ops/dashboard' || key === '/ops/tenant-audit') {
     router.push(key)
     return
   }
