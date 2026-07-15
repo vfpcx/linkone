@@ -123,7 +123,19 @@ public enum ErrorCode {
     PRICE_BATCH_TOO_FREQUENT(50303, "调价操作过于频繁，请5分钟后再试"),
     PRICE_BATCH_MODE_INVALID(50304, "调价方式非法或不适用于该价格类型"),
     PRICE_BATCH_TARGET_REQUIRED(50305, "批量调价目标为空或参数缺失"),
-    PRICE_BATCH_LOCK_FAILED(50306, "调价繁忙，请稍后重试");
+    PRICE_BATCH_LOCK_FAILED(50306, "调价繁忙，请稍后重试"),
+
+    // ==================== ONBOARDING 入驻主链 (P2 入驻 Wave 1) ====================
+    // 落地 05-error-codes.md STATE_WHOLESALER 预留段 50201-50205（决策 O-3）；溢出用 50310+。
+    WHOLESALER_APPLICATION_PENDING(50201, "批发商入驻审核中，请勿重复申请"),
+    WHOLESALER_WITHDRAWN(50202, "批发商已退驻"),
+    WHOLESALER_APPLICATION_NOT_AUDITABLE(50203, "入驻申请不存在或当前状态不可审核"),
+    WHOLESALER_ALREADY_ONBOARDED(50204, "该账号已入驻批发商，一个账号仅可入驻一个仓库"),
+    BLACKLIST_HIT(50205, "已被列入平台黑名单，无法入驻"),
+
+    // ==================== BLACKLIST 管理 (P2 入驻 Wave 1，O-3 溢出段 50310+) ====================
+    BLACKLIST_ENTRY_EXISTS(50310, "黑名单条目已存在"),
+    BLACKLIST_ENTRY_NOT_FOUND(50311, "黑名单条目不存在");
 
     private final int code;
     private final String message;

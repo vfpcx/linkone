@@ -37,6 +37,9 @@ public class Wholesaler {
 
     private String source;
 
+    /** 退驻申请时间（60 天可恢复，R13 逻辑 Wave2 落地；本波仅建列） */
+    private LocalDateTime withdrawApplyAt;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
