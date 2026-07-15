@@ -35,6 +35,7 @@ import {
   ChatLineSquare,
   Setting,
   TrendCharts,
+  Stamp,
 } from '@element-plus/icons-vue'
 import { CapacityBar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import { useAuthStore } from '@/stores/auth'
@@ -111,6 +112,12 @@ const menus = computed<MenuItem[]>(() => [
   { key: '/ta/settings', label: '店铺设置', icon: Setting },
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
+  {
+    key: '/ta/wholesaler-applications',
+    label: '入驻审批',
+    icon: Stamp,
+    badge: dashboard.value.kpi.pendingInbound,
+  },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   {
     key: '/ta/approvals',
@@ -131,7 +138,12 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ta/settings' || key === '/ta/wholesalers' || key === '/ta/employees') {
+  if (
+    key === '/ta/settings' ||
+    key === '/ta/wholesalers' ||
+    key === '/ta/employees' ||
+    key === '/ta/wholesaler-applications'
+  ) {
     router.push(key)
     return
   }

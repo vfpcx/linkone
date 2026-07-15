@@ -28,6 +28,7 @@ import {
   ChatLineSquare,
   Setting,
   TrendCharts,
+  Stamp,
 } from '@element-plus/icons-vue'
 import type {
   TenantSettings,
@@ -88,6 +89,7 @@ const menus: MenuItem[] = [
   { key: '/ta/settings', label: '店铺设置', icon: Setting },
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
+  { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '单据审批', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -99,7 +101,12 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ta/dashboard' || key === '/ta/wholesalers' || key === '/ta/employees') {
+  if (
+    key === '/ta/dashboard' ||
+    key === '/ta/wholesalers' ||
+    key === '/ta/employees' ||
+    key === '/ta/wholesaler-applications'
+  ) {
     router.push(key)
     return
   }

@@ -23,6 +23,7 @@ import {
   Document,
   Refresh,
   Check,
+  Shop,
 } from '@element-plus/icons-vue'
 import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
@@ -64,16 +65,21 @@ const handleProfileMenu = async (key: string) => {
   }
 }
 
-// ============ 菜单（WA 端 · phase-1 仅询价确认可用） ============
+// ============ 菜单（WA 端） ============
 const activeMenu = ref('/wa/inquiry')
 
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
+  { key: '/wa/apply', label: '入驻申请', icon: Shop },
 ]
 
 const handleMenuSelect = (key: string) => {
   if (key === '/wa/inquiry') {
     activeMenu.value = key
+    return
+  }
+  if (key === '/wa/apply') {
+    router.push(key)
     return
   }
   ElMessage.info('该页面留给后续 Agent 实现')

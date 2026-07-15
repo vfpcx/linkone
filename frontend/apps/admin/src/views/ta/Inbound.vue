@@ -29,6 +29,7 @@ import {
   TrendCharts,
   Goods,
   Box,
+  Stamp,
 } from '@element-plus/icons-vue'
 import type { Wholesaler, Sku, InboundRequest, InboundRegisterRequest } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
@@ -85,6 +86,7 @@ const menus: MenuItem[] = [
   { key: '/ta/settings', label: '店铺设置', icon: Setting },
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
+  { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/inbound', label: '入库', icon: Box },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
@@ -103,7 +105,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/settings' ||
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
-    key === '/ta/skus'
+    key === '/ta/skus' ||
+    key === '/ta/wholesaler-applications'
   ) {
     router.push(key)
     return
