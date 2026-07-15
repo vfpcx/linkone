@@ -12,6 +12,8 @@ import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.WholesalerCreateDto;
 import com.cangchu.tenant.dto.WholesalerUpdateDto;
 import com.cangchu.tenant.entity.Wholesaler;
+import com.cangchu.tenant.entity.WholesalerApplication;
+import com.cangchu.tenant.mapper.WholesalerApplicationMapper;
 import com.cangchu.tenant.mapper.WholesalerMapper;
 import com.cangchu.tenant.service.WholesalerService;
 import com.cangchu.tenant.vo.WholesalerVo;
@@ -44,9 +46,12 @@ import java.util.List;
 public class WholesalerServiceImpl implements WholesalerService {
 
     private final WholesalerMapper wholesalerMapper;
+    private final WholesalerApplicationMapper wholesalerApplicationMapper;
     private final AuthService authService;
     private final UserMapper userMapper;
     private final SnowflakeIdUtil snowflakeIdUtil;
+    // BLK-S1-05：黑名单拦截 TA 自营路径（平台级检查，防绕过）
+    private final com.cangchu.tenant.service.BlacklistService blacklistService;
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
 
@@ -59,6 +64,12 @@ public class WholesalerServiceImpl implements WholesalerService {
         // S2：name 必填由 DTO @NotBlank 兜底；此处再防御性 trim 校验
         if (dto.getName() == null || dto.getName().isBlank()) {
             throw new BizException(ErrorCode.VALIDATION_BASIC_003, "批发商名称不能为空");
+        }
+
+        // BLK-S1-05（R-04 防绕过）：黑名单拦全部三条入驻路径——自助申请/OPS 代建/TA 自营。
+        // TA 自营同检 waPhone + license，避免自营路径成为黑名单绕过后门。
+        if (blacklistService.isBlacklisted(dto.getWaPhone(), dto.getLicense())) {
+            throw new BizException(ErrorCode.BLACKLIST_HIT);
         }
 
         Wholesaler wholesaler = new Wholesaler();
@@ -81,15 +92,32 @@ public class WholesalerServiceImpl implements WholesalerService {
         }
 
         // WA 账号开通（最小实现）：传了手机号才开通；按手机号建/绑一个 WA 角色并写 wholesaler_id
-        Long waUserId = null;
+        WaAccount waAccount = null;
         if (dto.getWaPhone() != null && !dto.getWaPhone().isBlank()) {
-            waUserId = ensureWaAccount(tenantId, wholesaler.getId(), dto.getWaPhone().trim(), operatorUserId);
+            waAccount = provisionWaAccount(tenantId, wholesaler.getId(), dto.getWaPhone().trim(), operatorUserId);
         }
 
-        log.info("[A1] TA {} 自营创建批发商 {}（tenant {}），WA 角色 userRoleId={}",
-                operatorUserId, wholesaler.getId(), tenantId, waUserId);
+        // P2 入驻 Wave1：统一入驻链路留痕——补一条 APPROVED 申请单（source=TA_SELF_OPERATED），
+        // 行为兼容不变（主体仍 ACTIVE/SELF_OPERATED，直接生效无审批），对齐 D15。
+        WholesalerApplication trace = new WholesalerApplication();
+        trace.setId(snowflakeIdUtil.nextId());
+        trace.setTenantId(tenantId);
+        trace.setApplicantUserId(waAccount != null ? waAccount.userId() : operatorUserId);
+        trace.setName(wholesaler.getName());
+        trace.setContactPhone(dto.getWaPhone());
+        trace.setLicense(dto.getLicense());
+        trace.setStatus("APPROVED");
+        trace.setSource("TA_SELF_OPERATED");
+        trace.setAuditUserId(operatorUserId);
+        trace.setAuditedAt(LocalDateTime.now());
+        trace.setWholesalerId(wholesaler.getId());
+        wholesalerApplicationMapper.insert(trace);
 
-        return toVo(wholesaler, waUserId);
+        Long waRoleId = waAccount != null ? waAccount.userRoleId() : null;
+        log.info("[A1] TA {} 自营创建批发商 {}（tenant {}），WA 角色 userRoleId={}，留痕申请单 {}",
+                operatorUserId, wholesaler.getId(), tenantId, waRoleId, trace.getId());
+
+        return toVo(wholesaler, waRoleId);
     }
 
     @Override
@@ -142,33 +170,45 @@ public class WholesalerServiceImpl implements WholesalerService {
     }
 
     /**
-     * WA 账号开通（phase-1 最小实现）：
-     * 按手机号查/建 User，再确保存在一条 (role=WA, tenantId, wholesalerId) 的 user_roles 绑定。
-     * 注意：本切片只做角色绑定，不发临时密码短信、不做完整入驻流程——见交付说明，由后续切片完善。
-     *
-     * @return 该 WA 绑定的 user_roles.id
+     * 幂等查/建 WA 用户（按手机号，不绑角色）。P2 Wave1 公开为复用出口：
+     * OPS 代建需先取得负责人用户 id 才能插 wholesalers（owner_user_id NOT NULL）。
      */
-    private Long ensureWaAccount(Long tenantId, Long wholesalerId, String waPhone, Long operatorUserId) {
-        String phoneHash = DigestUtil.sha256Hex(waPhone);
+    @Override
+    @Transactional
+    public Long ensureWaUser(String waPhone) {
+        String phone = waPhone.trim();
+        String phoneHash = DigestUtil.sha256Hex(phone);
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhoneHash, phoneHash));
         if (user == null) {
             user = new User();
             user.setId(snowflakeIdUtil.nextId());
-            user.setPhone(waPhone);
+            user.setPhone(phone);
             user.setPhoneHash(phoneHash);
             String tempPwd = RandomUtil.randomString(8);
             user.setPasswordHash(PASSWORD_ENCODER.encode(tempPwd));
-            user.setNickname(waPhone.substring(waPhone.length() - 4));
+            user.setNickname(phone.substring(phone.length() - 4));
             user.setStatus("ACTIVE");
             user.setRegisterSource("WA_PROVISION");
             userMapper.insert(user);
             // TODO（后续切片）：发送短信临时密码 + 首登强制改密；当前仅日志占位
-            log.info("[A1][WA开通] 新建 WA 用户 phone={} 临时密码={}", waPhone, tempPwd);
+            log.info("[A1][WA开通] 新建 WA 用户 phone={} 临时密码={}", phone, tempPwd);
         }
+        return user.getId();
+    }
 
+    /**
+     * WA 账号开通（原私有 ensureWaAccount，P2 Wave1 公开复用出口）：
+     * 按手机号查/建 User，再确保存在一条 (role=WA, tenantId, wholesalerId, ACTIVE) 的 user_roles 绑定。
+     * 注意：本切片只做角色绑定，不发临时密码短信、不做完整入驻流程。
+     */
+    @Override
+    @Transactional
+    public WaAccount provisionWaAccount(Long tenantId, Long wholesalerId, String waPhone, Long operatorUserId) {
+        Long userId = ensureWaUser(waPhone);
         // WA 角色绑定（user_roles 归 account 域）走 AuthService；幂等语义等价：
         // 已有 (WA, wholesaler_id, ACTIVE) → 返回其 id；否则新建 (priority=5) 返回新 id。
-        return authService.ensureWholesalerRole(user.getId(), "WA", tenantId, wholesalerId, operatorUserId);
+        Long roleId = authService.ensureWholesalerRole(userId, "WA", tenantId, wholesalerId, operatorUserId);
+        return new WaAccount(userId, roleId);
     }
 
     private WholesalerVo toVo(Wholesaler w, Long waUserId) {

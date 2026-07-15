@@ -31,7 +31,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/api/v1/account/**",
                         "/api/v1/common/**",
                         "/api/v1/tenant/**",
-                        "/api/v1/admin/**")
+                        "/api/v1/admin/**",
+                        // P2 入驻 Wave1：WA 自助申请 / OPS 黑名单管理均需登录
+                        "/api/v1/wholesaler/**",
+                        "/api/v1/ops/**")
                 .excludePathPatterns(
                         "/api/v1/account/register",
                         "/api/v1/account/login",

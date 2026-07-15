@@ -14,6 +14,7 @@ import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.service.TenantService;
+import com.cangchu.tenant.service.WholesalerApplicationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RAtomicLong;
@@ -49,6 +50,8 @@ public class AccountServiceImpl implements AccountService {
     private final SmsUtil smsUtil;
     private final RedissonClient redissonClient;
     private final TenantService tenantService;
+    // P2 入驻 Wave1：WA 注册直申接入（同 tenantService 跨域调用先例）
+    private final WholesalerApplicationService wholesalerApplicationService;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -217,11 +220,14 @@ public class AccountServiceImpl implements AccountService {
         if (!viaInvite && "TA".equals(role) && dto.getTenantName() != null && !dto.getTenantName().isBlank()) {
             tenantService.createPendingTenantShell(user.getId(), dto.getTenantName().trim(), phone);
         }
-        // WA/WE 入驻（wholesalerName/targetTenantId）依赖批发商入驻模块（wholesalers 表/服务尚未落地），
-        // 当前仅接收并校验字段，不静默丢弃；持久化方案见交付「Team Lead 待决点」。
+        // P2 入驻 Wave1：WA 注册带 targetTenantId → 自动创建 PENDING 入驻申请单（进入 TA 审批队列）。
+        // 校验（目标租户存在/黑名单/重复申请）在 WholesalerApplicationService 内完成，
+        // 失败抛业务码（如黑名单 50205）使注册整体回滚，不留半截账号入驻。
         if ("WA".equals(role) && dto.getTargetTenantId() != null && !dto.getTargetTenantId().isBlank()) {
-            log.info("[D-16] WA 注册携带 targetTenantId={} wholesalerName={}（待批发商入驻模块落地，暂记录日志）",
-                    dto.getTargetTenantId(), dto.getWholesalerName());
+            Long applicationId = wholesalerApplicationService.createFromRegister(
+                    user.getId(), dto.getTargetTenantId().trim(), dto.getWholesalerName(), phone);
+            log.info("[D-16][P2入驻] WA 注册直申自动建单：user={} application={} targetTenantId={} wholesalerName={}",
+                    user.getId(), applicationId, dto.getTargetTenantId(), dto.getWholesalerName());
         }
 
         // 注册后自动登录（重新取主角色，确保 tenantId 已绑定时随登录响应下发）

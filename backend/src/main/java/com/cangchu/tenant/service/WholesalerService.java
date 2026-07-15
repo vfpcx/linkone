@@ -34,4 +34,21 @@ public interface WholesalerService {
      * @return 命中的批发商视图；不存在（含被 TenantLine 过滤）返回 null
      */
     WholesalerVo getById(Long wholesalerId);
+
+    // ==================== P2 入驻 Wave1：WA 账号开通复用出口 ====================
+
+    /** WA 账号开通结果：userId=用户 id，userRoleId=user_roles 绑定记录 id。 */
+    record WaAccount(Long userId, Long userRoleId) {}
+
+    /**
+     * 幂等查/建 WA 用户（按手机号；不绑角色）。
+     * 供 OPS 代建在插入 wholesalers（owner_user_id NOT NULL）前先取得负责人用户 id。
+     */
+    Long ensureWaUser(String waPhone);
+
+    /**
+     * 幂等开通 WA 账号（原私有 ensureWaAccount 公开复用出口，P2 Wave1）：
+     * 查/建 User + 确保存在 (role=WA, tenantId, wholesalerId, ACTIVE) 角色绑定。
+     */
+    WaAccount provisionWaAccount(Long tenantId, Long wholesalerId, String waPhone, Long operatorUserId);
 }
