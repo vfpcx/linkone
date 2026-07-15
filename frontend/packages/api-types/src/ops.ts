@@ -44,3 +44,56 @@ export interface BlacklistListQuery {
   page?: number
   size?: number
 }
+
+// ============================================================
+// OPS 租户（仓库）入驻审核（P0 遗留缺口补齐）
+// ============================================================
+/**
+ * 契约：
+ *  - POST /api/v1/admin/tenant/{id}/audit  ✅ 后端已实现（TenantController.audit，
+ *      body: { action: 'APPROVED' | 'REJECTED', remark? }，REJECTED 时 remark 必填）
+ *  - GET  /api/v1/admin/tenants?status=&page=&size=  ⚠️ 后端需补（前端按合理契约先行，
+ *      OPS 分页查租户列表；status 缺省查全部）
+ *
+ * 租户状态机：TA 自助注册 → PENDING；OPS 审核通过 → ACTIVE（可营业，WA 入驻前置）；
+ * 驳回 → REJECTED（remark 记录驳回理由）。
+ */
+
+/** 租户审核状态（tenant.status；通过后为 ACTIVE 而非 APPROVED） */
+export type AdminTenantStatus = 'PENDING' | 'ACTIVE' | 'REJECTED'
+
+/** OPS 视角的租户（仓库）列表项 */
+export interface AdminTenantItem {
+  tenantId: SnowflakeId
+  /** 仓库名 */
+  name: string
+  /** 主体名称（营业执照上的公司名，可空） */
+  legalName?: string
+  /** 申请人（TA 账号昵称/姓名，可空） */
+  applicantName?: string
+  /** 联系电话 */
+  contactPhone: string
+  /** 仓库地址（文本） */
+  addressText?: string
+  status: AdminTenantStatus
+  /** 申请时间（tenant 创建时间） */
+  appliedAt: string
+  /** 审核时间（未审核为空） */
+  auditedAt?: string | null
+  /** 审核备注（驳回理由） */
+  auditRemark?: string | null
+}
+
+/** OPS 租户列表分页查询参数 */
+export interface AdminTenantListQuery {
+  status?: AdminTenantStatus
+  page?: number
+  size?: number
+}
+
+/** OPS 审核租户入参（对齐后端 TenantAuditDto） */
+export interface AuditTenantRequest {
+  action: 'APPROVED' | 'REJECTED'
+  /** REJECTED 时必填（驳回理由） */
+  remark?: string
+}
