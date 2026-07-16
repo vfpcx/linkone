@@ -46,6 +46,8 @@ public enum ErrorCode {
     // ==================== PERMISSION (42000-42999) ====================
     PERMISSION_ROLE_001(42001, "您没有此操作的权限"),
     PERMISSION_ROLE_002(42002, "OPS平台操作仅限OPS角色"),
+    // 42004 落地 05-error-codes.md 既有预留（WE 授权位不足，P2 入驻 Wave3）
+    PERMISSION_ROLE_004(42004, "WE 角色无此权限，请联系 WA"),
     PERMISSION_TENANT_001(42101, "您没有访问此租户数据的权限"),
     PERMISSION_TENANT_002(42102, "数据隔离异常，请联系管理员"),
 
@@ -144,7 +146,16 @@ public enum ErrorCode {
     WITHDRAW_APPLICATION_NOT_AUDITABLE(50315, "退驻申请不存在或当前状态不可审核"),
     WITHDRAW_APPLICATION_PENDING(50316, "已有退驻申请审核中，请勿重复提交"),
     WITHDRAW_RESTORE_EXPIRED(50317, "退驻恢复窗口已过（超 60 天或已归档）"),
-    WHOLESALER_STATE_TRANSITION_INVALID(50318, "批发商当前状态不允许该操作");
+    WHOLESALER_STATE_TRANSITION_INVALID(50318, "批发商当前状态不允许该操作"),
+
+    // ==================== WE 批发商员工 (P2 入驻 Wave 3，50319+) ====================
+    EMPLOYEE_INVITE_PERMISSION_INVALID(50319, "员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM）"),
+    EMPLOYEE_NOT_FOUND(50320, "员工不存在或不属于本商户"),
+    EMPLOYEE_STATE_INVALID(50321, "员工当前状态不允许该操作"),
+    EMPLOYEE_RESTORE_EXPIRED(50322, "员工禁用已超 30 天，无法恢复"),
+
+    // WEM-S5-01：账号存在但全部角色被禁用（如被 R17 禁用的 WE）→ 登录给语义提示而非兜底 TA
+    ACCOUNT_ALL_ROLES_DISABLED(41110, "账号已被禁用，请联系商户管理员");
 
     private final int code;
     private final String message;
