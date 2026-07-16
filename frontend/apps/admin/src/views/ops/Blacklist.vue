@@ -581,5 +581,21 @@ onMounted(fetchList)
   .page-head {
     flex-direction: column;
   }
+  /* 顶栏：防止「仓储云 · 平台运营」纵向换行被 56px 高度裁切 */
+  .ops-topbar {
+    padding: 0 var(--space-3);
+  }
+  .ops-topbar__left {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ops-main {
+    padding: var(--space-3);
+  }
+  /* 480px 固定宽弹窗在窄屏超出视口 → 收窄为视口内 */
+  :deep(.el-dialog) {
+    width: calc(100vw - 32px) !important;
+    max-width: 480px;
+  }
 }
 </style>
