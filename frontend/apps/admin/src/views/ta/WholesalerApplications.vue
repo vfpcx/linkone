@@ -164,7 +164,7 @@ const fetchList = async () => {
       page: page.value,
       size: size.value,
     })
-    list.value = data?.list ?? []
+    list.value = data?.records ?? []
     total.value = data?.total ?? 0
     if (activeTab.value === 'PENDING') {
       pendingTotal.value = data?.total ?? 0
@@ -304,7 +304,7 @@ const auditingId = ref('')
 const onApprove = async (row: WholesalerApplication) => {
   try {
     await ElMessageBox.confirm(
-      `确认通过「${row.wholesalerName}」的入驻申请？通过后该商户即可在本仓库上架商品、接收询价。`,
+      `确认通过「${row.name}」的入驻申请？通过后该商户即可在本仓库上架商品、接收询价。`,
       '通过确认',
       {
         confirmButtonText: '通过',
@@ -315,10 +315,10 @@ const onApprove = async (row: WholesalerApplication) => {
   } catch {
     return
   }
-  auditingId.value = String(row.applicationId)
+  auditingId.value = String(row.id)
   try {
-    await tenantApi.auditWaApplication(String(row.applicationId), { action: 'APPROVED' })
-    ElMessage.success(`已通过「${row.wholesalerName}」的入驻申请`)
+    await tenantApi.auditWaApplication(String(row.id), { action: 'APPROVED' })
+    ElMessage.success(`已通过「${row.name}」的入驻申请`)
     await fetchList()
   } catch {
     // 全局 toast 已提示
@@ -364,7 +364,13 @@ const rejectTarget = ref<WholesalerApplication | WaWithdrawApplication | null>(n
 
 const rejectTargetName = computed(() => {
   const t = rejectTarget.value
-  return (t && 'wholesalerName' in t && t.wholesalerName) || '该商户'
+  if (!t) return '该商户'
+  // 入驻申请 VO 字段为 name；退驻申请 VO 为 wholesalerName（TA 列表冗余）
+  const name =
+    rejectKind.value === 'APPLY'
+      ? (t as WholesalerApplication).name
+      : (t as WaWithdrawApplication).wholesalerName
+  return name || '该商户'
 })
 
 const rejectForm = reactive({ remark: '' })
@@ -401,7 +407,7 @@ const onRejectSubmit = async () => {
   try {
     if (rejectKind.value === 'APPLY') {
       const t = rejectTarget.value as WholesalerApplication
-      await tenantApi.auditWaApplication(String(t.applicationId), {
+      await tenantApi.auditWaApplication(String(t.id), {
         action: 'REJECTED',
         remark: rejectForm.remark.trim(),
       })
@@ -535,7 +541,7 @@ onMounted(async () => {
           >
             <el-table-column label="商户名" min-width="160">
               <template #default="{ row }">
-                <span class="cell-name">{{ row.wholesalerName || '—' }}</span>
+                <span class="cell-name">{{ row.name || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="联系人" width="110">
@@ -548,12 +554,12 @@ onMounted(async () => {
             </el-table-column>
             <el-table-column label="营业执照号" min-width="170">
               <template #default="{ row }">
-                <span class="cell-code cell-muted">{{ row.licenseNo || '—' }}</span>
+                <span class="cell-code cell-muted">{{ row.license || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="提交时间" width="150">
               <template #default="{ row }">
-                <span class="cell-muted">{{ formatTime(row.appliedAt) }}</span>
+                <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="状态" width="105">
@@ -572,7 +578,7 @@ onMounted(async () => {
               show-overflow-tooltip
             >
               <template #default="{ row }">
-                <span class="cell-muted">{{ row.remark || '—' }}</span>
+                <span class="cell-muted">{{ row.auditRemark || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -585,7 +591,7 @@ onMounted(async () => {
                 <el-button
                   link
                   type="primary"
-                  :loading="auditingId === String(row.applicationId)"
+                  :loading="auditingId === String(row.id)"
                   @click="onApprove(row)"
                 >
                   通过

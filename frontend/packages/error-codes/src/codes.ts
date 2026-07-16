@@ -103,12 +103,21 @@ export enum ErrorCode {
 
   STATE_WA_PENDING = 50201,
   STATE_WA_WITHDRAWN = 50202,
-  STATE_WA_HAS_UNPAID = 50203,
-  STATE_WA_HAS_STOCK = 50204,
+  /** 申请不存在或状态不可审（含跨租户不可见、并发审批 CAS 抢占失败）· 10-onboarding-design.md §3/§6 重定义 */
+  STATE_WA_APPLICATION_NOT_AUDITABLE = 50203,
+  /** 重复入驻（一个 WA 账号仅一个 ACTIVE 入驻）· 10-onboarding-design.md §3/§6 重定义 */
+  STATE_WA_ALREADY_ONBOARDED = 50204,
   STATE_WA_BLACKLISTED = 50205,
 
   // 员工注册码已作废（TA 主动作废 / phase-1 EmployeeInvite REVOKED）
   STATE_INVITE_REVOKED = 50292,
+
+  // 黑名单管理（P2 入驻生态 · 10-onboarding-design.md §6 溢出段；
+  // 数值落在 50310-50329 段但语义属黑名单，不会出现在退驻页面）
+  /** 黑名单条目已存在（重复加黑） */
+  STATE_BLACKLIST_DUPLICATE = 50310,
+  /** 黑名单条目不存在 */
+  STATE_BLACKLIST_NOT_FOUND = 50311,
 
   // R13 退驻 / R14 强制下架（P2 入驻生态 · 50310-50329 段为入驻扩展）
   // 权威来源：10-onboarding-design.md §11-§14；前端按 isWithdrawPreconditionFailed 段判断回填自查清单

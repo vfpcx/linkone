@@ -58,9 +58,8 @@ export const waApplicationApi = {
     }),
 
   /**
-   * ⚠️ 契约微调位 · 查询本人入驻申请（含驳回理由）。
-   * Wave1 契约未显式列出该端点；后端未提供时调用失败，
-   * 页面回退到本地缓存的提交记录展示（Apply.vue 已做优雅降级）。
+   * ✅ P2 · 查询本人入驻申请列表（含 status/auditRemark；后端 Wave2 已落地，ONB-08）。
+   * 字段同 TA 列表的 WholesalerApplication；网络失败时页面回退本地缓存（Apply.vue 优雅降级）。
    */
   listMine: () =>
     request<WholesalerApplication[]>({

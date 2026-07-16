@@ -25,6 +25,7 @@ import type {
   TenantSettings,
   UpdateTenantSettingsRequest,
   WaApplicationListQuery,
+  WaApplicationAuditResult,
   WholesalerApplication,
   WaWithdrawApplication,
   WaWithdrawListQuery,
@@ -164,17 +165,17 @@ export const tenantApi = {
   // P2 入驻生态 · Wave1 契约（后端 feat/p2-onboarding 并行开发中）
   // ============================================================
 
-  /** ✅ P2 · WA 入驻申请分页列表（TA；status/page/size 均可选） */
+  /** ✅ P2 · WA 入驻申请分页列表（TA；status/page/size 均可选；返回 records 命名分页） */
   listWaApplications: (params?: WaApplicationListQuery) =>
-    request<PageData<WholesalerApplication>>({
+    request<PageRecords<WholesalerApplication>>({
       method: 'GET',
       url: '/tenant/wholesaler-applications',
       params,
     }),
 
-  /** ✅ P2 · TA 审批 WA 入驻（统一 audit 端点；REJECTED 时 remark 必填） */
+  /** ✅ P2 · TA 审批 WA 入驻（统一 audit 端点；REJECTED 时 remark 必填；不可审 50203） */
   auditWaApplication: (id: string, data: AuditWaApplicationRequest) =>
-    request<void>({
+    request<WaApplicationAuditResult>({
       method: 'POST',
       url: `/tenant/wholesaler-applications/${id}/audit`,
       data,
@@ -182,7 +183,7 @@ export const tenantApi = {
 
   /** ✅ P2 · 批准 WA 入驻（audit 端点包装，保留旧签名兼容） */
   approveWa: (id: string, data?: ApproveWaRequest) =>
-    request<void>({
+    request<WaApplicationAuditResult>({
       method: 'POST',
       url: `/tenant/wholesaler-applications/${id}/audit`,
       data: { action: 'APPROVED', remark: data?.remark },
@@ -190,7 +191,7 @@ export const tenantApi = {
 
   /** ✅ P2 · 驳回 WA 入驻（audit 端点包装；理由必填） */
   rejectWa: (id: string, data: RejectWaRequest) =>
-    request<void>({
+    request<WaApplicationAuditResult>({
       method: 'POST',
       url: `/tenant/wholesaler-applications/${id}/audit`,
       data: { action: 'REJECTED', remark: data.reason },

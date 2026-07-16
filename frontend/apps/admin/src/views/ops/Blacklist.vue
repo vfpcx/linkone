@@ -3,15 +3,17 @@
  * OPS 黑名单管理（PC）— P2 入驻生态 Wave4 前端第一批 · OPS 端第一个真实页面
  *
  * 来源：
- *  - 契约：GET    /api/v1/ops/blacklist?page=&size=（分页列表）
- *          POST   /api/v1/ops/blacklist（phone / license 至少一键 + reason 必填）
- *          DELETE /api/v1/ops/blacklist/{id}（移除）
+ *  - 契约（10-onboarding-design.md §1.2/§2，后端已落地）：
+ *          GET    /api/v1/ops/blacklist（列表返回裸数组，可按 status 过滤）
+ *          POST   /api/v1/ops/blacklist（{targetType, targetValue, reason} 均必填；重复 50310）
+ *          DELETE /api/v1/ops/blacklist/{id}（移除=置 REMOVED）
  *  - 视觉：沿用 TA 端 shell（顶栏 + 左侧菜单）+ el-table/el-dialog 风格（MASTER §4.2/§4.4）
  *
- * 黑名单为平台级（手机号 / 营业执照号双键）；入驻申请 + OPS 代建命中即拦截（50205）。
+ * 黑名单为平台级（手机号 / 营业执照号双键，一次加黑一个键值）；
+ * 三条入驻路径（自助 / OPS 代建 / TA 自营）命中即拦截（50205）。
  */
 
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
@@ -80,29 +82,20 @@ const handleMenuSelect = (key: string) => {
   ElMessage.info('该页面留给后续 Agent 实现')
 }
 
-// ============ 列表 ============
+// ============ 列表（后端返回裸数组，仅看生效中条目） ============
 const loading = ref(false)
 const list = ref<BlacklistItem[]>([])
-const total = ref(0)
-const page = ref(1)
-const size = ref(20)
 
 const fetchList = async () => {
   loading.value = true
   try {
-    const data = await opsApi.listBlacklist({ page: page.value, size: size.value })
-    list.value = data?.list ?? []
-    total.value = data?.total ?? 0
+    const data = await opsApi.listBlacklist({ status: 'ACTIVE' })
+    list.value = data ?? []
   } catch {
     // 全局 toast 已提示；保持已有数据以便重试
   } finally {
     loading.value = false
   }
-}
-
-const onPageChange = (p: number) => {
-  page.value = p
-  fetchList()
 }
 
 // ============ 类型 / 格式化 ============
@@ -122,62 +115,52 @@ const formatTime = (iso?: string): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-// ============ 加黑弹窗（phone / license 至少填一 + reason 必填） ============
+// ============ 加黑弹窗（targetType + targetValue + reason 均必填，一次一个键值） ============
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
 
-const form = reactive<Required<CreateBlacklistRequest>>({
-  phone: '',
-  license: '',
+const form = reactive<CreateBlacklistRequest>({
+  targetType: 'PHONE',
+  targetValue: '',
   reason: '',
 })
 
-const hasOneKey = computed(() => !!form.phone.trim() || !!form.license.trim())
-
-/** phone / license 联动校验：至少一键；填了就校验格式 */
-const validateKeys = (field: 'phone' | 'license') => {
-  return (_r: unknown, v: string, cb: (e?: Error) => void) => {
-    const val = String(v ?? '').trim()
-    if (!val) {
-      if (!hasOneKey.value) {
-        cb(new Error('手机号与营业执照号至少填写一项'))
-        return
-      }
-      cb()
-      return
-    }
-    if (field === 'phone' && !/^1[3-9]\d{9}$/.test(val)) {
-      cb(new Error('请输入正确的 11 位手机号'))
-      return
-    }
-    if (field === 'license' && val.length > 64) {
-      cb(new Error('执照号不超过 64 字'))
-      return
-    }
-    cb()
+/** 键值校验：必填；PHONE 校验手机号格式，LICENSE_NO 限长 */
+const validateTargetValue = (_r: unknown, v: string, cb: (e?: Error) => void) => {
+  const val = String(v ?? '').trim()
+  if (!val) {
+    cb(new Error(form.targetType === 'PHONE' ? '请输入要拉黑的手机号' : '请输入要拉黑的执照号'))
+    return
   }
+  if (form.targetType === 'PHONE' && !/^1[3-9]\d{9}$/.test(val)) {
+    cb(new Error('请输入正确的 11 位手机号'))
+    return
+  }
+  if (form.targetType === 'LICENSE_NO' && val.length > 64) {
+    cb(new Error('执照号不超过 64 字'))
+    return
+  }
+  cb()
 }
 
 const rules: FormRules = {
-  phone: [{ validator: validateKeys('phone'), trigger: 'blur' }],
-  license: [{ validator: validateKeys('license'), trigger: 'blur' }],
+  targetValue: [{ validator: validateTargetValue, trigger: 'blur' }],
   reason: [
     { required: true, message: '请填写加黑原因', trigger: 'blur' },
     { min: 2, max: 512, message: '加黑原因为 2-512 字', trigger: 'blur' },
   ],
 }
 
-/** 任一键输入变化后，清掉另一键的「至少一项」报错 */
-const onKeyInput = () => {
-  if (hasOneKey.value) {
-    formRef.value?.clearValidate(['phone', 'license'])
-  }
+/** 切换键类型时清空键值与校验态 */
+const onTypeChange = () => {
+  form.targetValue = ''
+  formRef.value?.clearValidate('targetValue')
 }
 
 const openCreate = () => {
-  form.phone = ''
-  form.license = ''
+  form.targetType = 'PHONE'
+  form.targetValue = ''
   form.reason = ''
   dialogVisible.value = true
   formRef.value?.clearValidate()
@@ -191,17 +174,16 @@ const onSubmit = async () => {
   submitting.value = true
   try {
     const payload: CreateBlacklistRequest = {
-      phone: form.phone.trim() || undefined,
-      license: form.license.trim() || undefined,
+      targetType: form.targetType,
+      targetValue: form.targetValue.trim(),
       reason: form.reason.trim(),
     }
     await opsApi.createBlacklist(payload)
     ElMessage.success('已加入黑名单，全平台入驻申请将被拦截')
     dialogVisible.value = false
-    page.value = 1
     await fetchList()
   } catch {
-    // 全局 toast 已提示
+    // 全局 toast 已提示（重复加黑 50310）
   } finally {
     submitting.value = false
   }
@@ -342,17 +324,6 @@ onMounted(fetchList)
               </template>
             </el-table-column>
           </el-table>
-
-          <div v-if="total > size" class="bl-pager">
-            <el-pagination
-              :current-page="page"
-              :page-size="size"
-              :total="total"
-              layout="total, prev, pager, next"
-              background
-              @current-change="onPageChange"
-            />
-          </div>
         </section>
       </main>
     </div>
@@ -379,22 +350,18 @@ onMounted(fetchList)
         label-position="top"
         @submit.prevent="onSubmit"
       >
-        <el-form-item label="手机号" prop="phone">
-          <el-input
-            v-model="form.phone"
-            placeholder="11 位手机号（与执照号至少填一项）"
-            maxlength="11"
-            clearable
-            @input="onKeyInput"
-          />
+        <el-form-item label="键类型" prop="targetType">
+          <el-radio-group v-model="form.targetType" @change="onTypeChange">
+            <el-radio-button value="PHONE">手机号</el-radio-button>
+            <el-radio-button value="LICENSE_NO">营业执照号</el-radio-button>
+          </el-radio-group>
         </el-form-item>
-        <el-form-item label="营业执照号" prop="license">
+        <el-form-item label="键值" prop="targetValue">
           <el-input
-            v-model="form.license"
-            placeholder="统一社会信用代码（与手机号至少填一项）"
-            maxlength="64"
+            v-model="form.targetValue"
+            :placeholder="form.targetType === 'PHONE' ? '11 位手机号' : '统一社会信用代码'"
+            :maxlength="form.targetType === 'PHONE' ? 11 : 64"
             clearable
-            @input="onKeyInput"
           />
         </el-form-item>
         <el-form-item label="加黑原因" prop="reason">
@@ -551,11 +518,6 @@ onMounted(fetchList)
 }
 .bl-table {
   width: 100%;
-}
-.bl-pager {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: var(--space-4);
 }
 .cell-code {
   font-family: var(--font-family-mono, ui-monospace, monospace);

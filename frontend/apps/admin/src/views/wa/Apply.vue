@@ -146,17 +146,17 @@ const formatTime = (iso: string): string => {
 
 /** 服务端申请 → 本地展示结构 */
 const fromServer = (a: WholesalerApplication): LocalApplyRecord => ({
-  applicationId: String(a.applicationId),
+  applicationId: String(a.id),
   status: a.status,
   form: {
     targetTenantId: String(a.tenantId ?? ''),
-    name: a.wholesalerName,
-    contact: a.contactName,
-    phone: a.contactPhone,
-    license: a.licenseNo,
+    name: a.name,
+    contactName: a.contactName,
+    contactPhone: a.contactPhone,
+    license: a.license,
   },
-  submittedAt: a.appliedAt,
-  remark: a.remark,
+  submittedAt: a.createdAt,
+  remark: a.auditRemark,
 })
 
 const fetchStatus = async () => {
@@ -164,9 +164,9 @@ const fetchStatus = async () => {
   try {
     const list = await waApplicationApi.listMine()
     if (Array.isArray(list) && list.length > 0) {
-      // 取最新一条（后端倒序则取首条；兜底按 appliedAt 排）
+      // 取最新一条（后端倒序则取首条；兜底按 createdAt 排）
       const latest = [...list].sort((a, b) =>
-        String(b.appliedAt ?? '').localeCompare(String(a.appliedAt ?? '')),
+        String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
       )[0]
       application.value = fromServer(latest)
       writeLocal(application.value)
@@ -189,8 +189,8 @@ const submitting = ref(false)
 const form = reactive<SubmitWaApplicationRequest>({
   targetTenantId: '',
   name: '',
-  contact: '',
-  phone: '',
+  contactName: '',
+  contactPhone: '',
   license: '',
 })
 
@@ -213,11 +213,11 @@ const rules: FormRules = {
     { required: true, message: '请输入商户名', trigger: 'blur' },
     { max: 128, message: '商户名不超过 128 字', trigger: 'blur' },
   ],
-  contact: [
+  contactName: [
     { required: true, message: '请输入联系人', trigger: 'blur' },
     { max: 64, message: '联系人不超过 64 字', trigger: 'blur' },
   ],
-  phone: [
+  contactPhone: [
     { required: true, message: '请输入联系电话', trigger: 'blur' },
     {
       pattern: /^1[3-9]\d{9}$/,
@@ -233,8 +233,8 @@ const startResubmit = () => {
   if (prev) {
     form.targetTenantId = prev.form.targetTenantId
     form.name = prev.form.name
-    form.contact = prev.form.contact
-    form.phone = prev.form.phone
+    form.contactName = prev.form.contactName ?? ''
+    form.contactPhone = prev.form.contactPhone ?? ''
     form.license = prev.form.license ?? ''
   }
   resubmitting.value = true
@@ -251,8 +251,8 @@ const onSubmit = async () => {
     const payload: SubmitWaApplicationRequest = {
       targetTenantId: String(form.targetTenantId).trim(),
       name: form.name.trim(),
-      contact: form.contact.trim(),
-      phone: form.phone.trim(),
+      contactName: form.contactName?.trim(),
+      contactPhone: form.contactPhone?.trim(),
       license: form.license?.trim() || undefined,
     }
     const res = await waApplicationApi.submit(payload)
@@ -394,10 +394,10 @@ onMounted(fetchStatus)
                 <span class="cell-code">{{ application.form.targetTenantId || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item label="联系人">
-                {{ application.form.contact || '—' }}
+                {{ application.form.contactName || '—' }}
               </el-descriptions-item>
               <el-descriptions-item label="联系电话">
-                <span class="cell-code">{{ application.form.phone || '—' }}</span>
+                <span class="cell-code">{{ application.form.contactPhone || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item label="营业执照号">
                 <span class="cell-code">{{ application.form.license || '—' }}</span>
@@ -460,17 +460,17 @@ onMounted(fetchStatus)
               </el-form-item>
 
               <div class="apply-form__row">
-                <el-form-item label="联系人" prop="contact" class="apply-form__col">
+                <el-form-item label="联系人" prop="contactName" class="apply-form__col">
                   <el-input
-                    v-model="form.contact"
+                    v-model="form.contactName"
                     placeholder="联系人姓名"
                     maxlength="64"
                     clearable
                   />
                 </el-form-item>
-                <el-form-item label="联系电话" prop="phone" class="apply-form__col">
+                <el-form-item label="联系电话" prop="contactPhone" class="apply-form__col">
                   <el-input
-                    v-model="form.phone"
+                    v-model="form.contactPhone"
                     placeholder="11 位手机号"
                     maxlength="11"
                     clearable
