@@ -36,6 +36,18 @@ export interface PageData<T> {
   totalPages: number
 }
 
+/**
+ * 分页响应 · records 命名（P2 入驻生态端点：
+ * /tenant/wholesaler-applications、/tenant/wholesaler-withdraw-applications）
+ * 权威来源：shared/architecture/10-onboarding-design.md §2/§12
+ */
+export interface PageRecords<T> {
+  records: T[]
+  total: number
+  page: number
+  size: number
+}
+
 /** 角色枚举（与 PRD §1 一致） */
 export type Role = 'OPS' | 'TA' | 'WK' | 'ST' | 'WA' | 'WE' | 'RT'
 

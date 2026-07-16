@@ -29,6 +29,7 @@ import {
   Goods,
   PriceTag,
   Plus,
+  Stamp,
 } from '@element-plus/icons-vue'
 import { StatusBadge } from '@cangchu/ui-shared'
 import type { Wholesaler, Sku, CreateSkuRequest } from '@cangchu/api-types'
@@ -85,6 +86,7 @@ const menus: MenuItem[] = [
   { key: '/ta/settings', label: '店铺设置', icon: Setting },
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
+  { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
@@ -103,7 +105,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/settings' ||
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
-    key === '/ta/pricing'
+    key === '/ta/pricing' ||
+    key === '/ta/wholesaler-applications'
   ) {
     router.push(key)
     return

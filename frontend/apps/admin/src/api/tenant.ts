@@ -11,6 +11,7 @@ import type {
   ApprovalCenterResponse,
   ApproveWaRequest,
   ArbitrateInboundRequest,
+  AuditWaApplicationRequest,
   BillsOverviewQuery,
   BillsOverviewResponse,
   CreateSelfOperatedWaRequest,
@@ -23,8 +24,15 @@ import type {
   TenantDashboardResponse,
   TenantSettings,
   UpdateTenantSettingsRequest,
+  WaApplicationListQuery,
+  WaApplicationAuditResult,
   WholesalerApplication,
+  WaWithdrawApplication,
+  WaWithdrawListQuery,
+  WithdrawAuditResult,
+  ForceOfflineResult,
   PageData,
+  PageRecords,
 } from '@cangchu/api-types'
 
 // ============================================================
@@ -153,30 +161,43 @@ export const tenantApi = {
   listInviteCodes: () =>
     request<PageData<InviteCode>>({ method: 'GET', url: '/tenant/invite-codes' }),
 
-  /** ⚠️ NOT IMPL · WA 入驻申请列表 */
-  listWaApplications: () =>
-    request<PageData<WholesalerApplication>>({
+  // ============================================================
+  // P2 入驻生态 · Wave1 契约（后端 feat/p2-onboarding 并行开发中）
+  // ============================================================
+
+  /** ✅ P2 · WA 入驻申请分页列表（TA；status/page/size 均可选；返回 records 命名分页） */
+  listWaApplications: (params?: WaApplicationListQuery) =>
+    request<PageRecords<WholesalerApplication>>({
       method: 'GET',
       url: '/tenant/wholesaler-applications',
+      params,
     }),
 
-  /** ⚠️ NOT IMPL · 批准 WA 入驻 */
+  /** ✅ P2 · TA 审批 WA 入驻（统一 audit 端点；REJECTED 时 remark 必填；不可审 50203） */
+  auditWaApplication: (id: string, data: AuditWaApplicationRequest) =>
+    request<WaApplicationAuditResult>({
+      method: 'POST',
+      url: `/tenant/wholesaler-applications/${id}/audit`,
+      data,
+    }),
+
+  /** ✅ P2 · 批准 WA 入驻（audit 端点包装，保留旧签名兼容） */
   approveWa: (id: string, data?: ApproveWaRequest) =>
-    request<void>({
+    request<WaApplicationAuditResult>({
       method: 'POST',
-      url: `/tenant/wholesaler-applications/${id}/approve`,
-      data,
+      url: `/tenant/wholesaler-applications/${id}/audit`,
+      data: { action: 'APPROVED', remark: data?.remark },
     }),
 
-  /** ⚠️ NOT IMPL · 驳回 WA 入驻 */
+  /** ✅ P2 · 驳回 WA 入驻（audit 端点包装；理由必填） */
   rejectWa: (id: string, data: RejectWaRequest) =>
-    request<void>({
+    request<WaApplicationAuditResult>({
       method: 'POST',
-      url: `/tenant/wholesaler-applications/${id}/reject`,
-      data,
+      url: `/tenant/wholesaler-applications/${id}/audit`,
+      data: { action: 'REJECTED', remark: data.reason },
     }),
 
-  /** ⚠️ NOT IMPL · 创建自营 WA */
+  /** ✅ P2 · 创建自营 WA（D15 统一入驻链路，后端 Wave1 落地） */
   createSelfOperatedWa: (data: CreateSelfOperatedWaRequest) =>
     request<{ wholesalerId: string }>({
       method: 'POST',
@@ -184,9 +205,38 @@ export const tenantApi = {
       data,
     }),
 
-  /** ⚠️ NOT IMPL · 强制下架 WA */
+  /**
+   * ✅ P2 · 强制下架 WA（R14 · Wave2 后端已落地）
+   * TA 单方即时生效不走审批；reason 必填留痕并通知商户；不可原地恢复（OFFLINE 终态）
+   */
   forceOfflineWa: (id: string, data: ForceOfflineWaRequest) =>
-    request<void>({ method: 'POST', url: `/tenant/wholesalers/${id}/force-offline`, data }),
+    request<ForceOfflineResult>({
+      method: 'POST',
+      url: `/tenant/wholesalers/${id}/force-offline`,
+      data,
+    }),
+
+  /** ✅ P2 · WA 退驻申请分页列表（R13 TA 审批；返回 records 命名分页，含 wholesalerName 冗余） */
+  listWaWithdrawApplications: (params?: WaWithdrawListQuery) =>
+    request<PageRecords<WaWithdrawApplication>>({
+      method: 'GET',
+      url: '/tenant/wholesaler-withdraw-applications',
+      params,
+    }),
+
+  /**
+   * ✅ P2 · TA 审批退驻（APPROVED 瞬间：SKU 下架 + 店铺隐藏 + 专属价失效 + 踢 token；
+   * REJECTED 时 remark 必填，原文展示给申请人；CAS 竞争败者 50315）
+   */
+  auditWaWithdrawApplication: (
+    id: string,
+    data: { action: 'APPROVED' | 'REJECTED'; remark?: string },
+  ) =>
+    request<WithdrawAuditResult>({
+      method: 'POST',
+      url: `/tenant/wholesaler-withdraw-applications/${id}/audit`,
+      data,
+    }),
 
   /** ⚠️ NOT IMPL · 审批中心 */
   getApprovalCenter: (params?: Record<string, unknown>) =>

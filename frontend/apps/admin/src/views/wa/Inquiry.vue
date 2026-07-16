@@ -23,6 +23,9 @@ import {
   Document,
   Refresh,
   Check,
+  Shop,
+  User,
+  Warning as WarningIcon,
 } from '@element-plus/icons-vue'
 import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
@@ -64,11 +67,14 @@ const handleProfileMenu = async (key: string) => {
   }
 }
 
-// ============ 菜单（WA 端 · phase-1 仅询价确认可用） ============
+// ============ 菜单（WA 端） ============
 const activeMenu = ref('/wa/inquiry')
 
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
+  { key: '/wa/apply', label: '入驻申请', icon: Shop },
+  { key: '/wa/staff', label: '员工管理', icon: User },
+  { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },
 ]
 
 const handleMenuSelect = (key: string) => {
@@ -76,7 +82,7 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  ElMessage.info('该页面留给后续 Agent 实现')
+  router.push(key)
 }
 
 // ============ 状态徽章 ============
@@ -462,6 +468,27 @@ onMounted(fetchList)
 @media (max-width: 768px) {
   .wa-side {
     display: none;
+  }
+  .wa-main {
+    padding: var(--space-4);
+    min-width: 0; /* 表格内部滚动，不撑宽页面 */
+  }
+  /* 窄屏顶栏：品牌/店名单行省略，防纵向折行 */
+  .wa-topbar {
+    padding: 0 var(--space-4);
+  }
+  .wa-topbar__left {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .wa-topbar__store {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wa-topbar__right {
+    flex-shrink: 0;
   }
 }
 </style>

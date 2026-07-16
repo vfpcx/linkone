@@ -29,6 +29,7 @@ import {
   Goods,
   Plus,
   CopyDocument,
+  Stamp,
 } from '@element-plus/icons-vue'
 import { StatusBadge } from '@cangchu/ui-shared'
 import type {
@@ -88,6 +89,7 @@ const menus: MenuItem[] = [
   { key: '/ta/settings', label: '店铺设置', icon: Setting },
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
+  { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '单据审批', icon: Document },
@@ -104,7 +106,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/dashboard' ||
     key === '/ta/settings' ||
     key === '/ta/skus' ||
-    key === '/ta/wholesalers'
+    key === '/ta/wholesalers' ||
+    key === '/ta/wholesaler-applications'
   ) {
     router.push(key)
     return

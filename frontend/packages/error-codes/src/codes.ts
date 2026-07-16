@@ -31,6 +31,8 @@ export enum ErrorCode {
   AUTH_NEW_PASSWORD_SAME = 41105,
   AUTH_NEW_PASSWORD_HISTORY = 41106,
   AUTH_OLD_PASSWORD_WRONG = 41107,
+  /** R17 · 全部角色被禁用，登录拒绝（WE 被商户禁用后） */
+  AUTH_ALL_ROLES_DISABLED = 41110,
 
   AUTH_SMS_EXPIRED = 41201,
   AUTH_SMS_WRONG = 41202,
@@ -103,12 +105,49 @@ export enum ErrorCode {
 
   STATE_WA_PENDING = 50201,
   STATE_WA_WITHDRAWN = 50202,
-  STATE_WA_HAS_UNPAID = 50203,
-  STATE_WA_HAS_STOCK = 50204,
+  /** 申请不存在或状态不可审（含跨租户不可见、并发审批 CAS 抢占失败）· 10-onboarding-design.md §3/§6 重定义 */
+  STATE_WA_APPLICATION_NOT_AUDITABLE = 50203,
+  /** 重复入驻（一个 WA 账号仅一个 ACTIVE 入驻）· 10-onboarding-design.md §3/§6 重定义 */
+  STATE_WA_ALREADY_ONBOARDED = 50204,
   STATE_WA_BLACKLISTED = 50205,
 
   // 员工注册码已作废（TA 主动作废 / phase-1 EmployeeInvite REVOKED）
   STATE_INVITE_REVOKED = 50292,
+
+  // 黑名单管理（P2 入驻生态 · 10-onboarding-design.md §6 溢出段；
+  // 数值落在 50310-50329 段但语义属黑名单，不会出现在退驻页面）
+  /** 黑名单条目已存在（重复加黑） */
+  STATE_BLACKLIST_DUPLICATE = 50310,
+  /** 黑名单条目不存在 */
+  STATE_BLACKLIST_NOT_FOUND = 50311,
+
+  // R13 退驻 / R14 强制下架（P2 入驻生态 · 50310-50329 段为入驻扩展）
+  // 权威来源：10-onboarding-design.md §11-§14；前端按 isWithdrawPreconditionFailed 段判断回填自查清单
+  /** 退驻前置不满足：库存未清零 */
+  STATE_WITHDRAW_STOCK_NOT_CLEARED = 50312,
+  /** 商户非 ACTIVE，新业务（新询价/确认 PENDING 询价等）拒绝 */
+  STATE_WA_NOT_ACTIVE = 50313,
+  /** 退驻前置不满足：存在未结单据 */
+  STATE_WITHDRAW_OPEN_DOCS = 50314,
+  /** 退驻申请不可审/不可撤（已被审批、CAS 竞争失败） */
+  STATE_WITHDRAW_NOT_AUDITABLE = 50315,
+  /** 重复退驻申请（已有 PENDING 在审） */
+  STATE_WITHDRAW_DUPLICATE = 50316,
+  /** 60 天恢复窗口已过（已归档） */
+  STATE_RESTORE_WINDOW_EXPIRED = 50317,
+  /** 商户状态机不可达转移（如 OFFLINE→ACTIVE） */
+  STATE_WHOLESALER_TRANSITION_INVALID = 50318,
+
+  // WE 员工管理（P2 入驻生态 Wave3 · 50319-50322；
+  // 仅出现在 /wholesaler/employees* 端点，不会出现在退驻页面）
+  /** 授权项非法（permissions ⊄ [PRICE_EDIT, INQUIRY_CONFIRM]） */
+  STATE_EMPLOYEE_PERMISSION_INVALID = 50319,
+  /** 员工不存在或不属本商户 */
+  STATE_EMPLOYEE_NOT_FOUND = 50320,
+  /** 员工状态不允许该操作（含重复禁用 / 恢复未禁用员工） */
+  STATE_EMPLOYEE_STATUS_INVALID = 50321,
+  /** 恢复已逾 30 天窗口（员工已永久移除） */
+  STATE_EMPLOYEE_RESTORE_EXPIRED = 50322,
 
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,
@@ -188,4 +227,14 @@ export function isLogoutRequired(code: number): boolean {
     code === ErrorCode.AUTH_TOKEN_INVALID ||
     code === ErrorCode.AUTH_USER_FROZEN
   )
+}
+
+/**
+ * R13 退驻前置不满足段（50310-50329，契约 50312+）
+ * 前端命中时应刷新退驻前置自查清单并回显未通过项
+ * 注：段内 50319-50322 为 WE 员工管理码，仅出现在员工端点，
+ * 本函数只在退驻页面对退驻接口的报错调用，故不会误伤
+ */
+export function isWithdrawPreconditionFailed(code: number): boolean {
+  return code >= 50310 && code <= 50329
 }

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
@@ -86,6 +87,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ta/Inbound.vue'),
     meta: { role: 'TA', title: '入库登记' },
   },
+  {
+    path: '/ta/wholesaler-applications',
+    name: 'ta-wholesaler-applications',
+    component: () => import('@/views/ta/WholesalerApplications.vue'),
+    meta: { role: 'TA', title: '入驻审批' },
+  },
 
   // WA 工作台（批发商）
   {
@@ -100,14 +107,40 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/wa/Inquiry.vue'),
     meta: { role: 'WA', title: '询价确认' },
   },
+  {
+    path: '/wa/apply',
+    name: 'wa-apply',
+    component: () => import('@/views/wa/Apply.vue'),
+    meta: { role: 'WA', title: '入驻申请' },
+  },
+  {
+    path: '/wa/withdraw',
+    name: 'wa-withdraw',
+    component: () => import('@/views/wa/Withdraw.vue'),
+    meta: { role: 'WA', title: '退驻申请' },
+  },
+  {
+    path: '/wa/staff',
+    name: 'wa-staff',
+    component: () => import('@/views/wa/Staff.vue'),
+    meta: { role: 'WA', title: '员工管理' },
+  },
 
-  // OPS / ST 工作台占位（后续 Agent 实现）
+  // OPS 工作台（P2 · 黑名单为 OPS 端第一个真实页面）
   {
     path: '/ops/dashboard',
     name: 'ops-dashboard',
     component: () => import('@/views/PlaceholderDashboard.vue'),
     meta: { role: 'OPS', title: 'OPS 控制台' },
   },
+  {
+    path: '/ops/blacklist',
+    name: 'ops-blacklist',
+    component: () => import('@/views/ops/Blacklist.vue'),
+    meta: { role: 'OPS', title: '黑名单管理' },
+  },
+
+  // ST 工作台占位（后续 Agent 实现）
   {
     path: '/st/dashboard',
     name: 'st-dashboard',
@@ -133,7 +166,8 @@ const router = createRouter({
   scrollBehavior: () => ({ top: 0 }),
 })
 
-// 全局守卫：未登录跳登录页；已登录访问 /login 时按 primaryRouter 路由
+// 全局守卫：未登录跳登录页；已登录访问 /login 时按 primaryRouter 路由；
+// OPS 路由按登录用户 roles 校验角色（P2 · OPS 端有真实页面后补的角色守卫）
 router.beforeEach((to) => {
   const auth = useAuthStore()
   document.title = (to.meta?.title as string) ?? '仓储云控制台'
@@ -148,6 +182,16 @@ router.beforeEach((to) => {
 
   if (!auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  // OPS 平台页：非 OPS 账号（roles 不含 OPS）禁入，弹回其主路由。
+  // 注：TA/WA 页面存在兼任互访（WK 回 TA 台等），暂不收紧，只守 OPS。
+  if (to.meta?.role === 'OPS') {
+    const isOps = auth.roles?.some((r) => r.role === 'OPS') || auth.primaryRole === 'OPS'
+    if (!isOps) {
+      ElMessage.warning('无权访问平台运营页面')
+      return auth.primaryRouter || '/ta/dashboard'
+    }
   }
   return true
 })

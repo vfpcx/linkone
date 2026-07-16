@@ -190,21 +190,94 @@ export interface CreateEmployeeInviteRequest {
   expiresInDays?: number
 }
 
-// ============ WA 入驻审批 ============
+// ============ WA 入驻审批（P2 入驻生态 Wave1 · 后端已落地） ============
+/**
+ * 权威来源：shared/architecture/10-onboarding-design.md §1.1/§2（据实现编写）：
+ *  - POST /api/v1/wholesaler/applications   WA 提交入驻申请
+ *    body: {targetTenantId, name, contactName?, contactPhone?, license?} → {applicationId, status}
+ *  - GET  /api/v1/tenant/wholesaler-applications?status=&page=&size=   TA 分页列表
+ *    → {records, total, page, size}
+ *  - POST /api/v1/tenant/wholesaler-applications/{id}/audit  TA 审批（action: APPROVED|REJECTED，
+ *    驳回 remark 必填）→ {applicationId, status, wholesalerId?}
+ *  - GET  /api/v1/wholesaler/applications   WA 本人入驻申请列表（字段同 TA 列表）
+ * 错误码：50201 审核中（重复提交）/ 50203 申请不存在或状态不可审 / 50204 重复入驻 / 50205 黑名单拦截。
+ */
+export type WaApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+/** 入驻申请（对齐 wholesaler_applications 表 / 后端 VO） */
 export interface WholesalerApplication {
+  id: SnowflakeId
+  /** 目标仓库（tenant）ID */
+  tenantId: SnowflakeId
+  /** 申请人用户 ID */
+  applicantUserId: SnowflakeId
+  /** 商户名称 */
+  name: string
+  contactName?: string
+  contactPhone?: string
+  /** 营业执照号/凭证（黑名单键） */
+  license?: string
+  status: WaApplicationStatus
+  /** 来源：SELF_APPLY / OPS_CREATED / TA_SELF_OPERATED */
+  source?: string
+  /** OPS 代建授权依据 */
+  authBasis?: string
+  auditUserId?: SnowflakeId
+  /** 审核时间 */
+  auditedAt?: string
+  /** 审核备注；REJECTED 时为驳回理由 */
+  auditRemark?: string
+  /** 通过后回填的商户 ID */
+  wholesalerId?: SnowflakeId
+  createdAt: string
+}
+
+/** WA 提交入驻申请入参（POST /wholesaler/applications） */
+export interface SubmitWaApplicationRequest {
+  /** 目标仓库 tenantId（雪花字符串） */
+  targetTenantId: SnowflakeId
+  /** 商户名 */
+  name: string
+  /** 联系人 */
+  contactName?: string
+  /** 联系电话 */
+  contactPhone?: string
+  /** 营业执照号（可选） */
+  license?: string
+}
+
+/** WA 提交入驻申请返回 */
+export interface SubmitWaApplicationResponse {
   applicationId: SnowflakeId
-  wholesalerName: string
-  contactName: string
-  contactPhone: string
-  businessLicenseUrl?: string
-  appliedAt: string
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: WaApplicationStatus
+}
+
+/** TA 审批入参（POST /tenant/wholesaler-applications/{id}/audit；REJECTED 时 remark 必填） */
+export interface AuditWaApplicationRequest {
+  action: 'APPROVED' | 'REJECTED'
   remark?: string
 }
 
+/** TA 审批返回 */
+export interface WaApplicationAuditResult {
+  applicationId: SnowflakeId
+  status: WaApplicationStatus
+  /** APPROVED 时为新建/回填的商户 ID */
+  wholesalerId?: SnowflakeId
+}
+
+/** TA 分页列表查询参数 */
+export interface WaApplicationListQuery {
+  status?: WaApplicationStatus
+  page?: number
+  size?: number
+}
+
+/** @deprecated 后端统一走 audit 端点，保留兼容旧封装 */
 export interface ApproveWaRequest {
   remark?: string
 }
+/** @deprecated 后端统一走 audit 端点，保留兼容旧封装 */
 export interface RejectWaRequest {
   reason: string
 }
@@ -216,10 +289,14 @@ export interface CreateSelfOperatedWaRequest {
   contactName?: string
 }
 
-// ============ 强制下架 WA ============
+// ============ 强制下架 WA（R14 · Wave2 契约） ============
+/**
+ * POST /api/v1/tenant/wholesalers/{id}/force-offline
+ * TA 单方即时生效，不走审批；不可原地恢复（已下架→正常不可达）。
+ */
 export interface ForceOfflineWaRequest {
+  /** 下架原因（5~200 字，留痕并通知商户） */
   reason: string
-  effectImmediate: boolean
 }
 
 // ============ 审批中心 ============

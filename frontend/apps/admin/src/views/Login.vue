@@ -209,6 +209,13 @@ function handleLoginError(e: ApiError) {
     return
   }
 
+  // 41110 全部角色被禁用（R17 员工禁用后登录拒绝）
+  if (e.code === ErrorCode.AUTH_ALL_ROLES_DISABLED) {
+    alertMessage.value = '账号已被禁用，请联系商户管理员'
+    alertType.value = 'error'
+    return
+  }
+
   // 41201 验证码过期、41202 验证码错误
   if (
     e.code === ErrorCode.AUTH_SMS_EXPIRED ||

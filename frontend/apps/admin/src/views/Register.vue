@@ -224,9 +224,11 @@ const onSubmit = async () => {
         ? '注册成功！资质审核中，登录后可填资料'
         : role.value === 'WA'
           ? '注册成功！等待租户审批入驻'
-          : EMPLOYEE_ROLES.includes(role.value)
-            ? '注册成功！已为您加入所在仓库'
-            : '注册成功，请登录',
+          : role.value === 'WE'
+            ? '注册成功！已为您加入所属商户'
+            : EMPLOYEE_ROLES.includes(role.value)
+              ? '注册成功！已为您加入所在仓库'
+              : '注册成功，请登录',
     )
 
     // 注册返回即 LoginVo（含 token + roles），直接登录
