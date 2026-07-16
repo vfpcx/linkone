@@ -24,6 +24,8 @@ import {
   Refresh,
   Check,
   Shop,
+  User,
+  Warning as WarningIcon,
 } from '@element-plus/icons-vue'
 import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
@@ -71,6 +73,8 @@ const activeMenu = ref('/wa/inquiry')
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
+  { key: '/wa/staff', label: '员工管理', icon: User },
+  { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },
 ]
 
 const handleMenuSelect = (key: string) => {
@@ -78,11 +82,7 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/wa/apply') {
-    router.push(key)
-    return
-  }
-  ElMessage.info('该页面留给后续 Agent 实现')
+  router.push(key)
 }
 
 // ============ 状态徽章 ============

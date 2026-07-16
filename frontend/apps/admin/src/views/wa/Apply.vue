@@ -22,6 +22,8 @@ import {
   Bell,
   Document,
   Shop,
+  User,
+  Warning as WarningIcon,
   Promotion,
 } from '@element-plus/icons-vue'
 import { StatusBadge } from '@cangchu/ui-shared'
@@ -74,6 +76,8 @@ const activeMenu = ref('/wa/apply')
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
+  { key: '/wa/staff', label: '员工管理', icon: User },
+  { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },
 ]
 
 const handleMenuSelect = (key: string) => {
@@ -81,11 +85,7 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/wa/inquiry') {
-    router.push(key)
-    return
-  }
-  ElMessage.info('该页面留给后续 Agent 实现')
+  router.push(key)
 }
 
 // ============ 申请状态（本地缓存 + listMine 双轨） ============

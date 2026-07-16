@@ -113,6 +113,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/wa/Apply.vue'),
     meta: { role: 'WA', title: '入驻申请' },
   },
+  {
+    path: '/wa/withdraw',
+    name: 'wa-withdraw',
+    component: () => import('@/views/wa/Withdraw.vue'),
+    meta: { role: 'WA', title: '退驻申请' },
+  },
+  {
+    path: '/wa/staff',
+    name: 'wa-staff',
+    component: () => import('@/views/wa/Staff.vue'),
+    meta: { role: 'WA', title: '员工管理' },
+  },
 
   // OPS 工作台（P2 · 黑名单为 OPS 端第一个真实页面）
   {
