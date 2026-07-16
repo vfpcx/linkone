@@ -80,6 +80,20 @@ public interface AuthService {
     java.util.List<Long> listActiveUserIdsOfWholesaler(Long wholesalerId);
 
     /**
+     * 授权位判定（P2 Wave3 WE 员工）：用户在指定批发商下是否为 ACTIVE 的 WE
+     * 且 permissions 含指定授权位（{@link com.cangchu.common.util.WePermissions}）。
+     * 仅覆盖 WE 路径——WA 本人/TA 不受授权位约束，调用方自行先判 WA/TA。
+     */
+    boolean hasWholesalerPermission(Long userId, Long wholesalerId, String permission);
+
+    /**
+     * 上下文查询（P2 Wave3）：列出用户某角色（WE）绑定的全部 wholesaler_id，
+     * 与 {@link #listActiveWholesalerIds} 同构但供 WE 只读视图（如询价列表）使用。
+     * 语义等价于 listActiveWholesalerIds(userId, "WE")——单独列出以明确调用意图。
+     */
+    java.util.List<Long> listActiveWeWholesalerIds(Long userId);
+
+    /**
      * 角色-批发商绑定（幂等，返回角色记录 id）：确保用户拥有一条
      * (role, tenantId, wholesalerId, ACTIVE) 记录；已存在则返回其 id，否则新建
      * (priority=5) 后返回新 id。用于 WA 账号开通绑定。

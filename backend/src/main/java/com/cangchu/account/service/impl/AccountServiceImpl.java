@@ -177,10 +177,11 @@ public class AccountServiceImpl implements AccountService {
         // 验证验证码
         verifySmsCode(phone, "REGISTER", dto.getSmsCode());
 
-        // ---- 员工注册码路径（WK/ST 等仓库员工凭码绑定到既有租户）----
+        // ---- 员工注册码路径（WK/ST 仓库员工 / WE 批发商员工凭码绑定）----
         // inviteCode 非空时：以码上的 role/tenant_id 为准（覆盖入口 role），不建租户、不要求 tenantName。
-        // 校验(存在/未过期/未超 maxUses/角色∈WK,ST)与 used_count+1 在 consumeInviteForRegister 内完成，
+        // 校验(存在/未过期/未超 maxUses/角色∈WK,ST,WE)与 used_count+1 在 consumeInviteForRegister 内完成，
         // 先于建账号执行，校验失败抛 AUTH_INVITE_* / INVITE_*，避免脏数据。
+        // WE 码（P2 Wave3）另带 wholesaler_id + 初始 permissions，注册时一并落 user_roles。
         boolean viaInvite = dto.getInviteCode() != null && !dto.getInviteCode().isBlank();
         com.cangchu.tenant.entity.InviteCode invite = null;
         if (viaInvite) {
@@ -205,6 +206,11 @@ public class AccountServiceImpl implements AccountService {
         userRole.setRole(role);
         if (viaInvite) {
             userRole.setTenantId(invite.getTenantId());
+            // WE 码：绑定商户 + 落初始授权位（WEM-S1-02；wholesaler_id 非空已在消费时校验）
+            if ("WE".equals(role)) {
+                userRole.setWholesalerId(invite.getWholesalerId());
+                userRole.setPermissions(invite.getPermissions());
+            }
         }
         userRole.setStatus("ACTIVE");
         userRole.setPriority(getRolePriority(role));
@@ -610,13 +616,20 @@ public class AccountServiceImpl implements AccountService {
         }
     }
 
-    /** 解析用户主角色 */
+    /** 解析用户主角色（D52 优先级 TA>ST>WK>WA>WE，经 priority 升序体现） */
     private String resolvePrimaryRole(Long userId) {
         List<UserRole> roles = userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, userId)
                 .eq(UserRole::getStatus, "ACTIVE")
                 .orderByAsc(UserRole::getPriority));
         if (roles.isEmpty()) {
+            // WEM-S5-01：有角色记录但全部被禁用（如 R17 禁用的 WE）→ 语义拒绝，不兜底 TA 放行
+            long anyRole = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
+                    .eq(UserRole::getUserId, userId));
+            if (anyRole > 0) {
+                throw new BizException(ErrorCode.ACCOUNT_ALL_ROLES_DISABLED);
+            }
+            // 无任何角色记录的历史账号：维持兜底 TA（兼容旧注册路径）
             return "TA";
         }
         return roles.get(0).getRole();
@@ -672,15 +685,15 @@ public class AccountServiceImpl implements AccountService {
         return OffsetDateTime.now(APP_ZONE).plusSeconds(StpUtil.getTokenSessionTimeout());
     }
 
-    /** 角色到路由的映射 */
+    /** 角色到路由的映射（D52 修正：WA/WE 落 WA 端，不再占位跳 /ta/dashboard） */
     private String resolveRouter(String role) {
         return switch (role) {
             case "OPS" -> "/ops/dashboard";
             case "TA" -> "/ta/dashboard";
             case "ST" -> "/st/dashboard";
             case "WK" -> "/ta/dashboard";
-            case "WA" -> "/ta/dashboard";
-            case "WE" -> "/ta/dashboard";
+            // WA 主页 = 询价确认（与前端路由 /wa 重定向一致）；WE 是批发商员工，同落 WA 端（D52）
+            case "WA", "WE" -> "/wa/inquiry";
             // RT(二批/终端) 是 H5/小程序买家，admin 后台不承载 RT 页面（前端无 /rt/* 路由）。
             // 与前端 defaultRouterFor(RT) 对齐，回兜底工作台，避免 admin 内 404。
             case "RT" -> "/ta/dashboard";

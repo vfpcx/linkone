@@ -96,6 +96,22 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public boolean hasWholesalerPermission(Long userId, Long wholesalerId, String permission) {
+        UserRole we = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRole, "WE")
+                .eq(UserRole::getWholesalerId, wholesalerId)
+                .eq(UserRole::getStatus, "ACTIVE")
+                .last("LIMIT 1"));
+        return we != null && com.cangchu.common.util.WePermissions.has(we.getPermissions(), permission);
+    }
+
+    @Override
+    public List<Long> listActiveWeWholesalerIds(Long userId) {
+        return listActiveWholesalerIds(userId, "WE");
+    }
+
+    @Override
     public void bindOrCreateTenantRole(Long userId, String role, Long tenantId, Long createdBy) {
         UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, userId)
