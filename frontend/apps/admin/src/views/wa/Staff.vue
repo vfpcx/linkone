@@ -922,6 +922,24 @@ onMounted(async () => {
   }
   .wa-main {
     padding: var(--space-4);
+    min-width: 0; /* 表格内部滚动，不撑宽页面 */
+  }
+  /* 窄屏顶栏：品牌/店名单行省略，防纵向折行 */
+  .wa-topbar {
+    padding: 0 var(--space-4);
+  }
+  .wa-topbar__left {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .wa-topbar__store {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wa-topbar__right {
+    flex-shrink: 0;
   }
   .page-head {
     flex-direction: column;
