@@ -295,8 +295,10 @@ public class InquiryServiceImpl implements InquiryService {
 
     @Override
     public List<InquiryVo> listForWa(Long tenantId, Long waUserId) {
-        // 该用户作为 WA 归属的所有 wholesaler（跨租户集合，随后按 tenantId 过滤 inquiry）
-        List<Long> waWholesalerIds = authService.listActiveWholesalerIds(waUserId, "WA");
+        // 该用户作为 WA 归属的所有 wholesaler（跨租户集合，随后按 tenantId 过滤 inquiry）；
+        // P2 Wave3：WE 员工同看本商户询价列表（只读不限授权位，确认在 requireWaRole 卡授权）
+        List<Long> waWholesalerIds = new ArrayList<>(authService.listActiveWholesalerIds(waUserId, "WA"));
+        waWholesalerIds.addAll(authService.listActiveWeWholesalerIds(waUserId));
         if (waWholesalerIds.isEmpty()) {
             return List.of();
         }
@@ -330,11 +332,22 @@ public class InquiryServiceImpl implements InquiryService {
 
     // ==================== 私有 ====================
 
-    /** S4：用户在指定 wholesaler 下须有 ACTIVE 的 WA 角色，否则越权拒绝。 */
+    /**
+     * S4：确认询价的操作人须为该 wholesaler 的 WA，或该商户持 INQUIRY_CONFIRM 授权位的
+     * WE（P2 Wave3 切点，WEM-S1-05/S4-02）：未授权 WE → 42004，非本商户 → 50286。
+     */
     private void requireWaRole(Long wholesalerId, Long userId) {
-        if (!authService.hasWholesalerRole(userId, "WA", wholesalerId)) {
-            throw new BizException(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
+        if (authService.hasWholesalerRole(userId, "WA", wholesalerId)) {
+            return;
         }
+        if (authService.hasWholesalerRole(userId, "WE", wholesalerId)) {
+            if (!authService.hasWholesalerPermission(userId, wholesalerId,
+                    com.cangchu.common.util.WePermissions.INQUIRY_CONFIRM)) {
+                throw new BizException(ErrorCode.PERMISSION_ROLE_004, "未获得询价确认授权，请联系商户管理员");
+            }
+            return;
+        }
+        throw new BizException(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
     }
 
     /** 取租户简码用于 docNo；查不到则用 tenantId 占位。经 TenantService 取值（G-S2，不直连 TenantMapper）。 */

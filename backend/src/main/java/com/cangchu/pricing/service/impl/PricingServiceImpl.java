@@ -105,7 +105,7 @@ public class PricingServiceImpl implements PricingService {
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
-        requireWaOrTa(wholesaler, operatorUserId);
+        requirePriceEditor(wholesaler, operatorUserId);
         validatePrice(dto.getUnitPrice());
 
         // F1：upsert 必须匹配物理唯一键 (wholesaler_id, rt_phone, sku_id)，不按 status 过滤。
@@ -332,7 +332,7 @@ public class PricingServiceImpl implements PricingService {
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
-        requireWaOrTa(wholesaler, operatorUserId);
+        requirePriceEditor(wholesaler, operatorUserId);
         return runGuarded(dto.getWholesalerId(), PriceChangeLog.CHANGE_TYPE_PUBLIC_PRICE,
                 () -> self.doBatchPublicInTx(dto, operatorUserId));
     }
@@ -344,7 +344,7 @@ public class PricingServiceImpl implements PricingService {
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
-        requireWaOrTa(wholesaler, operatorUserId);
+        requirePriceEditor(wholesaler, operatorUserId);
         return runGuarded(dto.getWholesalerId(), PriceChangeLog.CHANGE_TYPE_CUSTOMER_PRICE,
                 () -> self.doBatchCustomerInTx(dto, operatorUserId));
     }
@@ -547,10 +547,33 @@ public class PricingServiceImpl implements PricingService {
     }
 
     /**
-     * S4 归属鉴权：operator 须为该商户的 WA 或该商户所属租户的 TA；皆非则越权拒绝（42101）。
+     * S4 归属鉴权（读路径）：operator 须为该商户的 WA / 该商户的 WE（不限授权位，价格页只读可见）/
+     * 该商户所属租户的 TA；皆非则越权拒绝（42101）。
      */
     private void requireWaOrTa(WholesalerVo wholesaler, Long userId) {
+        if (authService.hasWholesalerRole(userId, "WA", wholesaler.getId())
+                || authService.hasWholesalerRole(userId, "WE", wholesaler.getId())) {
+            return;
+        }
+        if (!authService.hasRole(userId, "TA", wholesaler.getTenantId())) {
+            throw new BizException(ErrorCode.PERMISSION_TENANT_001);
+        }
+    }
+
+    /**
+     * S4 归属鉴权（写路径，P2 Wave3 WE 授权切点）：WA 本人/TA 不受限；
+     * WE 须持 PRICE_EDIT 授权位（未授 42004，WEM-S4-01）；其余越权 42101。
+     * 覆盖 WE 可走到的全部调价写路径：专属价 set/update/revoke + 公开价/专属价批量。
+     */
+    private void requirePriceEditor(WholesalerVo wholesaler, Long userId) {
         if (authService.hasWholesalerRole(userId, "WA", wholesaler.getId())) {
+            return;
+        }
+        if (authService.hasWholesalerRole(userId, "WE", wholesaler.getId())) {
+            if (!authService.hasWholesalerPermission(userId, wholesaler.getId(),
+                    com.cangchu.common.util.WePermissions.PRICE_EDIT)) {
+                throw new BizException(ErrorCode.PERMISSION_ROLE_004, "未获得改价授权，请联系商户管理员");
+            }
             return;
         }
         if (!authService.hasRole(userId, "TA", wholesaler.getTenantId())) {
@@ -568,7 +591,7 @@ public class PricingServiceImpl implements PricingService {
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
-        requireWaOrTa(wholesaler, operatorUserId);
+        requirePriceEditor(wholesaler, operatorUserId);
         return cp;
     }
 
