@@ -143,7 +143,18 @@ const employeeRowClass = ({ row }: { row: WaEmployee }): string =>
 /** 正在提交授权变更的员工（switch loading 态） */
 const permSubmittingId = ref('')
 
-/** 授权 switch 即时生效（整组覆盖式提交；失败回滚重拉） */
+/** 员工数据已过期（不存在/状态变化/恢复超窗）→ 重拉列表对齐后端 */
+const refetchIfStale = (e: unknown) => {
+  if (
+    e instanceof ApiError &&
+    (e.code === 50320 || e.code === 50321 || e.code === 50322)
+  ) {
+    void fetchEmployees()
+  }
+}
+
+/** 授权 switch 即时生效（整组覆盖式提交，空数组=收回全部；失败回滚重拉）
+ *  端点 {id} 用角色绑定行 id（row.id），不是 userId */
 const onTogglePerm = async (row: WaEmployee, p: WePermission, next: boolean) => {
   if (isReadonly.value || row.status !== 'ACTIVE') return
   const prev = [...(row.permissions ?? [])]
@@ -152,15 +163,16 @@ const onTogglePerm = async (row: WaEmployee, p: WePermission, next: boolean) => 
     : prev.filter((x) => x !== p)
   // 乐观更新，失败回滚
   row.permissions = nextPerms
-  permSubmittingId.value = String(row.userId)
+  permSubmittingId.value = String(row.id)
   try {
-    await waEmployeeApi.updatePermissions(String(row.userId), { permissions: nextPerms })
+    await waEmployeeApi.updatePermissions(String(row.id), { permissions: nextPerms })
     ElMessage.success(
       next ? `已开通「${permLabel(p)}」授权，即时生效` : `已取消「${permLabel(p)}」授权，即时生效`,
     )
   } catch (e) {
     row.permissions = prev
     markReadonlyIfNeeded(e)
+    refetchIfStale(e)
   } finally {
     permSubmittingId.value = ''
   }
@@ -169,17 +181,15 @@ const onTogglePerm = async (row: WaEmployee, p: WePermission, next: boolean) => 
 // ============ 禁用 / 恢复（R17） ============
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/** 恢复窗口 = disabledAt + 30 天（restoreWindowDays，前端自算倒计时） */
+const RESTORE_WINDOW_DAYS = 30
+
 const restoreDaysLeft = (row: WaEmployee): number => {
-  let deadline: Date | null = null
-  if (row.restoreDeadline) {
-    const d = new Date(row.restoreDeadline)
-    if (!Number.isNaN(d.getTime())) deadline = d
-  } else if (row.disabledAt) {
-    const d = new Date(row.disabledAt)
-    if (!Number.isNaN(d.getTime())) deadline = new Date(d.getTime() + 30 * DAY_MS)
-  }
-  if (!deadline) return 30 // 后端未下发时间时按可恢复处理，交后端兜底
-  return Math.ceil((deadline.getTime() - Date.now()) / DAY_MS)
+  if (!row.disabledAt) return RESTORE_WINDOW_DAYS // 后端未下发时间时按可恢复处理，交后端兜底
+  const d = new Date(row.disabledAt)
+  if (Number.isNaN(d.getTime())) return RESTORE_WINDOW_DAYS
+  const deadline = d.getTime() + RESTORE_WINDOW_DAYS * DAY_MS
+  return Math.ceil((deadline - Date.now()) / DAY_MS)
 }
 
 const opSubmittingId = ref('')
@@ -198,13 +208,15 @@ const onDisable = async (row: WaEmployee) => {
   } catch {
     return
   }
-  opSubmittingId.value = String(row.userId)
+  opSubmittingId.value = String(row.id)
   try {
-    await waEmployeeApi.disableEmployee(String(row.userId))
-    ElMessage.success(`已禁用「${row.realName}」`)
+    // 返回 { restoreWindowDays: 30 }；倒计时按 disabledAt + 30 天前端自算
+    await waEmployeeApi.disableEmployee(String(row.id))
+    ElMessage.success(`已禁用「${row.realName}」，30 天内可恢复`)
     await fetchEmployees()
   } catch (e) {
     markReadonlyIfNeeded(e)
+    refetchIfStale(e)
   } finally {
     opSubmittingId.value = ''
   }
@@ -224,13 +236,14 @@ const onRestore = async (row: WaEmployee) => {
   } catch {
     return
   }
-  opSubmittingId.value = String(row.userId)
+  opSubmittingId.value = String(row.id)
   try {
-    await waEmployeeApi.restoreEmployee(String(row.userId))
+    await waEmployeeApi.restoreEmployee(String(row.id))
     ElMessage.success(`已恢复「${row.realName}」`)
     await fetchEmployees()
   } catch (e) {
     markReadonlyIfNeeded(e)
+    refetchIfStale(e)
   } finally {
     opSubmittingId.value = ''
   }
@@ -522,7 +535,12 @@ onMounted(async () => {
           >
             <el-table-column label="姓名" min-width="120">
               <template #default="{ row }">
-                <span class="cell-name">{{ row.realName || '—' }}</span>
+                <span class="cell-name">{{ row.realName || row.nickname || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="昵称" min-width="100">
+              <template #default="{ row }">
+                <span class="cell-muted">{{ row.nickname || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="手机号" width="140">
@@ -535,7 +553,7 @@ onMounted(async () => {
                 <el-switch
                   :model-value="hasPerm(row, 'PRICE_EDIT')"
                   :disabled="isReadonly || row.status !== 'ACTIVE'"
-                  :loading="permSubmittingId === String(row.userId)"
+                  :loading="permSubmittingId === String(row.id)"
                   @change="(v: string | number | boolean) => onTogglePerm(row, 'PRICE_EDIT', !!v)"
                 />
               </template>
@@ -545,7 +563,7 @@ onMounted(async () => {
                 <el-switch
                   :model-value="hasPerm(row, 'INQUIRY_CONFIRM')"
                   :disabled="isReadonly || row.status !== 'ACTIVE'"
-                  :loading="permSubmittingId === String(row.userId)"
+                  :loading="permSubmittingId === String(row.id)"
                   @change="
                     (v: string | number | boolean) => onTogglePerm(row, 'INQUIRY_CONFIRM', !!v)
                   "
@@ -583,7 +601,7 @@ onMounted(async () => {
                   link
                   type="danger"
                   :disabled="isReadonly"
-                  :loading="opSubmittingId === String(row.userId)"
+                  :loading="opSubmittingId === String(row.id)"
                   @click="onDisable(row)"
                 >
                   禁用
@@ -594,7 +612,7 @@ onMounted(async () => {
                   link
                   type="primary"
                   :disabled="isReadonly"
-                  :loading="opSubmittingId === String(row.userId)"
+                  :loading="opSubmittingId === String(row.id)"
                   @click="onRestore(row)"
                 >
                   恢复

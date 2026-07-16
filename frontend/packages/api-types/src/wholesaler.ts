@@ -180,19 +180,21 @@ export type WePermission = 'PRICE_EDIT' | 'INQUIRY_CONFIRM'
 
 export type WaEmployeeStatus = 'ACTIVE' | 'DISABLED'
 
-/** 本商户 WE 员工（GET /wholesaler/employees） */
+/** 本商户 WE 员工（GET /wholesaler/employees · Wave3 后端最终 VO） */
 export interface WaEmployee {
+  /** 角色绑定行 id（员工管理端点 {id} 一律用它，不是 userId） */
+  id: SnowflakeId
   userId: SnowflakeId
-  realName: string
+  wholesalerId: SnowflakeId
   /** 手机号（后端脱敏下发） */
   phone: string
+  nickname: string
+  realName: string
   permissions: WePermission[]
   status: WaEmployeeStatus
-  /** 禁用时间（DISABLED 时下发） */
+  /** 禁用时间（DISABLED 时下发；恢复截止 = disabledAt + 30 天，前端自算） */
   disabledAt?: string
-  /** 恢复截止（禁用 + 30 天；过期后不可恢复） */
-  restoreDeadline?: string
-  joinedAt?: string
+  createdAt: string
 }
 
 /** WE 员工注册码（复用 invite_codes + wholesaler_id） */
@@ -200,29 +202,39 @@ export type WaEmployeeInviteStatus = 'ACTIVE' | 'EXHAUSTED' | 'REVOKED'
 
 export interface WaEmployeeInvite {
   id: SnowflakeId
-  wholesalerId?: SnowflakeId
+  tenantId: SnowflakeId
+  wholesalerId: SnowflakeId
   code: string
+  /** 目标角色（固定 'WE'，后端下发） */
+  role: string
   /** 初始授权（注册后可在员工列表调整） */
   permissions: WePermission[]
   maxUses: number
   usedCount: number
-  /** 剩余可用次数（后端可选下发） */
-  remaining?: number
+  /** 剩余可用次数（后端下发 = maxUses - usedCount） */
+  remaining: number
   expireAt: string
   status: WaEmployeeInviteStatus
+  createdAt: string
 }
 
 /** 生码入参（targetRole 固定 WE，后端不收该字段） */
 export interface CreateWaEmployeeInviteRequest {
-  /** 有效天数（默认 7；线框三档 7 天 / 3 天 / 24 小时=1） */
+  /** 有效天数（后端缺省 7；线框三档 7 天 / 3 天 / 24 小时=1） */
   expireDays?: number
-  /** 使用次数上限 1~20（默认 5） */
+  /** 使用次数上限 1~20（后端缺省 1） */
   maxUses?: number
-  /** 初始授权 ⊆ [PRICE_EDIT, INQUIRY_CONFIRM]，可为空数组 */
+  /** 初始授权 ⊆ [PRICE_EDIT, INQUIRY_CONFIRM]，可省略/空数组 */
+  permissions?: WePermission[]
+}
+
+/** 改授权入参（PUT /wholesaler/employees/{id}/permissions；空数组=收回全部） */
+export interface UpdateWaEmployeePermissionsRequest {
   permissions: WePermission[]
 }
 
-/** 改授权入参（PUT /wholesaler/employees/{id}/permissions） */
-export interface UpdateWaEmployeePermissionsRequest {
-  permissions: WePermission[]
+/** R17 禁用返回（POST /wholesaler/employees/{id}/disable） */
+export interface DisableWaEmployeeResult {
+  /** 恢复窗口天数（固定 30；倒计时前端按 disabledAt + 30 天自算） */
+  restoreWindowDays: number
 }

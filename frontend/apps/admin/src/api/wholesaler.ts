@@ -31,6 +31,7 @@ import type {
   WaEmployeeInvite,
   CreateWaEmployeeInviteRequest,
   UpdateWaEmployeePermissionsRequest,
+  DisableWaEmployeeResult,
 } from '@cangchu/api-types'
 
 export const wholesalerApi = {
@@ -112,8 +113,11 @@ export const waWithdrawApi = {
 }
 
 /**
- * WA 端 · WE 员工管理（P2 入驻生态 Wave3 契约 · Team Lead 定稿 6 端点）
+ * WA 端 · WE 员工管理（P2 入驻生态 Wave3 · 后端最终 DTO 已落定）
  * targetRole 固定 WE；permissions ⊆ [PRICE_EDIT, INQUIRY_CONFIRM]
+ * 员工端点 {id} 一律为角色绑定行 id（WaEmployee.id），不是 userId
+ * 错误码：50319 授权项非法 / 50320 员工不存在或不属本商户 /
+ *        50321 状态不允许（含重复禁用）/ 50322 恢复逾 30 天 / 42004 WE 未授权
  */
 export const waEmployeeApi = {
   /** ✅ P2 · 生成 WE 员工注册码 */
@@ -139,7 +143,7 @@ export const waEmployeeApi = {
   listEmployees: () =>
     request<WaEmployee[]>({ method: 'GET', url: '/wholesaler/employees' }),
 
-  /** ✅ P2 · 改授权（switch 即时生效，整组覆盖式提交） */
+  /** ✅ P2 · 改授权（switch 即时生效，整组覆盖式提交；空数组=收回全部）id=角色绑定行 id */
   updatePermissions: (id: string, data: UpdateWaEmployeePermissionsRequest) =>
     request<void>({
       method: 'PUT',
@@ -147,11 +151,14 @@ export const waEmployeeApi = {
       data,
     }),
 
-  /** ✅ P2 · R17 禁用员工（立即踢出登录 + 草稿单据作废，30 天内可恢复） */
+  /** ✅ P2 · R17 禁用员工（立即踢出登录 + 草稿单据作废；返回 restoreWindowDays=30）id=角色绑定行 id */
   disableEmployee: (id: string) =>
-    request<void>({ method: 'POST', url: `/wholesaler/employees/${id}/disable` }),
+    request<DisableWaEmployeeResult>({
+      method: 'POST',
+      url: `/wholesaler/employees/${id}/disable`,
+    }),
 
-  /** ✅ P2 · 恢复被禁用员工（30 天内；授权保持禁用前设置） */
+  /** ✅ P2 · 恢复被禁用员工（30 天内；授权保持禁用前设置）id=角色绑定行 id */
   restoreEmployee: (id: string) =>
     request<void>({ method: 'POST', url: `/wholesaler/employees/${id}/restore` }),
 }

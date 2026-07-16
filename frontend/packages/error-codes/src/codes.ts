@@ -31,6 +31,8 @@ export enum ErrorCode {
   AUTH_NEW_PASSWORD_SAME = 41105,
   AUTH_NEW_PASSWORD_HISTORY = 41106,
   AUTH_OLD_PASSWORD_WRONG = 41107,
+  /** R17 · 全部角色被禁用，登录拒绝（WE 被商户禁用后） */
+  AUTH_ALL_ROLES_DISABLED = 41110,
 
   AUTH_SMS_EXPIRED = 41201,
   AUTH_SMS_WRONG = 41202,
@@ -136,6 +138,17 @@ export enum ErrorCode {
   /** 商户状态机不可达转移（如 OFFLINE→ACTIVE） */
   STATE_WHOLESALER_TRANSITION_INVALID = 50318,
 
+  // WE 员工管理（P2 入驻生态 Wave3 · 50319-50322；
+  // 仅出现在 /wholesaler/employees* 端点，不会出现在退驻页面）
+  /** 授权项非法（permissions ⊄ [PRICE_EDIT, INQUIRY_CONFIRM]） */
+  STATE_EMPLOYEE_PERMISSION_INVALID = 50319,
+  /** 员工不存在或不属本商户 */
+  STATE_EMPLOYEE_NOT_FOUND = 50320,
+  /** 员工状态不允许该操作（含重复禁用 / 恢复未禁用员工） */
+  STATE_EMPLOYEE_STATUS_INVALID = 50321,
+  /** 恢复已逾 30 天窗口（员工已永久移除） */
+  STATE_EMPLOYEE_RESTORE_EXPIRED = 50322,
+
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,
   STATE_BILL_PAID = 50303,
@@ -219,6 +232,8 @@ export function isLogoutRequired(code: number): boolean {
 /**
  * R13 退驻前置不满足段（50310-50329，契约 50312+）
  * 前端命中时应刷新退驻前置自查清单并回显未通过项
+ * 注：段内 50319-50322 为 WE 员工管理码，仅出现在员工端点，
+ * 本函数只在退驻页面对退驻接口的报错调用，故不会误伤
  */
 export function isWithdrawPreconditionFailed(code: number): boolean {
   return code >= 50310 && code <= 50329

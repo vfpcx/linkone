@@ -24,6 +24,7 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.AUTH_NEW_PASSWORD_SAME]: '新密码与旧密码相同',
   [ErrorCode.AUTH_NEW_PASSWORD_HISTORY]: '新密码不能与最近 5 次密码相同',
   [ErrorCode.AUTH_OLD_PASSWORD_WRONG]: '旧密码错误',
+  [ErrorCode.AUTH_ALL_ROLES_DISABLED]: '账号已被禁用，请联系商户管理员',
 
   [ErrorCode.AUTH_SMS_EXPIRED]: '验证码已过期，请重新获取',
   [ErrorCode.AUTH_SMS_WRONG]: '验证码错误',
@@ -104,6 +105,10 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_WITHDRAW_DUPLICATE]: '已有退驻申请在审批中，请勿重复提交',
   [ErrorCode.STATE_RESTORE_WINDOW_EXPIRED]: '60 天恢复期已过，请重新申请入驻',
   [ErrorCode.STATE_WHOLESALER_TRANSITION_INVALID]: '商户当前状态不允许此操作',
+  [ErrorCode.STATE_EMPLOYEE_PERMISSION_INVALID]: '授权项不合法，仅支持「改价 / 询价确认」',
+  [ErrorCode.STATE_EMPLOYEE_NOT_FOUND]: '员工不存在或不属于本商户',
+  [ErrorCode.STATE_EMPLOYEE_STATUS_INVALID]: '员工当前状态不允许此操作，请刷新后重试',
+  [ErrorCode.STATE_EMPLOYEE_RESTORE_EXPIRED]: '已超过 30 天恢复期，员工已永久移除',
   [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
   [ErrorCode.STATE_BILL_DISPATCHED]: '账单已下发，不能直接调整',
   [ErrorCode.STATE_BILL_PAID]: '账单已结清，无法继续操作',

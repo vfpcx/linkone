@@ -82,7 +82,7 @@ export const useAuthStore = defineStore('auth', {
         ST: '/st/dashboard',
         WK: '/ta/dashboard', // 兼任时回 TA
         WA: '/wa/inquiry', // WA 主页 = 询价确认（phase-1 C2）
-        WE: '/ta/dashboard',
+        WE: '/wa/inquiry', // 与后端 primaryRouter 一致（Wave3：WA/WE 均回 /wa/inquiry）
         RT: '/ta/dashboard',
       }
       return map[role] ?? '/ta/dashboard'
