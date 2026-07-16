@@ -68,11 +68,33 @@ public interface TenantService {
     void revokeEmployeeInvite(Long taUserId, Long inviteId);
 
     /**
-     * 凭码注册时消费员工注册码：校验(存在/未作废/未过期/未超次/角色 WK-ST)，
+     * 凭码注册时消费员工注册码：校验(存在/未作废/未过期/未超次/角色 WK-ST-WE)，
      * used_count+1（到 maxUses 置 EXHAUSTED），返回该码用于绑定 user_roles。
+     * WE 码（P2 Wave3）额外携带 wholesalerId + 初始 permissions 供注册绑定。
      * 校验失败抛 BizException（AUTH_INVITE_001..004 / INVITE_*）。
      */
     InviteCode consumeInviteForRegister(String code);
+
+    // ==================== WE 员工注册码（P2 入驻 Wave3，WA 端） ====================
+
+    /**
+     * WA 生成批发商员工(WE)注册码：targetRole 固定 WE，绑定登录 WA 的 wholesaler_id，
+     * permissions ⊆ [PRICE_EDIT, INQUIRY_CONFIRM]（越界 50319）。非 WA / 未入驻拒绝。
+     */
+    EmployeeInviteVo createWeEmployeeInvite(Long waUserId, WholesalerEmployeeInviteCreateDto dto);
+
+    /** 列出本商户的 WE 注册码（按创建时间倒序；只含本 wholesaler 的 WE 码）。 */
+    List<EmployeeInviteVo> listWeEmployeeInvites(Long waUserId);
+
+    /** 作废本商户的 WE 注册码（置 REVOKED）；跨商户/非 WE 码按不存在处理。 */
+    void revokeWeEmployeeInvite(Long waUserId, Long inviteId);
+
+    /**
+     * OPS 租户列表（P2 Wave3 顺路补齐，前端契约先行 AdminTenantItem）：
+     * 全平台分页，status 可选过滤（PENDING/ACTIVE/REJECTED）；仅 OPS（42002）。
+     * 返回 PageData 形状 {list,total,page,pageSize,totalPages}。
+     */
+    Map<String, Object> pageTenantsForAdmin(Long opsUserId, String status, int page, int size);
 
     /** 查实时容量 */
     CapacityVo getCapacity(Long tenantId);

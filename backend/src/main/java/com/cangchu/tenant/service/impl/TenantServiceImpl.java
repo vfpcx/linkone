@@ -14,6 +14,8 @@ import com.cangchu.tenant.dto.*;
 import com.cangchu.tenant.entity.*;
 import com.cangchu.tenant.mapper.*;
 import com.cangchu.tenant.service.TenantService;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.cangchu.tenant.vo.AdminTenantItemVo;
 import com.cangchu.tenant.vo.CapacityVo;
 import com.cangchu.tenant.vo.EmployeeInviteVo;
 import com.cangchu.tenant.vo.TenantDetailVo;
@@ -46,6 +48,7 @@ public class TenantServiceImpl implements TenantService {
     private final InviteCodeMapper inviteCodeMapper;
     private final CapacityPublishMapper capacityPublishMapper;
     private final TenantApplicationMapper tenantApplicationMapper;
+    private final WholesalerMapper wholesalerMapper;
     private final UserMapper userMapper;
     // user_roles 归 account 域，跨域鉴权/角色绑定经 AuthService（G-S1/G-S2）
     private final AuthService authService;
@@ -414,8 +417,11 @@ public class TenantServiceImpl implements TenantService {
     @Override
     public List<EmployeeInviteVo> listEmployeeInvites(Long taUserId) {
         Long tenantId = requireTaRole(taUserId);
+        // WEM-S2-02 影响面收敛：TA 端只管理仓库内部角色码（WK/ST），
+        // WA 生成的 WE 码（同租户但归属 wholesaler）不出现在 TA 列表
         List<InviteCode> list = inviteCodeMapper.selectList(new LambdaQueryWrapper<InviteCode>()
                 .eq(InviteCode::getTenantId, tenantId)
+                .in(InviteCode::getTargetRole, "WK", "ST")
                 .orderByDesc(InviteCode::getCreatedAt));
         return list.stream().map(this::toEmployeeInviteVo).toList();
     }
@@ -425,8 +431,10 @@ public class TenantServiceImpl implements TenantService {
     public void revokeEmployeeInvite(Long taUserId, Long inviteId) {
         Long tenantId = requireTaRole(taUserId);
         InviteCode invite = inviteCodeMapper.selectById(inviteId);
-        // 跨租户/不存在统一按不存在处理（不泄漏他租户码的存在性）
-        if (invite == null || !tenantId.equals(invite.getTenantId())) {
+        // 跨租户/不存在统一按不存在处理（不泄漏他租户码的存在性）；
+        // WE 码归 WA 管（WEM-S2-02 收敛），TA 作废同样按不存在处理
+        if (invite == null || !tenantId.equals(invite.getTenantId())
+                || !List.of("WK", "ST").contains(invite.getTargetRole())) {
             throw new BizException(ErrorCode.INVITE_CODE_NOT_FOUND);
         }
         invite.setStatus("REVOKED");
@@ -449,10 +457,15 @@ public class TenantServiceImpl implements TenantService {
         if (invite == null) {
             throw new BizException(ErrorCode.AUTH_INVITE_001);
         }
-        // 仅 WK/ST 员工码可用于员工注册（防止历史 WA 入驻码等被误用）
+        // 仅 WK/ST/WE 员工码可用于员工注册（防止历史 WA 入驻码等被误用）；
+        // WE 为 P2 Wave3 放开——注意 TA 端生码白名单仍只 WK/ST（WEM-S2-02 影响面收敛）
         String role = invite.getTargetRole();
-        if (!"WK".equals(role) && !"ST".equals(role)) {
+        if (!"WK".equals(role) && !"ST".equals(role) && !"WE".equals(role)) {
             throw new BizException(ErrorCode.AUTH_INVITE_004);
+        }
+        // WE 码必须带商户归属（生码即写入；缺失说明数据异常，拒绝以免绑空商户 WEM-S1-01）
+        if ("WE".equals(role) && invite.getWholesalerId() == null) {
+            throw new BizException(ErrorCode.AUTH_INVITE_001);
         }
         if ("REVOKED".equals(invite.getStatus())) {
             throw new BizException(ErrorCode.INVITE_CODE_REVOKED);
@@ -483,14 +496,158 @@ public class TenantServiceImpl implements TenantService {
         return invite;
     }
 
+    // ==================== WE 员工注册码（P2 入驻 Wave3，WA 端） ====================
+
+    /** WA 生成 WE 注册码：角色固定 WE、绑定登录 WA 的 wholesaler、携带初始授权位。 */
+    @Override
+    @Transactional
+    public EmployeeInviteVo createWeEmployeeInvite(Long waUserId, WholesalerEmployeeInviteCreateDto dto) {
+        Wholesaler wholesaler = requireOwnWholesaler(waUserId);
+
+        // 授权位白名单校验（G-3.1）：越界值一律 50319，空=无初始授权
+        if (!com.cangchu.common.util.WePermissions.allAllowed(dto.getPermissions())) {
+            throw new BizException(ErrorCode.EMPLOYEE_INVITE_PERMISSION_INVALID);
+        }
+
+        int maxUses = dto.getMaxUses() != null ? dto.getMaxUses() : 1;
+        int expireDays = dto.getExpireDays() != null ? dto.getExpireDays() : 7;
+        String code = RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 12);
+
+        InviteCode invite = new InviteCode();
+        invite.setId(snowflakeIdUtil.nextId());
+        invite.setTenantId(wholesaler.getTenantId());
+        invite.setWholesalerId(wholesaler.getId());
+        invite.setCode(code);
+        invite.setTargetRole("WE");
+        invite.setMaxUses(maxUses);
+        invite.setUsedCount(0);
+        invite.setExpireAt(LocalDateTime.now().plusDays(expireDays));
+        invite.setStatus("ACTIVE");
+        invite.setPermissions(com.cangchu.common.util.WePermissions.encode(dto.getPermissions()));
+        invite.setCreatedAt(LocalDateTime.now());
+        invite.setCreatedBy(waUserId);
+        inviteCodeMapper.insert(invite);
+
+        log.info("[P2][WE 注册码] WA {} 为商户 {} 生成 WE 码 maxUses={} expireDays={} permissions={}",
+                waUserId, wholesaler.getId(), maxUses, expireDays, invite.getPermissions());
+        return toEmployeeInviteVo(invite);
+    }
+
+    @Override
+    public List<EmployeeInviteVo> listWeEmployeeInvites(Long waUserId) {
+        Wholesaler wholesaler = requireOwnWholesaler(waUserId);
+        List<InviteCode> list = inviteCodeMapper.selectList(new LambdaQueryWrapper<InviteCode>()
+                .eq(InviteCode::getWholesalerId, wholesaler.getId())
+                .eq(InviteCode::getTargetRole, "WE")
+                .orderByDesc(InviteCode::getCreatedAt));
+        return list.stream().map(this::toEmployeeInviteVo).toList();
+    }
+
+    @Override
+    @Transactional
+    public void revokeWeEmployeeInvite(Long waUserId, Long inviteId) {
+        Wholesaler wholesaler = requireOwnWholesaler(waUserId);
+        InviteCode invite = inviteCodeMapper.selectById(inviteId);
+        // 跨商户/非 WE 码/不存在统一按不存在处理（不泄漏他商户码的存在性，SEC-S4-10）
+        if (invite == null || !wholesaler.getId().equals(invite.getWholesalerId())
+                || !"WE".equals(invite.getTargetRole())) {
+            throw new BizException(ErrorCode.INVITE_CODE_NOT_FOUND);
+        }
+        invite.setStatus("REVOKED");
+        inviteCodeMapper.updateById(invite);
+        log.info("[P2][WE 注册码] WA {} 作废 WE 码 {}（商户 {}）", waUserId, inviteId, wholesaler.getId());
+    }
+
+    /** 登录 WA 的己方商户（第一条 ACTIVE WA 绑定）；未入驻拒绝。与 lifecycle 域同语义。 */
+    private Wholesaler requireOwnWholesaler(Long waUserId) {
+        List<Long> ids = authService.listActiveWholesalerIds(waUserId, "WA");
+        if (ids.isEmpty()) {
+            throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND, "您没有已入驻的批发商商户");
+        }
+        Wholesaler wholesaler = wholesalerMapper.selectById(ids.get(0));
+        if (wholesaler == null) {
+            throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
+        }
+        return wholesaler;
+    }
+
+    // ==================== OPS 租户列表（P2 Wave3 顺路补齐） ====================
+
+    @Override
+    public Map<String, Object> pageTenantsForAdmin(Long opsUserId, String status, int page, int size) {
+        // OPS 平台角色显式校验（现有模式：服务层 hasRole，不信任客户端）
+        if (!authService.hasRole(opsUserId, "OPS")) {
+            throw new BizException(ErrorCode.PERMISSION_ROLE_002);
+        }
+
+        Page<Tenant> p = tenantMapper.selectPage(
+                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
+                new LambdaQueryWrapper<Tenant>()
+                        .eq(status != null && !status.isBlank(), Tenant::getStatus, status)
+                        .orderByDesc(Tenant::getCreatedAt));
+
+        List<Tenant> tenants = p.getRecords();
+        // 批量取申请人（contact_user_id → 实名/昵称）与地址快照（tenant_applications），避免 N+1
+        Map<Long, User> users = Map.of();
+        Map<Long, String> addresses = new LinkedHashMap<>();
+        if (!tenants.isEmpty()) {
+            List<Long> userIds = tenants.stream().map(Tenant::getContactUserId)
+                    .filter(java.util.Objects::nonNull).distinct().toList();
+            if (!userIds.isEmpty()) {
+                users = userMapper.selectBatchIds(userIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+            }
+            List<Long> tenantIds = tenants.stream().map(Tenant::getId).toList();
+            // 同租户多条申请取最新一条的地址（apply 复用壳时会更新申请单）
+            for (TenantApplication app : tenantApplicationMapper.selectList(new LambdaQueryWrapper<TenantApplication>()
+                    .in(TenantApplication::getTenantId, tenantIds)
+                    .orderByAsc(TenantApplication::getCreatedAt))) {
+                if (app.getTenantId() != null && app.getAddressText() != null) {
+                    addresses.put(app.getTenantId(), app.getAddressText());
+                }
+            }
+        }
+
+        final Map<Long, User> userMap = users;
+        List<AdminTenantItemVo> list = tenants.stream().map(t -> {
+            User applicant = t.getContactUserId() != null ? userMap.get(t.getContactUserId()) : null;
+            String applicantName = applicant == null ? null
+                    : (applicant.getRealName() != null && !applicant.getRealName().isBlank()
+                            ? applicant.getRealName() : applicant.getNickname());
+            return AdminTenantItemVo.builder()
+                    .tenantId(t.getId())
+                    .name(t.getName())
+                    .legalName(t.getLegalName())
+                    .applicantName(applicantName)
+                    .contactPhone(t.getContactPhone())
+                    .addressText(addresses.get(t.getId()))
+                    .status(t.getStatus())
+                    .appliedAt(t.getCreatedAt())
+                    .auditedAt(t.getAuditedAt())
+                    .auditRemark(t.getAuditRemark())
+                    .build();
+        }).toList();
+
+        // 前端 PageData<T> 契约形状：list/total/page/pageSize/totalPages
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("list", list);
+        result.put("total", p.getTotal());
+        result.put("page", p.getCurrent());
+        result.put("pageSize", p.getSize());
+        result.put("totalPages", p.getPages());
+        return result;
+    }
+
     private EmployeeInviteVo toEmployeeInviteVo(InviteCode invite) {
         int used = invite.getUsedCount() != null ? invite.getUsedCount() : 0;
         int max = invite.getMaxUses() != null ? invite.getMaxUses() : 1;
         return EmployeeInviteVo.builder()
                 .id(invite.getId())
                 .tenantId(invite.getTenantId())
+                .wholesalerId(invite.getWholesalerId())
                 .code(invite.getCode())
                 .role(invite.getTargetRole())
+                .permissions(com.cangchu.common.util.WePermissions.decode(invite.getPermissions()))
                 .maxUses(max)
                 .usedCount(used)
                 .remaining(Math.max(0, max - used))
