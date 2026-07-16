@@ -1,6 +1,7 @@
 package com.cangchu.tenant.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
@@ -168,25 +169,34 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
 
         // CON 并发防护（CAS）：状态翻转用数据库条件更新 where status='PENDING' 抢占，
         // 并发 approve/reject 只有一方 affected=1，另一方按 50203 拒绝——不依赖内存判断。
-        WholesalerApplication flip = new WholesalerApplication();
-        flip.setStatus(action);
-        flip.setAuditUserId(taUserId);
-        flip.setAuditedAt(LocalDateTime.now());
-        flip.setAuditRemark(dto.getRemark());
-        int affected = applicationMapper.update(flip, new LambdaQueryWrapper<WholesalerApplication>()
+        // F1：终态同时置 pending_flag=NULL（释放 uk_applicant_pending 名额，允许驳回后重新申请）。
+        LocalDateTime auditedAt = LocalDateTime.now();
+        int affected = applicationMapper.update(null, new LambdaUpdateWrapper<WholesalerApplication>()
                 .eq(WholesalerApplication::getId, app.getId())
                 .eq(WholesalerApplication::getTenantId, tenantId)
-                .eq(WholesalerApplication::getStatus, "PENDING"));
+                .eq(WholesalerApplication::getStatus, "PENDING")
+                .set(WholesalerApplication::getStatus, action)
+                .set(WholesalerApplication::getPendingFlag, null)
+                .set(WholesalerApplication::getAuditUserId, taUserId)
+                .set(WholesalerApplication::getAuditedAt, auditedAt)
+                .set(WholesalerApplication::getAuditRemark, dto.getRemark()));
         if (affected == 0) {
             throw new BizException(ErrorCode.WHOLESALER_APPLICATION_NOT_AUDITABLE,
                     "申请已被并发审核，请刷新后重试");
         }
         app.setStatus(action);
         app.setAuditUserId(taUserId);
-        app.setAuditedAt(flip.getAuditedAt());
+        app.setAuditedAt(auditedAt);
         app.setAuditRemark(dto.getRemark());
 
         if ("APPROVED".equals(action)) {
+            // F4 复查：申请提交与审批之间该账号可能已被 OPS 代建/他仓通过——
+            // 已有 ACTIVE 入驻绑定则拒绝通过（50204，抛出随事务回滚 CAS 翻转）
+            if (!authService.listActiveWholesalerIds(app.getApplicantUserId(), "WA").isEmpty()) {
+                throw new BizException(ErrorCode.WHOLESALER_ALREADY_ONBOARDED,
+                        "该申请账号已有生效的入驻绑定，不可重复通过");
+            }
+
             // 建主体：ACTIVE / SELF_APPLY，owner = 申请人（CAS 抢占成功后才落主体，失败随事务回滚）
             Wholesaler wholesaler = new Wholesaler();
             wholesaler.setId(snowflakeIdUtil.nextId());
@@ -271,6 +281,20 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         WholesalerService.WaAccount account = wholesalerService.provisionWaAccount(
                 tenantId, wholesaler.getId(), dto.getWaPhone(), opsUserId);
 
+        // F4：代建成功后自动关闭该账号存量 PENDING 申请（置 REJECTED + 释放 pending_flag），
+        // 避免「已入驻账号还挂着待审申请」——若被 TA 后续通过将撞 50204 复查，但主动关闭留痕更清晰
+        int closed = applicationMapper.update(null, new LambdaUpdateWrapper<WholesalerApplication>()
+                .eq(WholesalerApplication::getApplicantUserId, waUserId)
+                .eq(WholesalerApplication::getStatus, "PENDING")
+                .set(WholesalerApplication::getStatus, "REJECTED")
+                .set(WholesalerApplication::getPendingFlag, null)
+                .set(WholesalerApplication::getAuditUserId, opsUserId)
+                .set(WholesalerApplication::getAuditedAt, LocalDateTime.now())
+                .set(WholesalerApplication::getAuditRemark, "OPS 代建入驻生效，存量待审申请自动关闭"));
+        if (closed > 0) {
+            log.info("[入驻][OPS代建] 自动关闭 WA 用户 {} 的存量 PENDING 申请 {} 条", waUserId, closed);
+        }
+
         // 留痕：补 APPROVED 申请单（source=OPS_CREATED + auth_basis 授权依据）
         WholesalerApplication trace = new WholesalerApplication();
         trace.setId(snowflakeIdUtil.nextId());
@@ -330,8 +354,15 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         app.setContactPhone(contactPhone);
         app.setLicense(license);
         app.setStatus("PENDING");
+        app.setPendingFlag(1);
         app.setSource("SELF_APPLY");
-        applicationMapper.insert(app);
+        try {
+            applicationMapper.insert(app);
+        } catch (DuplicateKeyException e) {
+            // F1：并发窗口内双双通过 selectCount 预检 → uk_applicant_pending 兜底，
+            // 唯一键冲突即「已有 PENDING 申请」，转语义码 50201（CON-S7-01 恰一方成功）
+            throw new BizException(ErrorCode.WHOLESALER_APPLICATION_PENDING);
+        }
         return app;
     }
 
@@ -342,11 +373,27 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         }
     }
 
+    /**
+     * F5：入驻目标租户必须存在且 ACTIVE——PENDING 仓库尚未过审、FROZEN/下线仓库
+     * 不应再接收入驻（自助申请 / 注册直申 / OPS 代建三路径同检）。
+     * 错误码复用 STATE_TENANT 段：PENDING→50101、FROZEN→50102、其余非 ACTIVE→50103。
+     */
     private void requireTenantExists(Long tenantId) {
         Tenant tenant = tenantMapper.selectById(tenantId);
         if (tenant == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND, "目标仓库不存在");
         }
+        String status = tenant.getStatus();
+        if ("ACTIVE".equals(status)) {
+            return;
+        }
+        if ("PENDING".equals(status)) {
+            throw new BizException(ErrorCode.STATE_TENANT_001, "目标仓库审核中，暂不可入驻");
+        }
+        if ("FROZEN".equals(status)) {
+            throw new BizException(ErrorCode.STATE_TENANT_002, "目标仓库已冻结，暂不可入驻");
+        }
+        throw new BizException(ErrorCode.STATE_TENANT_003, "目标仓库已下线或不可用，无法入驻");
     }
 
     private Long parseTenantId(String raw) {

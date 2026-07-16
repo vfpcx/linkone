@@ -40,6 +40,9 @@ public class WholesalerApplication {
     /** PENDING / APPROVED / REJECTED */
     private String status;
 
+    /** 部分唯一标记（F1）：PENDING=1，终态置 NULL；uk_applicant_pending 保证一账号至多一 PENDING */
+    private Integer pendingFlag;
+
     /** SELF_APPLY / OPS_CREATED / TA_SELF_OPERATED */
     private String source;
 

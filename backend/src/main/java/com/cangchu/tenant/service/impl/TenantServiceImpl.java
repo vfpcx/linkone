@@ -191,7 +191,9 @@ public class TenantServiceImpl implements TenantService {
             isNewUser = true;
 
             // TODO: 发送短信临时密码给 TA
-            log.info("[OPS PROXY] 代建租户 TA 手机号={}, 临时密码={}", dto.getContactPhone(), tempPwd);
+            // F7：日志严禁明文密码与完整手机号
+            log.info("[OPS PROXY] 代建租户 TA 手机号={}（临时密码已生成，待短信通道下发）",
+                    SmsUtil.maskPhone(dto.getContactPhone()));
         }
 
         // 创建租户（直接通过）

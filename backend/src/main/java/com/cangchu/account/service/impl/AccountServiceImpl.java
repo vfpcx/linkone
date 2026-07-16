@@ -519,7 +519,8 @@ public class AccountServiceImpl implements AccountService {
     private void verifySmsCode(String phone, String scene, String code) {
         // D-03: mock 万能验证码短路仅 dev 生效；prod 下 isMockEnabled()=false，永不放行 888888。
         if (smsUtil.isMockEnabled() && smsUtil.getMockCode().equals(code)) {
-            log.info("[SMS VERIFY] Mock code matched for {} scene={}", phone, scene);
+            // F7：日志手机号脱敏
+            log.info("[SMS VERIFY] Mock code matched for {} scene={}", SmsUtil.maskPhone(phone), scene);
             return;
         }
 

@@ -55,6 +55,8 @@ class OnboardingScenarioTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+    @Autowired
+    private com.cangchu.tenant.mapper.TenantMapper tenantMapper;
 
     private static final String P_TA =
             "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
@@ -133,7 +135,12 @@ class OnboardingScenarioTest {
                 new HttpEntity<>(dto, bearer(token)), MAP).getBody();
         assertThat(body).isNotNull();
         assertThat(body.getCode()).as("apply %s", phone).isEqualTo(0);
-        return new TaContext(phone, token, Long.valueOf(body.getData().get("tenantId").toString()));
+        long tenantId = Long.parseLong(body.getData().get("tenantId").toString());
+        // F5 审查修复后入驻目标租户必须 ACTIVE（OPS 审核不在本测试范围，直接置位）
+        com.cangchu.tenant.entity.Tenant tenant = tenantMapper.selectById(tenantId);
+        tenant.setStatus("ACTIVE");
+        tenantMapper.updateById(tenant);
+        return new TaContext(phone, token, tenantId);
     }
 
     private String registerOps() {

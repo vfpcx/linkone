@@ -320,3 +320,44 @@ WEM-S6-01 作废码注册 50292+跨商户作废 50291 / 授权变更越界 50319
 - WE 对 SKU 域（商品资料）与员工管理端点无任何权限；员工码生成 WA 专属（WE ❌，01 §4.1）。
 - 遗留：禁用超 30 天的"已永久移除"仅表现为恢复被拒（50322），不做行删除/归档任务；
   WE 通知（禁用/恢复告知）走 mock 短信基建，本波仅日志。
+
+---
+
+# 审查修复批次（F1/F4/F5/F7，2026-07-16）
+
+## 25. F1（BLOCKER）：一账号仅一 PENDING 的数据库级唯一（V13__application_pending_unique.sql）
+
+- 原「先查后写」（selectCount→insert）存在并发窗口，同账号可产生双 PENDING。
+- 部分唯一索引模式：`wholesaler_applications.pending_flag TINYINT NULL`（PENDING=1，终态 NULL）
+  + `uk_applicant_pending(applicant_user_id, pending_flag)`——NULL 不参与唯一冲突（MySQL/H2 一致），
+  终态任意多条共存、PENDING 至多一条；插入唯一键冲突捕获 `DuplicateKeyException` → 50201。
+- flag 生命周期：插入置 1；TA 审批 CAS 翻转同 SQL 置 NULL；OPS 代建自动关闭置 NULL。
+  存量 PENDING 迁移内回填 1（若历史脏数据双 PENDING 会使建索引失败——宁失败不静默）。
+- 预检查保留为快速路径（常规请求仍拿 50201 语义），索引是并发兜底（CON-S7-01 双线程恰一方成功）。
+
+## 26. F4（MAJOR）：ACTIVE 绑定复查 + 代建自动关闭存量申请
+
+- TA 审批通过路径新增复查：申请提交与审批之间账号可能已被 OPS 代建/他仓通过，
+  `listActiveWholesalerIds` 非空 → 50204（抛出随事务回滚 CAS 翻转，申请保持 PENDING）。
+- OPS 代建路径原有 50204 前检保留；代建成功后将该账号存量 PENDING 申请统一置
+  REJECTED + pending_flag=NULL + audit_remark「OPS 代建入驻生效，存量待审申请自动关闭」（留痕可追溯）。
+
+## 27. F5（MAJOR）：入驻目标租户必须 ACTIVE
+
+- `requireTenantExists` 升级为存在性 + 状态检查，自助申请/注册直申/OPS 代建三路径同检：
+  PENDING→50101（审核中）、FROZEN→50102（已冻结）、其余非 ACTIVE→50103（已下线）——复用
+  STATE_TENANT 既有段，未新增错误码。
+
+## 28. F7（MAJOR）：日志脱敏
+
+- `SmsUtil.maskPhone` 作为统一脱敏出口（138****5678；异常长度打星兜底不回退明文）。
+- 修复点：WholesalerServiceImpl.ensureWaUser（删除明文临时密码+手机号脱敏）、
+  TenantServiceImpl.createByOps 代建租户日志（同前）、AccountServiceImpl mock 验证码命中日志（手机号脱敏）。
+- 全域复扫 wholesaler/account：其余日志仅打 userId，无明文 phone/password 残留
+  （pricing 域 rtPhone 日志不属本批次范围，遗留给下轮审查）。
+
+## 29. 修复批次测试（OnboardingReviewFixScenarioTest，5 用例全绿；backend 全量 181 绿）
+
+CON-S7-01 并发重复申请恰一方成功+库中 PENDING 恰一条 / F4a 审批复查 50204+事务回滚保持 PENDING /
+F4b 代建自动关闭（REJECTED+remark 留痕+flag 释放+重申命中 50204 闭环）/
+F5 三状态×自助+代建六断言 / SEC-S4-01 入驻/退驻/员工 21 端点无 token 全扫 41001。

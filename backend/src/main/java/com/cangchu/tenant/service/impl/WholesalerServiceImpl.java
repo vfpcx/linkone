@@ -190,8 +190,10 @@ public class WholesalerServiceImpl implements WholesalerService {
             user.setStatus("ACTIVE");
             user.setRegisterSource("WA_PROVISION");
             userMapper.insert(user);
-            // TODO（后续切片）：发送短信临时密码 + 首登强制改密；当前仅日志占位
-            log.info("[A1][WA开通] 新建 WA 用户 phone={} 临时密码={}", phone, tempPwd);
+            // TODO（后续切片）：发送短信临时密码 + 首登强制改密。
+            // F7：日志严禁明文密码与完整手机号（临时密码只存在于短信通道，日志仅留脱敏号码）
+            log.info("[A1][WA开通] 新建 WA 用户 phone={}（临时密码已生成，待短信通道下发）",
+                    com.cangchu.common.util.SmsUtil.maskPhone(phone));
         }
         return user.getId();
     }
