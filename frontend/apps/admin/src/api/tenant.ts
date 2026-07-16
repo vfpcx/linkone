@@ -33,6 +33,9 @@ import type {
   ForceOfflineResult,
   PageData,
   PageRecords,
+  AdminTenantItem,
+  AdminTenantListQuery,
+  AuditTenantRequest,
 } from '@cangchu/api-types'
 
 // ============================================================
@@ -101,12 +104,24 @@ export const tenantApi = {
       params: { tenantId },
     }),
 
-  /** ✅ OPS 审核入驻通过/驳回 */
-  auditTenant: (id: string, data: { action: 'APPROVED' | 'REJECTED'; remark?: string }) =>
+  /** ✅ OPS 审核入驻通过/驳回（REJECTED 时 remark 必填） */
+  auditTenant: (id: string, data: AuditTenantRequest) =>
     request<void>({
       method: 'POST',
       url: `/admin/tenant/${id}/audit`,
       data,
+    }),
+
+  /**
+   * ⚠️ 后端需补 · OPS 分页查租户（仓库）列表
+   * 前端按合理契约先行：GET /api/v1/admin/tenants?status=&page=&size=
+   * （后端 TenantController 目前无任何 admin 端 GET 列表端点，页面对未就绪端点已做优雅降级）
+   */
+  listTenantsByOps: (params?: AdminTenantListQuery) =>
+    request<PageData<AdminTenantItem>>({
+      method: 'GET',
+      url: '/admin/tenants',
+      params,
     }),
 
   /** ✅ OPS 代建租户（直接 ACTIVE + 短信临时密码） */

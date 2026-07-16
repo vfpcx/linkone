@@ -22,6 +22,7 @@ import {
   Bell,
   Monitor,
   CircleClose,
+  Stamp,
   Plus,
   Refresh,
 } from '@element-plus/icons-vue'
@@ -67,6 +68,7 @@ const activeMenu = ref('/ops/blacklist')
 
 const menus = [
   { key: '/ops/dashboard', label: '运营控制台', icon: Monitor },
+  { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
 ]
 
@@ -75,7 +77,7 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ops/dashboard') {
+  if (key === '/ops/dashboard' || key === '/ops/tenant-audit') {
     router.push(key)
     return
   }
@@ -540,6 +542,22 @@ onMounted(fetchList)
   }
   .page-head {
     flex-direction: column;
+  }
+  /* 顶栏：防止「仓储云 · 平台运营」纵向换行被 56px 高度裁切 */
+  .ops-topbar {
+    padding: 0 var(--space-3);
+  }
+  .ops-topbar__left {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ops-main {
+    padding: var(--space-3);
+  }
+  /* 480px 固定宽弹窗在窄屏超出视口 → 收窄为视口内 */
+  :deep(.el-dialog) {
+    width: calc(100vw - 32px) !important;
+    max-width: 480px;
   }
 }
 </style>
