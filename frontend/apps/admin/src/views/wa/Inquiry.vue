@@ -279,7 +279,7 @@ onMounted(fetchList)
             </el-table-column>
             <el-table-column label="明细" width="90" align="right">
               <template #default="{ row }">
-                <span class="cell-muted">{{ itemCount(row) }} 项</span>
+                <span class="cell-muted">{{ itemCount(row as Inquiry) }} 项</span>
               </template>
             </el-table-column>
             <el-table-column label="提交时间" width="180">
@@ -295,7 +295,7 @@ onMounted(fetchList)
                   size="small"
                   :icon="Check"
                   :loading="confirmingId === String(row.id)"
-                  @click="onConfirm(row)"
+                  @click="onConfirm(row as Inquiry)"
                 >
                   确认
                 </el-button>
