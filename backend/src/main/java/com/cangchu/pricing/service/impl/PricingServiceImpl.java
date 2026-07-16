@@ -272,6 +272,29 @@ public class PricingServiceImpl implements PricingService {
     }
 
     @Override
+    @Transactional
+    public int disableByWholesaler(Long wholesalerId) {
+        // R13 副作用链：同 disableBySku 模式——先查 ACTIVE 行（拿 rtPhone/skuId 逐行失效缓存），
+        // 再批量置 DISABLED；缓存删除注册在事务提交后（F3），避免读方回填脏价。
+        List<CustomerPrice> rows = customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE));
+        if (rows.isEmpty()) {
+            return 0;
+        }
+        customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
+                .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
+                .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
+        for (CustomerPrice cp : rows) {
+            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+        }
+        log.info("[P2][R13] 商户 {} 退驻级联：作废专属价 {} 行（含缓存失效）", wholesalerId, rows.size());
+        return rows.size();
+    }
+
+    @Override
     public List<CustomerPriceVo> listCustomerPrices(Long wholesalerId, Long operatorUserId) {
         WholesalerVo wholesaler = wholesalerService.getById(wholesalerId);
         if (wholesaler == null) {

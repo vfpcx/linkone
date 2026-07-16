@@ -84,6 +84,18 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public List<Long> listActiveUserIdsOfWholesaler(Long wholesalerId) {
+        // WDR-S1-02：不加 role 条件——该商户下 WA 与 WE 一并返回（漏踢 WE 是高危漏点）
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                        .eq(UserRole::getWholesalerId, wholesalerId)
+                        .eq(UserRole::getStatus, "ACTIVE")).stream()
+                .map(UserRole::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    @Override
     public void bindOrCreateTenantRole(Long userId, String role, Long tenantId, Long createdBy) {
         UserRole existing = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, userId)

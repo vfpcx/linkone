@@ -71,6 +71,15 @@ public interface AuthService {
     void ensureTenantRole(Long userId, String role, Long tenantId, Long createdBy);
 
     /**
+     * 上下文查询（批发商维度反查，P2 Wave2）：列出绑定到该批发商的全部 ACTIVE 角色用户 id
+     * （去重；不限角色——WA 与 WE 一并返回）。
+     * 等价于 {@code selectList(wholesaler_id=? AND status='ACTIVE').map(userId).distinct()}。
+     * 供退驻/强制下架副作用链踢 token：只踢 WA 漏踢 WE 是已知高危漏点（WDR-S1-02），
+     * 故此方法刻意不加 role 条件。
+     */
+    java.util.List<Long> listActiveUserIdsOfWholesaler(Long wholesalerId);
+
+    /**
      * 角色-批发商绑定（幂等，返回角色记录 id）：确保用户拥有一条
      * (role, tenantId, wholesalerId, ACTIVE) 记录；已存在则返回其 id，否则新建
      * (priority=5) 后返回新 id。用于 WA 账号开通绑定。

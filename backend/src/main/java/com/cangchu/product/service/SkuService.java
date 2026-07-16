@@ -24,6 +24,16 @@ public interface SkuService {
     List<SkuVo> listByWholesaler(Long wholesalerId, Long operatorUserId);
 
     /**
+     * 商户级整体下架（P2 入驻 Wave2 R13 副作用链）：把该商户全部 listed=true 的 SKU 置 listed=false。
+     *
+     * <p>供 tenant 域在退驻审批通过的同一事务内调用（数据级联，无归属鉴权入参——
+     * 审批动作本身在 tenant 域已完成 S4 校验）。60 天恢复后 SKU 保持下架，需商户手动重新上架。
+     *
+     * @return 本次被下架的 SKU 行数
+     */
+    int delistAllByWholesaler(Long wholesalerId);
+
+    /**
      * 只读：按 id 取单个 SKU（供 document 等编排域读取，替代跨域直连 SkuMapper，符合 G-S1/G-S2）。
      * 隔离行为等同于原 {@code skuMapper.selectById}——内部同经 SkuMapper，受 TenantLine 兜底过滤，
      * 跨租户不可见时返回 {@code null}；调用方负责归属核对（tenantId/wholesalerId）与业务错误码。

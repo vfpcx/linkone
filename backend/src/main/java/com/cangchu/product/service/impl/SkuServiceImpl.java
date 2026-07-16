@@ -160,6 +160,20 @@ public class SkuServiceImpl implements SkuService {
     }
 
     @Override
+    @Transactional
+    public int delistAllByWholesaler(Long wholesalerId) {
+        // R13 副作用链数据级联：批量 partial update（只 set listed/updated_at），
+        // 调用方（tenant 域退驻审批）已完成 S4 鉴权与状态机校验，此处不再鉴权。
+        int affected = skuMapper.update(null, new LambdaUpdateWrapper<Sku>()
+                .eq(Sku::getWholesalerId, wholesalerId)
+                .eq(Sku::getListed, true)
+                .set(Sku::getListed, false)
+                .set(Sku::getUpdatedAt, LocalDateTime.now()));
+        log.info("[P2][R13] 商户 {} 退驻级联下架 SKU {} 行", wholesalerId, affected);
+        return affected;
+    }
+
+    @Override
     public List<SkuVo> listByWholesaler(Long wholesalerId, Long operatorUserId) {
         WholesalerVo wholesaler = wholesalerService.getById(wholesalerId);
         if (wholesaler == null) {
