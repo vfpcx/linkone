@@ -208,7 +208,7 @@
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
 |---|---|---|---|---|---|
 | 50201 | `WHOLESALER_APPLICATION_PENDING` | 200 | 批发商入驻审核中，请勿重复申请 | Duplicate pending application | 等待 TA 审批 |
-| 50202 | `WHOLESALER_WITHDRAWN` | 200 | 批发商已退驻 | Wholesaler withdrawn | Wave2 R13 使用 |
+| 50202 | `WHOLESALER_WITHDRAWN` | 200 | 批发商已退驻 | Wholesaler withdrawn（Wave2 已落地：已退驻再发起退驻 / 已退驻→已下架等所有 from=WITHDRAWN 的不可达转移统一由状态机抛此码） | 60 天内可恢复或重新入驻 |
 | 50203 | `WHOLESALER_APPLICATION_NOT_AUDITABLE` | 200 | 入驻申请不存在或当前状态不可审核 | Application not found / not PENDING（含跨租户不可见、并发审核被抢占） | 刷新列表 |
 | 50204 | `WHOLESALER_ALREADY_ONBOARDED` | 200 | 该账号已入驻批发商，一个账号仅可入驻一个仓库 | WA already bound to an active wholesaler | — |
 | 50205 | `BLACKLIST_HIT` | 200 | 已被列入平台黑名单，无法入驻 | Blacklist hit（自助申请 / OPS 代建 / TA 自营三路径同检，决策 O-2） | 联系平台 |
@@ -219,6 +219,20 @@
 |---|---|---|---|---|---|
 | 50310 | `BLACKLIST_ENTRY_EXISTS` | 200 | 黑名单条目已存在 | Duplicate blacklist entry (type,value) | — |
 | 50311 | `BLACKLIST_ENTRY_NOT_FOUND` | 200 | 黑名单条目不存在 | Entry not found or already removed | — |
+
+### R13 退驻 / R14 强制下架（50312–50318，O-3 溢出段，P2 Wave2）
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50312 | `WITHDRAW_STOCK_NOT_ZERO` | 200 | 退驻前须清空库存（当前仍有在库商品） | R13 前置：inventory 域 qty>0 行存在（发起与审批通过双检） | 清库存后重试 |
+| 50313 | `WHOLESALER_NOT_ACTIVE` | 200 | 该批发商已下架或退驻，无法受理新业务 | R14 新拒老放分界：新询价创建 / PENDING 询价确认在商户非 ACTIVE 时拒绝（document 域校验点）；已确认询价与已生成出库单允许走完 | — |
+| 50314 | `WITHDRAW_OPEN_DOCS_EXIST` | 200 | 退驻前须结清单据（存在未完结的询价/出库单） | R13 前置：询价 PENDING/CONFIRMED 或出库非 COMPLETED 存在 | 结清单据后重试 |
+| 50315 | `WITHDRAW_APPLICATION_NOT_AUDITABLE` | 200 | 退驻申请不存在或当前状态不可审核 | Not found / not PENDING（含跨租户不可见、并发审核 CAS 被抢占、撤回目标已被审批） | 刷新列表 |
+| 50316 | `WITHDRAW_APPLICATION_PENDING` | 200 | 已有退驻申请审核中，请勿重复提交 | Duplicate pending withdraw application | 等待 TA 审批或撤回 |
+| 50317 | `WITHDRAW_RESTORE_EXPIRED` | 200 | 退驻恢复窗口已过（超 60 天或已归档） | 恢复窗口 <60 天（数据库时间，起点=审批通过时刻 withdrawn_at）；>=60 天整归档，两口径互补 | 重新入驻 |
+| 50318 | `WHOLESALER_STATE_TRANSITION_INVALID` | 200 | 批发商当前状态不允许该操作 | 状态机不可达转移兜底（已下架→正常 / 已下架→已退驻 / 已归档→任意 等；from=WITHDRAWN 的不可达用 50202） | — |
+
+> 预留：50319 起留给 P4 billing 的退驻账单未结清校验（决策 O-5 占位，代码中 TODO 标注）。
 
 ### STATE_BILL（50300–50399）账单状态
 

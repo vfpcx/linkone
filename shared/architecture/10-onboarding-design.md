@@ -1,8 +1,8 @@
-# 10 · P2 入驻生态 Wave1 设计（入驻主链：申请 → 审批 → 黑名单 → OPS 代建）
+# 10 · P2 入驻生态设计（Wave1 入驻主链 + Wave2 R13 退驻/R14 强制下架）
 
-> 据实现编写（backend feat/p2-onboarding，2026-07-16）。蓝图依据 `03-database-schema.sql` §3.2/§3.3、
-> `04-api-spec.md`，先例复用 tenant_applications 双轨审批（决策 O-1）。
-> R13 退驻 / R14 强制下架 / WE 员工 → Wave2/3，本文档不含。
+> 据实现编写（backend feat/p2-onboarding，2026-07-16 更新至 Wave2）。蓝图依据
+> `03-database-schema.sql` §3.2/§3.3、`04-api-spec.md`，先例复用 tenant_applications 双轨审批（决策 O-1）。
+> §1–§9 为 Wave1（入驻主链），§10 起为 Wave2（R13/R14）。WE 员工 → Wave3，本文档暂不含。
 
 ## 1. 表结构（V10__init_onboarding.sql）
 
@@ -115,5 +115,116 @@ CON-01 并发 approve/reject 仅一方成功（CAS）。
 
 - O-1 双轨复用 tenant 审批模式；O-2 黑名单拦 OPS 代建（+测试计划扩展到 TA 自营）；
   O-3 错误码 50201-50205 落地+50310 溢出；O-6 blacklist 不进 TenantLine。
-- 遗留到后续 Wave：R13 退驻链（withdraw_apply_at 已建列）、R14 强制下架、WE 员工码、
+- 遗留到后续 Wave：WE 员工码（Wave3）、
   审核通过/驳回通知（现有 mock 短信基建，本波仅日志）、blacklist evidence_urls（蓝图列本波未建，需要时补迁移）。
+- ~~R13 退驻链 / R14 强制下架~~ → **Wave2 已落地，见 §10 起**。
+
+---
+
+# Wave2 · R13 退驻 + R14 强制下架
+
+## 10. 表结构（V11__withdraw_offline.sql）
+
+### 10.1 wholesaler_withdraw_applications（退驻申请，TenantLine 隔离，已入白名单）
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| id | BIGINT PK | 雪花 ID |
+| tenant_id | BIGINT NOT NULL | 所属租户（TA 审批侧隔离维度） |
+| wholesaler_id | BIGINT NOT NULL | 退驻的批发商主体 |
+| applicant_user_id | BIGINT NOT NULL | 申请人（该商户 WA） |
+| reason | VARCHAR(512) | 退驻原因（选填） |
+| status | VARCHAR(16) | PENDING / APPROVED / REJECTED / **CANCELLED**（WA 撤回） |
+| audit_user_id / audited_at / audit_remark | — | 审核三件套（驳回必填 remark）；**audited_at=通过时刻，是 60 天恢复/归档窗口的唯一时间起点** |
+| created_at / updated_at / deleted_at | — | 通用三列（软删） |
+
+### 10.2 wholesalers 补列（withdraw_apply_at V10 已建）
+
+| 列 | 说明 |
+|---|---|
+| withdrawn_at | 退驻生效时间 = 审批通过时刻（audited_at 快照）。60 天窗口/归档任务的唯一时间基准 |
+| offline_at / offline_reason | R14 强制下架时间/原因（reason 必填留痕） |
+| archived_at | 归档时间（数据库 NOW() 写入） |
+
+## 11. 状态机（wholesalers.status，集中收口于 WholesalerStateMachine）
+
+```
+ACTIVE ──R13 退驻审批通过──▶ WITHDRAWN ──60 天内恢复──▶ ACTIVE
+  │                              └──超 60 天归档任务──▶ ARCHIVED（终态）
+  └──R14 强制下架（TA 单方即时）──▶ OFFLINE（终态，不可原地恢复，需重新入驻）
+
+不可达（写死在转移表 + 场景测试断言）：
+  WITHDRAWN→OFFLINE（50202）  OFFLINE→ACTIVE（50318，且无任何端点）  OFFLINE→WITHDRAWN（P4 仲裁再开）  ARCHIVED→任意
+```
+
+- 所有转换必须经 `WholesalerStateMachine.assertTransition(from, to)`（单点真相），
+  from=WITHDRAWN 的非法转移抛 **50202**（已退驻），其余抛 **50318**。
+- 状态翻转一律 CAS：`UPDATE wholesalers SET status=… WHERE id=? AND status=期望态`，affected=0 即中止。
+- storefront 聚合仅取 `status=ACTIVE` 商户 → WITHDRAWN/OFFLINE **店铺页自动隐藏**，无需额外动作。
+
+## 12. 端点清单（Wave2 新增）
+
+| 方法/路径 | 角色 | 说明 |
+|---|---|---|
+| POST `/api/v1/wholesaler/withdraw` | WA | 发起退驻。body 可空：`{reason?}` → `{applicationId, wholesalerId, status}`。前置不满足：50312 库存 / 50314 未结单 / 50316 重复申请 |
+| GET `/api/v1/wholesaler/withdraw/precheck` | WA | 前置自查（只读，与提交校验同一份逻辑）→ `{wholesalerId, status, stockCleared, openDocs:{cleared,count}, billing:{cleared:null}}`（billing 恒 null=P4 灰态） |
+| POST `/api/v1/wholesaler/withdraw/cancel` | WA | 撤回本人 PENDING 申请（CAS）→ `{applicationId, status:CANCELLED}`；无可撤/已被审批 50315；撤回后可重新发起 |
+| GET `/api/v1/wholesaler/withdraw/mine` | WA | 本人最近一次退驻申请（status/reason/auditRemark/auditedAt）；从未申请 data=null |
+| POST `/api/v1/wholesaler/withdraw/restore` | WA | 60 天内恢复（WITHDRAWN→ACTIVE）→ `{wholesalerId, status}`；超窗/已归档 50317 |
+| GET `/api/v1/tenant/wholesaler-withdraw-applications?page&size&status` | TA | 分页列表（含 wholesalerName 冗余）→ `{records, total, page, size}` |
+| POST `/api/v1/tenant/wholesaler-withdraw-applications/{id}/audit` | TA | AuditDto `{action: APPROVED\|REJECTED, remark}`（驳回必填 remark）；CAS 败者 50315 |
+| POST `/api/v1/tenant/wholesalers/{id}/force-offline` | TA | R14 单方即时下架。body `{reason}`（@NotBlank）→ `{wholesalerId, status:OFFLINE}` |
+| GET `/api/v1/wholesaler/applications` | WA | （契约补齐）本人入驻申请列表（含 status/auditRemark），仅 applicant_user_id=登录用户 |
+
+无 OFFLINE→ACTIVE 端点（状态机不可达，R14 不可原地恢复）。
+
+## 13. R13 退驻链
+
+- **前置校验**（发起与审批通过**双检**，防申请后又入库/开单）：
+  1. 库存清零——`InventoryService.listInStockSkusFor`（qty>0 行）非空 → 50312；
+  2. 无未结单据——document 域新出口 `InquiryService.countOpenDocsForWholesaler`
+     （询价 PENDING/CONFIRMED + 出库非 COMPLETED）> 0 → 50314；
+  3. 账单结清——**TODO 占位（决策 O-5）**：BillingService P4 落地后接 `assertAllSettled`，错误码预留 50319 起。
+- **审批通过副作用链（同一事务，任一环失败整体回滚）**：
+  ① 主体 ACTIVE→WITHDRAWN（CAS）+ withdrawn_at=audited_at；
+  ② 全部 SKU 下架（`SkuService.delistAllByWholesaler`，partial update 只动 listed）；
+  ③ 店铺页隐藏（随状态生效）；
+  ④ CustomerPrice 全部失效（`PricingService.disableByWholesaler`：DB 置 DISABLED + 复用 F3
+     **提交后**逐行删 Redis 价格匹配缓存，resolvePrice 回退公开价）；
+  ⑤ **踢 token（WDR-S1-02 高危）**：`AuthService.listActiveUserIdsOfWholesaler`（**不限角色**，
+     WA 与全部 WE 一并返回）→ 事务 **afterCommit** 逐个 `StpUtil.kickout`（回滚不误踢，无会话吞异常）。
+- **60 天恢复**：CAS `UPDATE … WHERE status='WITHDRAWN' AND withdrawn_at > TIMESTAMPADD(DAY,-60,NOW())`
+  ——窗口条件直接写进 SQL（数据库时间）。恢复后 SKU 保持下架需手动上架、专属价不复活。
+- **归档定时任务**（WholesalerArchiveJob，每日 03:40 + SchedulingConfig @EnableScheduling）：
+  `UPDATE … SET status='ARCHIVED', archived_at=NOW() WHERE status='WITHDRAWN' AND withdrawn_at <= TIMESTAMPADD(DAY,-60,NOW())`。
+  **时间口径（BND-S3-01）**：起点=audited_at（通过时刻）快照的 withdrawn_at；比较全在 SQL 内用数据库时间；
+  边界 **>=60 天整归档 / <60 天可恢复**，两口径互补无缝隙。第 59/60/61 天边界有场景测试。
+
+## 14. R14 强制下架
+
+- TA 单方即时（不需审批），reason 必填留痕（offline_at/offline_reason）；ACTIVE→OFFLINE（CAS）。
+- **新拒老放分界 = 下架时刻的单据状态**（document 域校验点，非一刀切）：
+  - 新询价创建（`submitByRt`）：商户属本店但非 ACTIVE → **50313**；
+  - 未确认（PENDING）询价不可再确认（`confirmByWa` 在 CAS 前校验商户状态）→ **50313**；
+  - **已确认询价与已生成出库单允许走完**：本实现确认即原子转出库（CONFIRMED→COMPLETED 同事务），
+    下架前完成的单据原样保留，不回滚不作废。
+- 踢 token 同 R13（WA+WE，afterCommit）；店铺隐藏随状态生效。
+- 未结账单转「争议中」——**TODO 占位（P4 billing）**，代码中 forceOffline 处标注。
+- 不可原地恢复：restore 仅服务 WITHDRAWN；OFFLINE 调 restore/withdraw 均 50318。
+
+## 15. Wave2 测试（WithdrawOfflineScenarioTest，16 用例全绿；backend 全量 158 绿）
+
+WDR-01 库存未清 50312+precheck 同口径 / WDR-02 未结询价 50314+openDocs.count /
+WDR-03 副作用链四段+TA 列表+**WA/WE 双踢（WDR-S1-02）** / WDR-04 重复 50316+已退驻 50202 /
+WDR-05 恢复：SKU 保持下架+专属价不复活 / WDR-06 mine 本人可见他人为空 /
+WDR-07 precheck 三态结构（billing 灰态 null）/ WDR-08 撤回 CANCELLED+重新发起+审批后 50315 /
+BND-01/02/03 第 59/60/61 天边界（数据库时间 seed+判定）/ CON-02 并发审批 CAS 恰一方成功 /
+FOF-01 下架 reason 必填+OFFLINE+隐藏+踢 token / FOF-02 新拒老放（老出库保留、新询价 50313、旧 PENDING 确认 50313）/
+FOF-03 不可达转移（50202/50318+转移表断言）/ ONB-08 本人申请列表契约。
+
+## 16. Wave2 决策引用与遗留
+
+- O-5 账单校验 TODO 占位（applyWithdraw 前置 + forceOffline 争议中，两处标注，错误码预留 50319+）。
+- 撤回态 CANCELLED 为前端 Wave4b 契约补充（Team Lead 2026-07-16 指令）；仅 PENDING 可撤（CAS）。
+- 归档只做状态位 ARCHIVED（findings 缺口 #3，Q-D07），不做数据迁移。
+- 遗留：已下架→争议中→已退驻 OPS 仲裁闭环（P4 billing 后补）；退驻/下架通知（mock 短信基建，本波仅日志）。
