@@ -45,7 +45,9 @@ public class MybatisPlusConfig {
             "price_change_logs",
             // P2 入驻 Wave1：申请表含 tenant_id，纳入兜底隔离（TA 审批列表按租户可见）。
             // blacklist 为平台级共享表（PLATFORM_TABLE），按决策 O-6 不加入白名单。
-            "wholesaler_applications"
+            "wholesaler_applications",
+            // P2 入驻 Wave2：退驻申请表含 tenant_id，同样纳入兜底隔离。
+            "wholesaler_withdraw_applications"
     );
 
     @Bean

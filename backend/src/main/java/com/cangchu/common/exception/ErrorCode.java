@@ -135,7 +135,16 @@ public enum ErrorCode {
 
     // ==================== BLACKLIST 管理 (P2 入驻 Wave 1，O-3 溢出段 50310+) ====================
     BLACKLIST_ENTRY_EXISTS(50310, "黑名单条目已存在"),
-    BLACKLIST_ENTRY_NOT_FOUND(50311, "黑名单条目不存在");
+    BLACKLIST_ENTRY_NOT_FOUND(50311, "黑名单条目不存在"),
+
+    // ==================== R13 退驻 / R14 强制下架 (P2 入驻 Wave 2，50312+) ====================
+    WITHDRAW_STOCK_NOT_ZERO(50312, "退驻前须清空库存（当前仍有在库商品）"),
+    WHOLESALER_NOT_ACTIVE(50313, "该批发商已下架或退驻，无法受理新业务"),
+    WITHDRAW_OPEN_DOCS_EXIST(50314, "退驻前须结清单据（存在未完结的询价/出库单）"),
+    WITHDRAW_APPLICATION_NOT_AUDITABLE(50315, "退驻申请不存在或当前状态不可审核"),
+    WITHDRAW_APPLICATION_PENDING(50316, "已有退驻申请审核中，请勿重复提交"),
+    WITHDRAW_RESTORE_EXPIRED(50317, "退驻恢复窗口已过（超 60 天或已归档）"),
+    WHOLESALER_STATE_TRANSITION_INVALID(50318, "批发商当前状态不允许该操作");
 
     private final int code;
     private final String message;
