@@ -228,3 +228,95 @@ FOF-03 不可达转移（50202/50318+转移表断言）/ ONB-08 本人申请列�
 - 撤回态 CANCELLED 为前端 Wave4b 契约补充（Team Lead 2026-07-16 指令）；仅 PENDING 可撤（CAS）。
 - 归档只做状态位 ARCHIVED（findings 缺口 #3，Q-D07），不做数据迁移。
 - 遗留：已下架→争议中→已退驻 OPS 仲裁闭环（P4 billing 后补）；退驻/下架通知（mock 短信基建，本波仅日志）。
+
+---
+
+# Wave3 · WE 批发商员工 + 收尾端点
+
+## 17. 表结构（V12__we_permissions.sql）
+
+### 17.1 授权位存储选型（决策 O-4 落地——user_roles 加列，不建独立权限表）
+
+| 方案 | 结论 | 理由 |
+|---|---|---|
+| **user_roles.permissions 列（采用）** | ✅ | ① 授权位仅 2 枚且与 WE 角色绑定行一一对应，独立表徒增 JOIN；② 读取永远伴随角色行（`hasWholesalerPermission` 单行查询命中）；③ 无按授权位反查员工的需求（列表页整行取回解码即可） |
+| 独立 user_permissions 表 | ❌ | 授权粒度会随行数膨胀而复杂化；phase 内无按位审计要求 |
+| MySQL JSON 类型 | ❌ | 值域为固定白名单标识符，无 JSON 函数检索需求；H2(MODE=MySQL) 测试库 JSON 语义不一致 |
+
+- `user_roles.permissions VARCHAR(255) NULL`：JSON 数组文本（如 `["PRICE_EDIT","INQUIRY_CONFIRM"]`），NULL/空 = 无授权（只读）。
+- `invite_codes.permissions VARCHAR(255) NULL`：WE 码初始授权快照，注册消费时原样落 user_roles。
+- 编解码：`common/util/WePermissions`（白名单 `PRICE_EDIT`/`INQUIRY_CONFIRM`；解码丢弃白名单外条目，防脏数据放大权限）。
+
+## 18. 端点清单（Wave3 新增）
+
+| 端点 | 角色 | 说明 |
+|---|---|---|
+| `POST /api/v1/wholesaler/employee-invites` | WA | 生 WE 码 `{expireDays,maxUses,permissions}`；targetRole 固定 WE、绑定登录 WA 的 wholesaler_id；permissions 越界 50319 |
+| `GET /api/v1/wholesaler/employee-invites` | WA | 本商户 WE 码列表（含 permissions/remaining/status） |
+| `DELETE /api/v1/wholesaler/employee-invites/{id}` | WA | 作废（REVOKED）；跨商户/非 WE 码按不存在 50291 |
+| `GET /api/v1/wholesaler/employees` | WA | 本商户 WE 列表（含禁用；id=user_roles.id，permissions/status/disabledAt） |
+| `PUT /api/v1/wholesaler/employees/{id}/permissions` | WA | 授权整体替换 `{permissions}`；越界 50319、跨商户 50320 |
+| `POST /api/v1/wholesaler/employees/{id}/disable` | WA | R17：ACTIVE→DISABLED（CAS，重复禁用 50321）+ disabled_at + 提交后 `StpUtil.kickout` |
+| `POST /api/v1/wholesaler/employees/{id}/restore` | WA | 30 天内恢复（数据库时间窗口，逾期 50322）；授权保持禁用前设置 |
+| `GET /api/v1/admin/tenants?status&page&size` | OPS | 租户列表（前端契约 AdminTenantItem；PageData 形状 list/total/page/pageSize/totalPages；非 OPS 42002） |
+
+控制器分域：invite 三端点归 tenant 域（invite_codes 归属）；employees 四端点归 account 域
+（本体是 user_roles 行与登录会话）——`WholesalerEmployeeController` + `WholesalerEmployeeService`。
+
+## 19. WE 注册与登录（D52）
+
+- `consumeInviteForRegister` 白名单 WK/ST → **WK/ST/WE**；WE 码必须携带 wholesaler_id（缺失按无效码 41301 拒，防绑空商户）。
+- 注册落 user_roles：role=WE + tenant_id + **wholesaler_id** + 码上初始 permissions；新用户注册无既有会话，无需踢出。
+- **白名单影响面收敛（WEM-S2-02）**：TA 端 `/tenant/employee-invites` 生码白名单仍仅 WK/ST（50290）；
+  且 TA 端码列表/作废也过滤为 WK/ST——WA 生成的 WE 码对 TA 端不可见、不可作废。
+- **D52 登录路由修正**：`resolveRouter` WA/WE → `/wa/inquiry`（原占位 /ta/dashboard）；多角色按 priority
+  升序取主角色（TA10>ST20>WK30>WA40>WE50 既有值即 D52 优先级）。
+- **全角色禁用登录拒绝（WEM-S5-01）**：`resolvePrimaryRole` 发现有角色记录但全部非 ACTIVE → 41110
+  语义拒绝（原逻辑兜底 TA 会放行被禁用的 WE）；无任何角色记录的历史账号维持兜底 TA。
+
+## 20. 授权校验切点（PRICE_EDIT / INQUIRY_CONFIRM）
+
+| 域 | 切点 | 读/写 | 规则 |
+|---|---|---|---|
+| pricing | `requirePriceEditor`：setCustomerPrice / update / revoke（经 requireOwnedCustomerPrice）/ 批量公开价 / 批量专属价 | 写 | WA/TA 不受限；WE 须 PRICE_EDIT，未授 **42004** |
+| pricing | `requireWaOrTa`：listCustomerPrices / listPriceChangeLogs | 读 | WE 不限授权位可读（价格页只读可见，产品 §6.1） |
+| document | `requireWaRole`：confirmByWa（确认即原子转出库） | 写 | WA 不受限；WE 须 INQUIRY_CONFIRM，未授 **42004**；非本商户 50286 |
+| document | `listForWa` | 读 | 扩展纳入 WE 绑定的 wholesaler（询价列表 WE 可见，按钮态由前端授权位控制） |
+
+- **公开价单 SKU 编辑路径说明**：SKU 域（create/update）仍 WA/TA-only——WE 不可改商品资料；
+  WE 的公开价编辑走 pricing 批量端点（`skuIds=[单个] + SET_VALUE`），切点已覆盖。
+- 账单对 WE **永不可见**（无对应授权位）：billing 域 P4 未建，无任何账单端点；P4 落地时 WE 必须整域拒绝（WEM-S4-03 防回归用例已占位）。
+- 询价「拒绝」端点 phase-1 不存在（只有 confirm）；将来补 reject 时须同挂 INQUIRY_CONFIRM 切点。
+
+## 21. R17 禁用/恢复
+
+- 禁用：CAS `status=ACTIVE→DISABLED`（affected=0 → 50321，防并发重复禁用改写 disabled_at 变相续期窗口）+
+  事务提交后 `StpUtil.kickout`（回滚不误踢）。
+- **草稿单据作废 = 空操作**：phase-1 WE 无可持有的草稿态单据——询价由 RT 买家创建（PENDING 归单不归人）、
+  出库单生成即 COMPLETED、入库单归 WK。待未来出现 WE 起草的单据类型时在 `disableEmployee` 挂作废钩子。
+- 恢复：CAS `status=DISABLED` + `disabled_at > TIMESTAMPADD(DAY,-30,NOW())`（数据库时间，口径同 Wave2
+  60 天窗口：<30 天整可恢复 / >=30 天整 50322 互补无缝隙）；permissions 不动（授权保持禁用前设置）。
+
+## 22. OPS 租户列表（顺路补齐，前端契约先行）
+
+- `pageTenantsForAdmin`：hasRole OPS（42002）→ tenants 全平台分页（不在 TenantLine 白名单，无隔离干扰）；
+  status 可选过滤（PENDING/ACTIVE/REJECTED——通过态 **ACTIVE 非 APPROVED**）。
+- 字段映射：tenantId/name/legalName/contactPhone/status/appliedAt(=created_at)/auditedAt/auditRemark 取 tenants；
+  applicantName = contact_user 的 realName ?: nickname；addressText = tenant_applications 同租户最新一条快照（批量查询防 N+1）。
+
+## 23. Wave3 测试（WeEmployeeScenarioTest，18 用例全绿）
+
+WEM-S1-01/02 生码绑定+注册落位（wholesaler_id+permissions）/ WEM-S1-03 D52 WE→/wa/inquiry /
+D52 多角色 TA+WE 主角色 TA / WEM-S1-04+S4-01 PRICE_EDIT 正反（成功/42004/WA 不受限）/
+SEC-S4-09+WEM-S4-02 INQUIRY_CONFIRM 反正（42004→授权后放行，Service 层校验）/
+WEM-S4-03 账单类端点防回归 / SEC-S4-10 跨商户改价拒绝 / WEM-S1-06 R17 禁用即踢(41001)+重复禁用 50321 /
+WEM-S5-01 禁用登录 41110 / WEM-S1-07 29 天恢复+授权保持 / BND 30/31 天恢复 50322（数据库时间拨盘）/
+员工列表商户隔离 / WEM-S2-01 授权越界 50319 / WEM-S2-02 TA 端仍拒 WE(50290) / 非 WA 调用拒绝(50230) /
+WEM-S6-01 作废码注册 50292+跨商户作废 50291 / 授权变更越界 50319 / 跨商户 50320 / admin/tenants 分页+过滤+字段+42002。
+
+## 24. Wave3 决策引用与遗留
+
+- 50319–50322 占用 O-3 溢出段（原 billing 占位顺延 50323+，05-error-codes.md 已同步）。
+- WE 对 SKU 域（商品资料）与员工管理端点无任何权限；员工码生成 WA 专属（WE ❌，01 §4.1）。
+- 遗留：禁用超 30 天的"已永久移除"仅表现为恢复被拒（50322），不做行删除/归档任务；
+  WE 通知（禁用/恢复告知）走 mock 短信基建，本波仅日志。

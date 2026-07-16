@@ -86,6 +86,7 @@
 | 41105 | `AUTH_ACCOUNT_005` | 200 | 新密码与旧密码相同 | New password same as current | 提示修改 |
 | 41106 | `AUTH_ACCOUNT_006` | 200 | 新密码不能与最近 5 次密码相同 | New password matched history | 提示修改 |
 | 41107 | `AUTH_ACCOUNT_007` | 200 | 旧密码错误 | Old password incorrect | — |
+| 41110 | `ACCOUNT_ALL_ROLES_DISABLED` | 200 | 账号已被禁用，请联系商户管理员 | 有角色记录但全部非 ACTIVE（如 R17 禁用的单角色 WE）；不兜底 TA 放行（P2 Wave3，WEM-S5-01） | 联系 WA 恢复 |
 
 ### AUTH_SMS（41200–41299）短信验证码
 
@@ -232,7 +233,22 @@
 | 50317 | `WITHDRAW_RESTORE_EXPIRED` | 200 | 退驻恢复窗口已过（超 60 天或已归档） | 恢复窗口 <60 天（数据库时间，起点=审批通过时刻 withdrawn_at）；>=60 天整归档，两口径互补 | 重新入驻 |
 | 50318 | `WHOLESALER_STATE_TRANSITION_INVALID` | 200 | 批发商当前状态不允许该操作 | 状态机不可达转移兜底（已下架→正常 / 已下架→已退驻 / 已归档→任意 等；from=WITHDRAWN 的不可达用 50202） | — |
 
-> 预留：50319 起留给 P4 billing 的退驻账单未结清校验（决策 O-5 占位，代码中 TODO 标注）。
+### WE 批发商员工（50319–50322，O-3 溢出段，P2 Wave3）
+
+> 原「50319 起预留 P4 billing」顺延为 **50323 起**（Wave3 占用 50319–50322；决策 O-5 占位不变，代码中 TODO 标注）。
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50319 | `EMPLOYEE_INVITE_PERMISSION_INVALID` | 200 | 员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM） | WE 授权位白名单校验（生码 permissions / 员工授权变更共用，G-3.1） | — |
+| 50320 | `EMPLOYEE_NOT_FOUND` | 200 | 员工不存在或不属于本商户 | user_roles 行不存在 / role≠WE / 跨商户按不存在处理（SEC-S4-10 不泄漏存在性） | 刷新员工列表 |
+| 50321 | `EMPLOYEE_STATE_INVALID` | 200 | 员工当前状态不允许该操作 | 重复禁用（CAS 防 disabled_at 改写续期）/ 对 ACTIVE 员工 restore 等 | — |
+| 50322 | `EMPLOYEE_RESTORE_EXPIRED` | 200 | 员工禁用已超 30 天，无法恢复 | 恢复窗口 <30 天整（数据库时间，起点=disabled_at；口径同 50317 的 60 天窗口） | 重新生码入驻 |
+
+> 关联落地（Wave3）：`42004 PERMISSION_ROLE_004`（本文件 §3 已预留）在枚举实装，用于 WE 未持
+> PRICE_EDIT / INQUIRY_CONFIRM 授权位调用对应写路径；`41110 ACCOUNT_ALL_ROLES_DISABLED`
+> 新增——账号存在但全部角色被禁用（如 R17 禁用的单角色 WE）登录时语义拒绝，不再兜底 TA 放行（WEM-S5-01）。
+
+> 预留：50323 起留给 P4 billing 的退驻账单未结清校验（决策 O-5 占位，代码中 TODO 标注）。
 
 ### STATE_BILL（50300–50399）账单状态
 
