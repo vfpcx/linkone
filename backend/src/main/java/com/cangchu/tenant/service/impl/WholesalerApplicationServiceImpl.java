@@ -128,6 +128,18 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
     }
 
     @Override
+    public List<WholesalerApplicationVo> listMine(Long userId) {
+        // 仅本人：applicant_user_id=登录用户（S4——过滤条件取自登录态，不接受客户端参数），
+        // 含 status 与驳回理由 audit_remark；量小不分页，创建时间倒序。
+        return applicationMapper.selectList(new LambdaQueryWrapper<WholesalerApplication>()
+                        .eq(WholesalerApplication::getApplicantUserId, userId)
+                        .orderByDesc(WholesalerApplication::getCreatedAt)
+                        .orderByDesc(WholesalerApplication::getId)).stream()
+                .map(this::toVo)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public Map<String, Object> audit(Long tenantId, Long taUserId, Long applicationId,
                                      WholesalerApplicationAuditDto dto) {

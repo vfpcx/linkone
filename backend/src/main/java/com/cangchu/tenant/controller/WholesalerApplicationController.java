@@ -38,6 +38,13 @@ public class WholesalerApplicationController {
         return R.ok(applicationService.selfApply(userId, dto));
     }
 
+    /** 登录 WA 查询本人的入驻申请列表（含 status/auditRemark；仅本人可见，P2 Wave2 契约对齐） */
+    @GetMapping("/api/v1/wholesaler/applications")
+    public R<java.util.List<com.cangchu.tenant.vo.WholesalerApplicationVo>> listMine() {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(applicationService.listMine(userId));
+    }
+
     /** TA 分页列表（可按 status 过滤：PENDING/APPROVED/REJECTED） */
     @GetMapping("/api/v1/tenant/wholesaler-applications")
     public R<Map<String, Object>> list(@RequestParam(defaultValue = "1") int page,

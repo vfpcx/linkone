@@ -34,4 +34,13 @@ public interface InquiryService {
 
     /** 列出某租户下的询价单（WA 视角，按归属 wholesaler 过滤）。 */
     List<InquiryVo> listForWa(Long tenantId, Long waUserId);
+
+    /**
+     * 未结单据计数（P2 入驻 Wave2 R13 前置校验出口）：统计该商户非终态单据——
+     * 询价单 status IN (PENDING, CONFIRMED) + 出库单 status != COMPLETED。
+     *
+     * <p>供 tenant 域退驻链调用（tenant 域不直连 document Mapper，G-S1/G-S2）。
+     * 计数 &gt; 0 时调用方拒绝退驻（50314）。
+     */
+    long countOpenDocsForWholesaler(Long wholesalerId);
 }

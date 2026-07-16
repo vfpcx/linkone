@@ -40,6 +40,13 @@ public interface WholesalerApplicationService {
     Map<String, Object> pageForTenant(Long tenantId, Long taUserId, int page, int size, String status);
 
     /**
+     * 登录 WA 查询本人的入驻申请列表（P2 Wave2 契约对齐，前端 Wave4 已按此实现）：
+     * 仅按 applicant_user_id=登录用户过滤（含 status 与驳回理由 audit_remark），
+     * 不接受任何客户端过滤参数，不泄漏他人申请。量小不分页，按创建时间倒序。
+     */
+    java.util.List<com.cangchu.tenant.vo.WholesalerApplicationVo> listMine(Long userId);
+
+    /**
      * TA 审批（仿 TenantServiceImpl.audit）：仅 PENDING 可审(50203)；驳回必填 remark；
      * 通过 → 建 Wholesaler(ACTIVE, SELF_APPLY) + 幂等开通 WA 角色绑定 + 回填 wholesaler_id。
      *
