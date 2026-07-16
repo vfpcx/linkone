@@ -405,7 +405,7 @@ onMounted(fetchList)
                   link
                   type="danger"
                   :disabled="row.status === 'REVOKED'"
-                  @click="revoke(row)"
+                  @click="revoke(row as EmployeeInvite)"
                 >
                   作废
                 </el-button>

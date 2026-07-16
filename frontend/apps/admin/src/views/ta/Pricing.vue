@@ -628,13 +628,13 @@ onMounted(fetchWholesalers)
                 </el-table-column>
                 <el-table-column label="操作" width="170" fixed="right">
                   <template #default="{ row }">
-                    <el-button text type="primary" @click="openCpEdit(row)">编辑</el-button>
+                    <el-button text type="primary" @click="openCpEdit(row as CustomerPriceVo)">编辑</el-button>
                     <el-button
                       text
                       type="danger"
                       :loading="revokingId === String(row.id)"
                       :disabled="row.status === 'DISABLED'"
-                      @click="onCpRevoke(row)"
+                      @click="onCpRevoke(row as CustomerPriceVo)"
                     >
                       撤销
                     </el-button>

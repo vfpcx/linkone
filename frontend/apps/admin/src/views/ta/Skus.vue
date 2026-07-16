@@ -400,7 +400,7 @@ onMounted(fetchWholesalers)
                   :model-value="row.listed"
                   :loading="togglingId === String(row.id)"
                   :disabled="togglingId === String(row.id)"
-                  @click="onToggleListing(row)"
+                  @click="onToggleListing(row as Sku)"
                 />
               </template>
             </el-table-column>

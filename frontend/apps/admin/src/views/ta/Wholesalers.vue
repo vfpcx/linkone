@@ -407,13 +407,13 @@ onMounted(fetchList)
             </el-table-column>
             <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+                <el-button link type="primary" @click="openEdit(row as Wholesaler)">编辑</el-button>
                 <!-- 仅"正常"状态可强制下架；已退驻/已下架不出现入口（状态机不可达） -->
                 <el-button
                   v-if="row.status === 'ACTIVE'"
                   link
                   type="danger"
-                  @click="openForceOffline(row)"
+                  @click="openForceOffline(row as Wholesaler)"
                 >
                   强制下架
                 </el-button>
