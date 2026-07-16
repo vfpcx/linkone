@@ -1,6 +1,7 @@
 # 仓储云 admin · Playwright E2E 套件
 
-`@playwright/test`（TypeScript）端到端测试，覆盖账号域 8 条核心链路（E1-E8）。
+`@playwright/test`（TypeScript）端到端测试，覆盖账号域 8 条核心链路（E1-E8）、
+phase-1 卖货整链（SELL/B-x）与 P2 入驻生态 4 链路（ONB-E2E-01~04）+ 视觉验收截图。
 迁移自历史临时脚本 `.e2e-tmp/smoke.py` + `.e2e-tmp/extra.py`，逐条对齐选择器与断言。
 
 ## 前置条件（必须，外部启动）
@@ -53,9 +54,17 @@ pnpm --filter @cangchu/admin e2e:ui
 | E3 | negative | 手机号格式错 → 字段报错 |
 | E4 | negative | 密码错误 → 顶部告警 + 停留登录页 |
 | E7 | idempotency S6 | 重复手机号注册 → 引导登录 |
+| ONB-E2E-01 | onboarding-flow | WA 注册直申 → TA 审批 → WA 落 /wa/inquiry → TA 商户列表可见 |
+| ONB-E2E-02 | onboarding-flow | OPS 拉黑 → 申请被拒(50205) → 移除后放行；OPS 路由角色守卫 |
+| ONB-E2E-03 | onboarding-flow | 退驻前置自查 → 清库存 → TA 审批 → 踢出/隐藏/下架 → 60 天倒计时 → restore |
+| ONB-E2E-04 | onboarding-flow | WA 生 WE 码(默认仅询价确认) → WE 凭码注册 → 禁用 → WE 被踢回登录页 |
+| V-01~V-08 | onboarding-visual | P2 七个新页面视觉验收截图（1280/768/375 + 弹窗态），产物在仓根 `.e2e-tmp/visual-p2/` |
 
 ## 数据隔离
 
 - 手机号用 `Date.now()` 时间戳生成，保证每次唯一（`helpers/api.ts#uniqPhone`）。
 - 需要"已存在账号"的用例（E2/E5/E6/E8）通过后端接口旁路建号
   （`helpers/api.ts#seedTa`），不依赖 UI 注册，避免链路耦合。
+- P2 起造数需注意：**RT 进店 / WA 入驻要求目标租户 ACTIVE**（F5 审查修复），
+  `helpers/sell.ts#seedSellChain` 与 `helpers/onboarding.ts#seedActiveTenant`
+  均已内置「临时 OPS 账号审核租户」步骤。

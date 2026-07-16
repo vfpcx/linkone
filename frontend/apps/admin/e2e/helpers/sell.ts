@@ -103,6 +103,33 @@ interface LoginData {
   primaryRouter?: string
 }
 
+/**
+ * OPS 审核租户 ACTIVE（P2 F5 后 RT 进店 / WA 入驻均要求目标仓 ACTIVE）。
+ * 临时注册一个 OPS 账号执行审核（dev 环境注册角色白名单含 OPS）。
+ */
+async function activateTenant(taLogin: LoginData): Promise<void> {
+  const tenantId = taLogin.roles.find((r) => r.role === 'TA')?.tenantId
+  if (!tenantId) throw new Error('[seed] TA 登录态缺 tenantId，无法审核租户')
+  const ops = await registerWithRetry(
+    {
+      phone: uniqPhone(),
+      password: SEED_PWD,
+      smsCode: SMS_CODE,
+      role: 'OPS',
+      realName: 'SeedOPS',
+      agreedTerms: true,
+    },
+    'OPS 注册(审核租户用)',
+  )
+  ok(
+    await post<unknown>(`/admin/tenant/${tenantId}/audit`, {
+      token: ops.token,
+      body: { action: 'APPROVED' },
+    }),
+    'OPS 审核租户 ACTIVE',
+  )
+}
+
 export interface SellSeed {
   /** RT 进店码（= tenantSimpleCode），驱动 /rt/store?code= */
   storeCode: string
@@ -142,6 +169,10 @@ export async function seedSellChain(stock = 50): Promise<SellSeed> {
     'TA 注册',
   )
   const taToken = ta.token
+
+  // 1b) OPS 审核租户 ACTIVE（P2 F5 审查修复后：非 ACTIVE 仓 RT 进店一律 50260，
+  //     原「PENDING 壳可直接进店」的隐性兜底已被有意移除，造数必须补审核步）
+  await activateTenant(ta)
 
   // 2) 生成店铺码（tenantSimpleCode）= RT 进店 code
   const qr = ok(
@@ -351,6 +382,9 @@ export async function seedEmptyStore(): Promise<EmptyStoreSeed> {
     'TA 注册(空店)',
   )
   const taToken = ta.token
+
+  // 同 seedSellChain：F5 后 RT 进店要求仓 ACTIVE
+  await activateTenant(ta)
 
   const qr = ok(
     await post<{ tenantId: string; tenantSimpleCode: string; qrUrl: string }>('/tenant/store-qr', {
