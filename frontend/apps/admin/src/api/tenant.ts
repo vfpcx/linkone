@@ -28,7 +28,10 @@ import type {
   WholesalerApplication,
   WaWithdrawApplication,
   WaWithdrawListQuery,
+  WithdrawAuditResult,
+  ForceOfflineResult,
   PageData,
+  PageRecords,
 } from '@cangchu/api-types'
 
 // ============================================================
@@ -202,15 +205,19 @@ export const tenantApi = {
     }),
 
   /**
-   * ✅ P2 · 强制下架 WA（R14 · Wave2 契约，后端并行开发中）
-   * TA 单方即时生效不走审批；reason 5~200 字留痕并通知商户；不可原地恢复
+   * ✅ P2 · 强制下架 WA（R14 · Wave2 后端已落地）
+   * TA 单方即时生效不走审批；reason 必填留痕并通知商户；不可原地恢复（OFFLINE 终态）
    */
   forceOfflineWa: (id: string, data: ForceOfflineWaRequest) =>
-    request<void>({ method: 'POST', url: `/tenant/wholesalers/${id}/force-offline`, data }),
+    request<ForceOfflineResult>({
+      method: 'POST',
+      url: `/tenant/wholesalers/${id}/force-offline`,
+      data,
+    }),
 
-  /** ✅ P2 · WA 退驻申请分页列表（R13 TA 审批；Wave2 契约） */
+  /** ✅ P2 · WA 退驻申请分页列表（R13 TA 审批；返回 records 命名分页，含 wholesalerName 冗余） */
   listWaWithdrawApplications: (params?: WaWithdrawListQuery) =>
-    request<PageData<WaWithdrawApplication>>({
+    request<PageRecords<WaWithdrawApplication>>({
       method: 'GET',
       url: '/tenant/wholesaler-withdraw-applications',
       params,
@@ -218,13 +225,13 @@ export const tenantApi = {
 
   /**
    * ✅ P2 · TA 审批退驻（APPROVED 瞬间：SKU 下架 + 店铺隐藏 + 专属价失效 + 踢 token；
-   * REJECTED 时 remark 必填，原文展示给申请人）
+   * REJECTED 时 remark 必填，原文展示给申请人；CAS 竞争败者 50315）
    */
   auditWaWithdrawApplication: (
     id: string,
     data: { action: 'APPROVED' | 'REJECTED'; remark?: string },
   ) =>
-    request<void>({
+    request<WithdrawAuditResult>({
       method: 'POST',
       url: `/tenant/wholesaler-withdraw-applications/${id}/audit`,
       data,

@@ -50,46 +50,52 @@ export interface UpdateWholesalerRequest {
 }
 
 // ============================================================
-// R13 退驻（P2 入驻生态 Wave2 契约，后端并行开发中）
+// R13 退驻 / R14 强制下架（P2 入驻生态 Wave2 · 后端已落地）
+// 权威来源：shared/architecture/10-onboarding-design.md §10-§14（据实现编写）
 //  - POST /api/v1/wholesaler/withdraw          发起退驻（body: { reason? }）
-//  - GET  /api/v1/wholesaler/withdraw/mine     本人退驻申请状态（含驳回理由）
-//  - POST /api/v1/wholesaler/withdraw/restore  60 天内申请恢复
+//  - GET  /api/v1/wholesaler/withdraw/precheck 前置自查（与提交校验同一份逻辑）
+//  - POST /api/v1/wholesaler/withdraw/cancel   撤回本人 PENDING 申请
+//  - GET  /api/v1/wholesaler/withdraw/mine     本人最近一次退驻申请（无申请 data=null）
+//  - POST /api/v1/wholesaler/withdraw/restore  60 天内恢复（WITHDRAWN→ACTIVE）
 //  - TA 端 GET  /api/v1/tenant/wholesaler-withdraw-applications?status&page&size
 //         POST /api/v1/tenant/wholesaler-withdraw-applications/{id}/audit
-// 错误码：50312+ 退驻前置不满足（50310-50329 段）/ 50202 已退驻
+//         POST /api/v1/tenant/wholesalers/{id}/force-offline
+// 错误码：50312 库存未清 / 50314 未结单据 / 50315 不可审(撤) / 50316 重复申请 /
+//        50317 恢复窗口已过 / 50318 状态机不可达 / 50202 已退驻
 // ============================================================
 
 /**
- * 退驻申请状态机（04 §1.8）：
- *  PENDING 审批中 → REJECTED 已驳回 | APPROVED 已退驻（60 天恢复期）
- *  APPROVED → RESTORED 已恢复（60 天内）| ARCHIVED 已归档（60 天后）
+ * 退驻申请单状态（wholesaler_withdraw_applications.status，四值）：
+ *  PENDING 审批中 → APPROVED 已通过 | REJECTED 已驳回 | CANCELLED 已撤回（WA 撤回，可重新发起）
+ * 60 天恢复/归档窗口以 auditedAt（通过时刻）为唯一时间起点，前端自行 +60 天计算。
  */
 export type WaWithdrawStatus =
   | 'PENDING'
-  | 'REJECTED'
   | 'APPROVED'
-  | 'RESTORED'
-  | 'ARCHIVED'
+  | 'REJECTED'
+  | 'CANCELLED'
 
-/** 退驻申请（WA 端 mine / TA 端列表共用视图） */
+/** 商户主体状态（wholesalers.status，Wave2 状态机） */
+export type WholesalerLifecycleStatus = 'ACTIVE' | 'WITHDRAWN' | 'OFFLINE' | 'ARCHIVED'
+
+/** 退驻申请（WithdrawApplicationVo · WA 端 mine / TA 端列表共用视图） */
 export interface WaWithdrawApplication {
   id: SnowflakeId
-  wholesalerId?: SnowflakeId
+  tenantId: SnowflakeId
+  wholesalerId: SnowflakeId
+  /** 商户名冗余（仅 TA 列表有值） */
   wholesalerName?: string
-  tenantId?: SnowflakeId
-  /** 仓库名（WA 状态页展示"您已退驻 XX 海鲜库"） */
-  tenantName?: string
+  /** 申请人（该商户 WA）用户 ID */
+  applicantUserId: SnowflakeId
   /** 退驻原因（WA 发起时选填） */
   reason?: string
   status: WaWithdrawStatus
-  /** 审核备注；REJECTED 时为驳回理由 */
-  remark?: string
-  appliedAt: string
+  auditUserId?: SnowflakeId
+  /** 审核时间；APPROVED 时即退驻生效时刻，60 天恢复窗口起点 */
   auditedAt?: string
-  /** 退驻生效时间（APPROVED 后） */
-  effectiveAt?: string
-  /** 恢复截止时间（生效 + 60 天） */
-  restoreDeadline?: string
+  /** 审核备注；REJECTED 时为驳回理由 */
+  auditRemark?: string
+  createdAt: string
 }
 
 /** 发起退驻入参（POST /wholesaler/withdraw） */
@@ -106,23 +112,56 @@ export interface WaWithdrawListQuery {
 }
 
 /**
- * 退驻前置自查（⚠️ 契约微调位 GET /wholesaler/withdraw/precheck）。
- * Wave2 契约未显式列出该端点；后端未提供时页面降级为
- * "提交时由后端复核"（50310-50329 段错误回填清单）。
+ * 退驻前置自查返回（GET /wholesaler/withdraw/precheck，只读，与提交校验同一份逻辑）。
+ * billing.cleared 恒 null（O-5 计费 P4 落地前灰态占位 ⊘）。
  */
-export interface WaWithdrawPrecheckDocItem {
-  /** 单据类型（如 OUTBOUND_PRINTED / INQUIRY_CONFIRMED） */
-  type: string
-  /** 展示名（后端可选下发；缺省前端按 type 映射） */
-  label?: string
-  count: number
+export interface WaWithdrawPrecheck {
+  wholesalerId: SnowflakeId
+  /** 商户当前主体状态 */
+  status: WholesalerLifecycleStatus
+  /** 库存已清零（false → 50312） */
+  stockCleared: boolean
+  /** 未结单据（cleared=false 时 count>0 → 50314） */
+  openDocs: {
+    cleared: boolean
+    count: number
+  }
+  /** 账单结清（P4 前恒 null，前端渲染灰态 ⊘） */
+  billing: {
+    cleared: null
+  }
 }
 
-export interface WaWithdrawPrecheck {
-  /** 当前在库件数（=0 才通过） */
-  stockQty: number
-  /** 未结单据（空数组才通过） */
-  openDocs: WaWithdrawPrecheckDocItem[]
+/** 发起退驻返回（POST /wholesaler/withdraw） */
+export interface WithdrawSubmitResult {
+  applicationId: SnowflakeId
+  wholesalerId: SnowflakeId
+  status: WaWithdrawStatus
+}
+
+/** 撤回退驻申请返回（POST /wholesaler/withdraw/cancel） */
+export interface WithdrawCancelResult {
+  applicationId: SnowflakeId
+  status: 'CANCELLED'
+}
+
+/** 恢复入驻返回（POST /wholesaler/withdraw/restore） */
+export interface WithdrawRestoreResult {
+  wholesalerId: SnowflakeId
+  status: 'ACTIVE'
+}
+
+/** TA 审批退驻返回（POST /tenant/wholesaler-withdraw-applications/{id}/audit） */
+export interface WithdrawAuditResult {
+  applicationId: SnowflakeId
+  status: WaWithdrawStatus
+  wholesalerId: SnowflakeId
+}
+
+/** R14 强制下架返回（POST /tenant/wholesalers/{id}/force-offline） */
+export interface ForceOfflineResult {
+  wholesalerId: SnowflakeId
+  status: 'OFFLINE'
 }
 
 // ============================================================

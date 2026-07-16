@@ -110,9 +110,22 @@ export enum ErrorCode {
   // 员工注册码已作废（TA 主动作废 / phase-1 EmployeeInvite REVOKED）
   STATE_INVITE_REVOKED = 50292,
 
-  // R13 退驻前置不满足（P2 入驻生态 · 50310-50329 段为入驻扩展，契约 50312+）
-  // 具体子码由后端 Wave2 落地；前端按 isWithdrawPreconditionFailed 段判断即可
-  STATE_WITHDRAW_PRECONDITION = 50312,
+  // R13 退驻 / R14 强制下架（P2 入驻生态 · 50310-50329 段为入驻扩展）
+  // 权威来源：10-onboarding-design.md §11-§14；前端按 isWithdrawPreconditionFailed 段判断回填自查清单
+  /** 退驻前置不满足：库存未清零 */
+  STATE_WITHDRAW_STOCK_NOT_CLEARED = 50312,
+  /** 商户非 ACTIVE，新业务（新询价/确认 PENDING 询价等）拒绝 */
+  STATE_WA_NOT_ACTIVE = 50313,
+  /** 退驻前置不满足：存在未结单据 */
+  STATE_WITHDRAW_OPEN_DOCS = 50314,
+  /** 退驻申请不可审/不可撤（已被审批、CAS 竞争失败） */
+  STATE_WITHDRAW_NOT_AUDITABLE = 50315,
+  /** 重复退驻申请（已有 PENDING 在审） */
+  STATE_WITHDRAW_DUPLICATE = 50316,
+  /** 60 天恢复窗口已过（已归档） */
+  STATE_RESTORE_WINDOW_EXPIRED = 50317,
+  /** 商户状态机不可达转移（如 OFFLINE→ACTIVE） */
+  STATE_WHOLESALER_TRANSITION_INVALID = 50318,
 
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,

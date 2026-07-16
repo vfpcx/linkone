@@ -6,13 +6,14 @@
  *  - 线框：shared/product/06b-onboarding-wireframes.md §3（前置自查三态 / 确认弹窗 /
  *          待审批·已驳回·已退驻状态页 / 60 天倒计时 + 申请恢复）
  *  - 契约：POST /wholesaler/withdraw、GET /wholesaler/withdraw/mine、
- *          POST /wholesaler/withdraw/restore（Wave2 并行开发中，契约先行）
- *          精调位：GET .../precheck（自查）、POST .../cancel（撤回）
- *  - 错误码：50310-50329 前置不满足（回填清单）/ 50202 已退驻
+ *          GET .../precheck、POST .../cancel、POST .../restore
+ *          （Wave2 后端已落地，权威来源 10-onboarding-design.md §12）
+ *  - 错误码：50312 库存 / 50314 未结单 / 50316 重复申请（段 50310-50329 回填清单）/ 50202 已退驻
  *  - 视觉：沿用 Apply.vue 的 WA 顶栏 + 左侧菜单 shell + 卡片
  *
- * 自查三态：✅ 通过 / ❌ 未通过（任一 ❌ 提交置灰）/ ⊘ 账单灰态占位（O-5 本期不校验）。
- * precheck 端点未就绪时降级："提交时由后端复核"，允许提交，错误码回填清单。
+ * 自查三态：✅ 通过 / ❌ 未通过（任一 ❌ 提交置灰）/ ⊘ 账单灰态占位（billing.cleared 恒 null）。
+ * 60 天恢复倒计时 = auditedAt（审批通过时刻）+ 60 天，前端自行计算（后端不下发截止时间）。
+ * precheck 请求失败时降级："提交时由后端复核"，允许提交，错误码回填清单。
  */
 
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -101,11 +102,11 @@ type ViewState = 'form' | 'pending' | 'rejected' | 'withdrawn' | 'archived'
 
 const view = computed<ViewState>(() => {
   const a = application.value
-  if (!a || a.status === 'RESTORED') return 'form'
+  // CANCELLED = 已撤回，等同无进行中申请 → 可重新发起
+  if (!a || a.status === 'CANCELLED') return 'form'
   if (a.status === 'PENDING') return 'pending'
   if (a.status === 'REJECTED') return reapplying.value ? 'form' : 'rejected'
-  // APPROVED = 已退驻（60 天恢复期）；到期 / 后端标记 ARCHIVED = 已归档
-  if (a.status === 'ARCHIVED') return 'archived'
+  // APPROVED = 已退驻（auditedAt 起 60 天恢复期）；倒计时归零 = 已归档
   if (a.status === 'APPROVED') return restoreDaysLeft.value > 0 ? 'withdrawn' : 'archived'
   return 'form'
 })
@@ -138,23 +139,10 @@ const fetchPrecheck = async () => {
   }
 }
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  OUTBOUND_PENDING: '出库单待受理',
-  OUTBOUND_PRINTED: '出库单已打印',
-  OUTBOUND_CONFIRMED: '出库单已确认',
-  INQUIRY_PENDING: '询价单待确认',
-  INQUIRY_CONFIRMED: '意向单已确认',
-}
+const openDocsCount = computed(() => precheck.value?.openDocs.count ?? 0)
 
-const docLabel = (type: string, label?: string): string =>
-  label || DOC_TYPE_LABELS[type] || type
-
-const openDocsTotal = computed(() =>
-  (precheck.value?.openDocs ?? []).reduce((s, d) => s + (d.count || 0), 0),
-)
-
-const stockPass = computed(() => !!precheck.value && precheck.value.stockQty === 0)
-const docsPass = computed(() => !!precheck.value && openDocsTotal.value === 0)
+const stockPass = computed(() => !!precheck.value && precheck.value.stockCleared)
+const docsPass = computed(() => !!precheck.value && precheck.value.openDocs.cleared)
 
 /** 任一 ❌ 未通过则置灰；precheck 不可用时放行（后端复核） */
 const canSubmit = computed(() => {
@@ -232,20 +220,15 @@ const startReapply = async () => {
 }
 
 // ============ 已退驻 · 60 天倒计时 + 恢复 ============
+// 后端不下发截止时间：窗口起点 = auditedAt（审批通过时刻），前端自行 +60 天
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const restoreDeadlineDate = computed<Date | null>(() => {
   const a = application.value
-  if (!a) return null
-  if (a.restoreDeadline) {
-    const d = new Date(a.restoreDeadline)
-    if (!Number.isNaN(d.getTime())) return d
-  }
-  if (a.effectiveAt) {
-    const d = new Date(a.effectiveAt)
-    if (!Number.isNaN(d.getTime())) return new Date(d.getTime() + 60 * DAY_MS)
-  }
-  return null
+  if (!a?.auditedAt) return null
+  const d = new Date(a.auditedAt)
+  if (Number.isNaN(d.getTime())) return null
+  return new Date(d.getTime() + 60 * DAY_MS)
 })
 
 const restoreDaysLeft = computed(() => {
@@ -275,9 +258,13 @@ const onRestore = async () => {
   try {
     await waWithdrawApi.restore()
     ElMessage.success('已恢复入驻，欢迎回来')
-    await fetchMine()
+    // 恢复后主体已 ACTIVE，但 mine 仍返回 APPROVED 申请单（申请单无 RESTORED 态）
+    // → 直接清空回发起态，避免落回"已退驻"页
+    application.value = null
+    reapplying.value = false
+    await fetchPrecheck()
   } catch {
-    // 全局 toast 已提示
+    // 全局 toast 已提示（超窗/已归档 50317）
   } finally {
     restoring.value = false
   }
@@ -300,9 +287,8 @@ const formatDate = (iso?: string): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-const tenantNameDisplay = computed(
-  () => application.value?.tenantName || auth.currentStoreName || '所在仓库',
-)
+// VO 不含 tenantName，仓库名取登录态
+const tenantNameDisplay = computed(() => auth.currentStoreName || '所在仓库')
 
 onMounted(async () => {
   pageLoading.value = true
@@ -371,12 +357,12 @@ onMounted(async () => {
           <template v-if="view === 'form'">
             <!-- 已驳回后重新申请：驳回理由黄条常驻 -->
             <el-alert
-              v-if="reapplying && application?.remark"
+              v-if="reapplying && application?.auditRemark"
               type="warning"
               :closable="false"
               show-icon
               title="上次申请已被驳回"
-              :description="`驳回理由：${application.remark}`"
+              :description="`驳回理由：${application.auditRemark}`"
               class="reapply-alert"
             />
 
@@ -416,7 +402,7 @@ onMounted(async () => {
                   <div class="checklist__body">
                     <span class="checklist__label">库存已清零</span>
                     <span class="checklist__desc">
-                      当前在库 {{ precheck?.stockQty ?? '—' }} 件
+                      {{ !precheck ? '—' : stockPass ? '在库库存已清零' : '仍有在库库存，请先清空' }}
                     </span>
                   </div>
                 </li>
@@ -434,17 +420,11 @@ onMounted(async () => {
                     <span class="checklist__label">
                       {{ docsPass ? '无未结单据' : '存在未结单据' }}
                     </span>
-                    <template v-if="precheck && !docsPass">
-                      <span
-                        v-for="d in precheck.openDocs.filter((x) => x.count > 0)"
-                        :key="d.type"
-                        class="checklist__desc"
-                      >
-                        {{ docLabel(d.type, d.label) }} {{ d.count }} 笔
-                      </span>
-                    </template>
+                    <span v-if="precheck && !docsPass" class="checklist__desc">
+                      未结单据 {{ openDocsCount }} 笔（含未确认询价 / 未完成出库）
+                    </span>
                     <span v-else class="checklist__desc">
-                      无"待受理 / 已打印 / 已确认"状态单据
+                      无未确认询价与未完成出库单据
                     </span>
                   </div>
                 </li>
@@ -543,7 +523,7 @@ onMounted(async () => {
                 {{ tenantNameDisplay }}
               </el-descriptions-item>
               <el-descriptions-item label="提交时间">
-                {{ formatTime(application?.appliedAt) }}
+                {{ formatTime(application?.createdAt) }}
               </el-descriptions-item>
               <el-descriptions-item label="退驻原因" :span="2">
                 {{ application?.reason || '—' }}
@@ -567,12 +547,12 @@ onMounted(async () => {
               :closable="false"
               show-icon
               title="退驻申请已被驳回"
-              :description="`驳回理由：${application?.remark || '仓库管理员未填写（可联系仓库确认）'}`"
+              :description="`驳回理由：${application?.auditRemark || '仓库管理员未填写（可联系仓库确认）'}`"
             />
 
             <el-descriptions :column="2" border class="status-card__desc">
               <el-descriptions-item label="提交时间">
-                {{ formatTime(application?.appliedAt) }}
+                {{ formatTime(application?.createdAt) }}
               </el-descriptions-item>
               <el-descriptions-item label="驳回时间">
                 {{ formatTime(application?.auditedAt) }}
@@ -594,7 +574,7 @@ onMounted(async () => {
 
             <el-descriptions :column="2" border class="status-card__desc">
               <el-descriptions-item label="退驻生效">
-                {{ formatDate(application?.effectiveAt) }}
+                {{ formatDate(application?.auditedAt) }}
               </el-descriptions-item>
               <el-descriptions-item label="恢复截止">
                 {{

@@ -214,7 +214,7 @@ const fetchWithdrawList = async () => {
       page: wPage.value,
       size: wSize.value,
     })
-    wList.value = data?.list ?? []
+    wList.value = data?.records ?? []
     wTotal.value = data?.total ?? 0
     if (activeWTab.value === 'PENDING') {
       wPendingTotal.value = data?.total ?? 0
@@ -278,14 +278,13 @@ const emptyText = computed(() => {
   return map[activeTab.value]
 })
 
-/** 退驻状态徽章（APPROVED = 已退驻，语义与入驻不同，单列一套） */
+/** 退驻状态徽章（APPROVED = 已退驻，语义与入驻不同，单列一套；申请单四值） */
 const wStatusMeta = (status: string): { variant: BadgeVariant; text: string } => {
   const map: Record<string, { variant: BadgeVariant; text: string }> = {
     PENDING: { variant: 'warning', text: '待审核' },
     APPROVED: { variant: 'default', text: '已退驻' },
     REJECTED: { variant: 'danger', text: '已驳回' },
-    RESTORED: { variant: 'success', text: '已恢复' },
-    ARCHIVED: { variant: 'default', text: '已归档' },
+    CANCELLED: { variant: 'default', text: '已撤回' },
   }
   return map[status] ?? { variant: 'default', text: status || '—' }
 }
@@ -642,7 +641,7 @@ onMounted(async () => {
             </el-table-column>
             <el-table-column label="提交时间" width="150">
               <template #default="{ row }">
-                <span class="cell-muted">{{ formatTime(row.appliedAt) }}</span>
+                <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="状态" width="105">
@@ -660,7 +659,7 @@ onMounted(async () => {
               width="150"
             >
               <template #default="{ row }">
-                <span class="cell-muted">{{ formatTime(row.effectiveAt) }}</span>
+                <span class="cell-muted">{{ formatTime(row.auditedAt) }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -670,7 +669,7 @@ onMounted(async () => {
               show-overflow-tooltip
             >
               <template #default="{ row }">
-                <span class="cell-muted">{{ row.remark || '—' }}</span>
+                <span class="cell-muted">{{ row.auditRemark || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column

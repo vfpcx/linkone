@@ -24,6 +24,9 @@ import type {
   SubmitWithdrawRequest,
   WaWithdrawApplication,
   WaWithdrawPrecheck,
+  WithdrawSubmitResult,
+  WithdrawCancelResult,
+  WithdrawRestoreResult,
   WaEmployee,
   WaEmployeeInvite,
   CreateWaEmployeeInviteRequest,
@@ -67,46 +70,46 @@ export const waApplicationApi = {
 }
 
 /**
- * WA 端 · R13 退驻（P2 入驻生态 Wave2 契约，后端并行开发中）
- * 错误码：50312+ 前置不满足（50310-50329 段）/ 50202 已退驻
+ * WA 端 · R13 退驻（P2 入驻生态 Wave2 · 后端已落地，契约见 10-onboarding-design.md §12）
+ * 错误码：50312 库存未清 / 50314 未结单据 / 50316 重复申请 / 50315 不可撤 /
+ *        50317 恢复窗口已过 / 50202 已退驻
  */
 export const waWithdrawApi = {
   /** ✅ P2 · 发起退驻申请（reason 选填） */
   submit: (data: SubmitWithdrawRequest) =>
-    request<WaWithdrawApplication>({
+    request<WithdrawSubmitResult>({
       method: 'POST',
       url: '/wholesaler/withdraw',
       data,
     }),
 
-  /** ✅ P2 · 本人退驻申请状态（含驳回理由；无申请时 data 为 null） */
+  /** ✅ P2 · 本人最近一次退驻申请（含驳回理由 auditRemark；从未申请时 data 为 null） */
   mine: () =>
     request<WaWithdrawApplication | null>({
       method: 'GET',
       url: '/wholesaler/withdraw/mine',
     }),
 
-  /** ✅ P2 · 60 天内申请恢复入驻 */
+  /** ✅ P2 · 60 天内申请恢复入驻（WITHDRAWN→ACTIVE；超窗/已归档 50317） */
   restore: () =>
-    request<void>({ method: 'POST', url: '/wholesaler/withdraw/restore' }),
+    request<WithdrawRestoreResult>({
+      method: 'POST',
+      url: '/wholesaler/withdraw/restore',
+    }),
 
-  /**
-   * ⚠️ 契约微调位 · 退驻前置自查（库存清零 / 无未结单据）。
-   * Wave2 契约未显式列出该端点；后端未提供时页面降级为
-   * "提交时由后端复核"（提交报 50310-50329 段错误回填清单）。
-   */
+  /** ✅ P2 · 退驻前置自查（只读，与提交校验同一份逻辑；billing.cleared 恒 null 灰态） */
   precheck: () =>
     request<WaWithdrawPrecheck>({
       method: 'GET',
       url: '/wholesaler/withdraw/precheck',
     }),
 
-  /**
-   * ⚠️ 契约微调位 · 撤回待审批的退驻申请（06b §3.3 [撤回退驻申请]）。
-   * Wave2 契约未显式列出该端点；后端未提供时按钮报错不影响其余功能。
-   */
+  /** ✅ P2 · 撤回本人 PENDING 退驻申请（已被审批 50315；撤回后可重新发起） */
   cancel: () =>
-    request<void>({ method: 'POST', url: '/wholesaler/withdraw/cancel' }),
+    request<WithdrawCancelResult>({
+      method: 'POST',
+      url: '/wholesaler/withdraw/cancel',
+    }),
 }
 
 /**
