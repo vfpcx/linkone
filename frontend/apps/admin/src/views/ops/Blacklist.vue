@@ -319,7 +319,7 @@ onMounted(fetchList)
                   link
                   type="danger"
                   :loading="removingId === String(row.id)"
-                  @click="onRemove(row)"
+                  @click="onRemove(row as BlacklistItem)"
                 >
                   移除
                 </el-button>

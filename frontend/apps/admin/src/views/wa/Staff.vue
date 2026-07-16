@@ -551,21 +551,21 @@ onMounted(async () => {
             <el-table-column label="改价" width="90" align="center">
               <template #default="{ row }">
                 <el-switch
-                  :model-value="hasPerm(row, 'PRICE_EDIT')"
+                  :model-value="hasPerm(row as WaEmployee, 'PRICE_EDIT')"
                   :disabled="isReadonly || row.status !== 'ACTIVE'"
                   :loading="permSubmittingId === String(row.id)"
-                  @change="(v: string | number | boolean) => onTogglePerm(row, 'PRICE_EDIT', !!v)"
+                  @change="(v: string | number | boolean) => onTogglePerm(row as WaEmployee, 'PRICE_EDIT', !!v)"
                 />
               </template>
             </el-table-column>
             <el-table-column label="询价确认" width="100" align="center">
               <template #default="{ row }">
                 <el-switch
-                  :model-value="hasPerm(row, 'INQUIRY_CONFIRM')"
+                  :model-value="hasPerm(row as WaEmployee, 'INQUIRY_CONFIRM')"
                   :disabled="isReadonly || row.status !== 'ACTIVE'"
                   :loading="permSubmittingId === String(row.id)"
                   @change="
-                    (v: string | number | boolean) => onTogglePerm(row, 'INQUIRY_CONFIRM', !!v)
+                    (v: string | number | boolean) => onTogglePerm(row as WaEmployee, 'INQUIRY_CONFIRM', !!v)
                   "
                 />
               </template>
@@ -584,10 +584,10 @@ onMounted(async () => {
                 <template v-if="row.status === 'DISABLED'">
                   <span class="cell-muted">禁用于 {{ formatDate(row.disabledAt) }}</span>
                   <span
-                    v-if="restoreDaysLeft(row) > 0"
+                    v-if="restoreDaysLeft(row as WaEmployee) > 0"
                     class="cell-countdown"
                   >
-                    ⏳ {{ restoreDaysLeft(row) }} 天内可恢复
+                    ⏳ {{ restoreDaysLeft(row as WaEmployee) }} 天内可恢复
                   </span>
                   <span v-else class="cell-removed">已永久移除</span>
                 </template>
@@ -602,18 +602,18 @@ onMounted(async () => {
                   type="danger"
                   :disabled="isReadonly"
                   :loading="opSubmittingId === String(row.id)"
-                  @click="onDisable(row)"
+                  @click="onDisable(row as WaEmployee)"
                 >
                   禁用
                 </el-button>
                 <!-- 30 天倒计时结束后 [恢复] 消失（已永久移除） -->
                 <el-button
-                  v-else-if="restoreDaysLeft(row) > 0"
+                  v-else-if="restoreDaysLeft(row as WaEmployee) > 0"
                   link
                   type="primary"
                   :disabled="isReadonly"
                   :loading="opSubmittingId === String(row.id)"
-                  @click="onRestore(row)"
+                  @click="onRestore(row as WaEmployee)"
                 >
                   恢复
                 </el-button>
@@ -689,7 +689,7 @@ onMounted(async () => {
                   link
                   type="danger"
                   :disabled="isReadonly || row.status === 'REVOKED'"
-                  @click="revokeInvite(row)"
+                  @click="revokeInvite(row as WaEmployeeInvite)"
                 >
                   作废
                 </el-button>

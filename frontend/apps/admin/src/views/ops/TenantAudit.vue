@@ -396,11 +396,11 @@ onMounted(async () => {
                   link
                   type="primary"
                   :loading="auditingId === String(row.tenantId)"
-                  @click="onApprove(row)"
+                  @click="onApprove(row as AdminTenantItem)"
                 >
                   通过
                 </el-button>
-                <el-button link type="danger" @click="openReject(row)">驳回</el-button>
+                <el-button link type="danger" @click="openReject(row as AdminTenantItem)">驳回</el-button>
               </template>
             </el-table-column>
           </el-table>

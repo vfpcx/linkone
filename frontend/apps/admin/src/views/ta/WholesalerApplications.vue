@@ -592,11 +592,11 @@ onMounted(async () => {
                   link
                   type="primary"
                   :loading="auditingId === String(row.id)"
-                  @click="onApprove(row)"
+                  @click="onApprove(row as WholesalerApplication)"
                 >
                   通过
                 </el-button>
-                <el-button link type="danger" @click="openReject(row)">驳回</el-button>
+                <el-button link type="danger" @click="openReject(row as WholesalerApplication)">驳回</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -689,11 +689,11 @@ onMounted(async () => {
                   link
                   type="primary"
                   :loading="auditingId === String(row.id)"
-                  @click="onApproveWithdraw(row)"
+                  @click="onApproveWithdraw(row as WaWithdrawApplication)"
                 >
                   通过
                 </el-button>
-                <el-button link type="danger" @click="openRejectWithdraw(row)">驳回</el-button>
+                <el-button link type="danger" @click="openRejectWithdraw(row as WaWithdrawApplication)">驳回</el-button>
               </template>
             </el-table-column>
           </el-table>
