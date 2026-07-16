@@ -1,0 +1,38 @@
+# Progress Log · P2 入驻生态
+
+> 最新在上。关联 `task_plan.md` / `findings.md`。定价三件套已归档 `shared/archive/`。
+
+## 2026-07-16
+- **WE 前端对账 ✅**：commit 823b876，typecheck 5/5 绿。关键修复：Staff.vue 8 处误用 userId→改角色绑定行 id（运行时必炸级）；41110 登录禁用文案、50319-50322、defaultRouterFor WE→/wa/inquiry、30 天倒计时 disabledAt 自算。守卫备注：WE 进 /wa/* 前端不拦（与 TA/WA 互访策略一致，页面权限靠后端 42004）。
+- **Wave3 后端 ✅（主体）**：WE 员工全套完成（176/176 绿含 18 新增，8 commits 至 b7e2136）。8 端点、50319-50322/42004/41110、permissions 存 user_roles JSON 文本列（白名单解码防脏数据放大权限）、D52 路由（WA/WE→/wa/inquiry）、41110 全角色禁用拒登（修掉"被禁 WE 以 TA 兜底登录"的洞）、TA 端码管理过滤 WE 码。坑：R17 草稿作废为空操作（phase-1 无 WE 草稿单据，钩子已留§21）；询价 reject 端点不存在，将来补须挂 INQUIRY_CONFIRM 切点。
+- **审查修复批次未随 Wave3 落地（插单晚到）**→ 已唤回专做 F1(V13 pending_flag 唯一索引)/F4/F5/F7+SEC-S4-01；**WE 前端对账已并行派**（错误码/员工VO/登录路由 defaultRouterFor WE 项过期）。
+- **契约对账+F2/F3/F6/F8 ✅**：onboarding-fe 两 commits（db5dd4a R13/R14 对账、7160184 审查修复），typecheck 绿。要点：WaWithdrawStatus 收敛四值+CANCELLED（RESTORED/ARCHIVED 移到商户主体状态）、PageRecords 类型新增、50203/50204 重定义、黑名单改单键提交（后端 DTO 决定，原双键同拉不存在了——如需双键需产品确认走两次提交）。裁量遗留：50310/50311 数值落在退驻段但语义属黑名单（注释已标，Wave5 错误码文档核对）。**3 处 el-table 断言未赶上（消息晚到），Wave5 合并 fe-types 时 Team Lead 手工补**。
+- **类型雷根治 ✅**：fix/fe-table-types 2 commits（151d3e3）——dts 再生补 9 条声明（含 ElTable/ElTableColumn），7 处 DefaultRow 断言修复，vitest 5/5。写法结论：el-table 非泛型，插槽形参标注过不了 vue-tsc，只能调用点 `row as T` 断言（已有先例可循）。剩 3 处在 onboarding-fe 文件里→已转契约对账 Agent 顺手加，保证 fe-types 最后合并时零冲突。
+- **W1 提前审查 ✅**：05-onboarding-review-w1.md（commit 2125072）——BLOCKER 3/MAJOR 5/MINOR 7。F1 先查后写并发穿透（缺唯一索引）；F2/F3/F6 前后端字段漂移（黑名单页/审批页当前不可用、联系人静默丢失）；F7 明文密码+手机号进日志；F8 前端 50203/50204 语义过期。**Team Lead 拍板：契约真源=10-onboarding-design.md（据实现）**。修复已分派：F1/F4/F5/F7→Wave3 后端顺带（pending_flag 唯一索引方案）；F2/F3/F6/F8→契约对账 Agent 扩围。教训入档：并行契约先行必须以据实现文档收口对账，早审查挽回了 Wave5 大返工。
+- **Wave2 后端 ✅**：R13+R14 完成（158/158 绿含 16 新增，5 commits 至 93dfd3d）。9 端点含插单的 precheck/cancel/mine/listMine；错误码 50312-50318；副作用链实测（SKU下架+店铺隐藏+专属价失效含Redis+WA/WE token 全踢）；60 天口径=audited_at 起数据库时间，59/60/61 边界测试过；归档 job 每日 03:40（错开 04:17 重索引），SchedulingConfig 全项目首个调度基建（P3 复用）。DTO 定稿：无 restoreDeadline（前端用 auditedAt 自算）、status 增 CANCELLED。
+- **Wave3 已派**（onboard 续跑）：WE 员工全套（V12、码白名单、授权位切点、R17、D52 路由）+ OPS 租户列表端点；**契约对账已派**（onboard-fe）：api-types 对齐 Wave2 最终 DTO。
+- **P3 预研 ✅**：08-p3-requirements-extract.md（commit 7ecab65）。5 主题+G1-G10 缺口。三大未决风险：(1)72h 待确认库存可售性 vs 异议冲销（产品空白，需用户拍板，预研建议方案B：可售+冲销按剩余在库封顶）(2)P1 询价确认即扣库存 vs P3 完整出库状态机扣库存时点（P3 架构第一波必须收口）(3)两条仲裁链终点未定义（TA 仲裁详情缺+Q-D04 客诉实体未定）。另发现：单据号 PRD 与 P1 实现冲突（IN-/OUT- vs 已上线 WK-/CK-）、全仓无调度基建（72h Job/临期扫描无处跑，P3 需先建 scheduler；本期 Wave2 的 60 天归档 job 是第一个，注意复用）。
+- **Team Lead 修正（P3 预研的过期信息）**：(1)Flyway P3 应从 V12 起（V11 已被 Wave2 占用）(2)"OPS 路由守卫不查角色"已在 feat/p2-onboarding-fe 修复，P3 以合并后代码为准。
+- **X 硬化方案 ✅**：11-hardening-design.md（286行，commit ff94059）。重磅发现：现有 phone_hash 是无盐 SHA-256≈明文（GPU 分钟级还原）且是登录唯一键，方案用双列双读过渡；额外泄露面：pricing Redis 键与 log.info 明文手机号。实施顺序：日志 profile 化/Redis 密码/active-timeout（可并行）→ Boot 升级（冻结窗口，先于 PII 切读）→ PII 三段式（双写尽早铺）。
+- **Team Lead 修正**：方案称 blacklist 未建可直接按 hmac 落地——过期信息，Wave1 已在 feat/p2-onboarding 用明文 phone/license 建了 V10。处置：不阻塞本期合并（无存量数据），PII 阶段 0 将 blacklist 双键纳入加列清单（ALTER 成本≈0）。
+- **Wave4b 前端 ✅**：5 commits（api第二批/退驻页/下架弹窗/员工页/窄屏修复），typecheck 绿，24 截图自查（修 2 窄屏缺陷：WA顶栏折行、表格撑宽）。契约偏差 4 处：precheck+cancel 两端点已转 Wave2 补；下架弹窗老单据动态计数降级静态文案（Wave5 再议）；DTO 字段名待 Wave2 完成后对账 api-types。**注意：vite dev 会重生成 components.d.ts/auto-imports.d.ts，勿带进 commit（fe-types 分支专管）**。
+- **Wave2 状态注意**：发现其曾静默停止（SendMessage 时 no active task），已带 precheck/cancel 契约唤醒续跑。
+- **OPS 租户审核页 ✅**：feat/ops-tenant-audit 3 commits（页面+守卫+导航徽标，typecheck 绿，9 截图自查修掉 2 个 375 窄屏真缺陷含共用 shell 的 Blacklist）；移交：后端缺 GET /admin/tenants 列表端点（前端已契约先行+优雅降级）→ 已排进 Wave3；该分支还原了 dev server 重生成的 components.d.ts 保持基线（类型雷由 fe-types 分支专门处理，合并时 fe-types 最后进）。
+- **CVE 扫描 ✅**：06-dependency-cve-scan.md（commit 6899a4e）——高危4组件/约9 CVE 全系 Boot 3.2.5 BOM 传递依赖（Boot 升 3.5.x 一次根治，含 Tomcat CVE-2025-24813 在野利用、security-crypto CVE-2025-22228 BCrypt>72字符误判）；前端运行时 0 已知高危；Redis 无密码已登记 X 项。上线前需 OWASP/osv-scanner 复扫。**Boot 升级列为 Wave5 后独立硬化任务，不混入本期功能分支。**
+- **Wave1 后端 ✅**：入驻主链完成（feat/p2-onboarding 4 commits，142/142 测试绿含 15 新增）；3 高危点全落实（自营过黑名单/TenantLine 配置+测试/审批 CAS）；坑：Memurai 需在跑、ensureWaAccount 拆为 ensureWaUser+provisionWaAccount、blacklist.evidence_urls 遗留未建。
+- **Wave4 前端 ✅**：3 页+守卫完成（feat/p2-onboarding-fe 3 commits，typecheck 绿，Playwright 14 截图视觉自查过）；移交：①components.d.ts 残缺生成物掩盖 10 处 el-table 类型错（波及既有页面，留 Wave5 统一修，需登记缺陷清单）②listMine 端点契约缺口已转 Wave2 补③375 窄屏顶栏换行为全站既有表现。
+- **Wave2 已派发**：R13 退驻+R14 强制下架（同 worktree 续 feat/p2-onboarding），指令含高危点：副作用链③④段（专属价失效+WE 一起踢）、新拒老放分界、60 天边界 59/60/61 测试、V11 迁移、50312+ 错误码。
+- **测试计划 ✅**：04-onboarding-test-plan.md（86用例 P0=61，commit 7ae46d5）；5大高危漏点识别（自营也过黑名单/R14新拒老放分界/退驻副作用③④段/TenantLine配置遗漏/60天时区边界）；Wave1 相关 3 条已转发后端 Agent 自查。
+- **产品线框补齐 ✅**：06b-onboarding-wireframes.md（600行，commit 763412e）——6页线框+交互标注；关键决策：50205对WA端不透出黑名单字样、R14输商户名二次确认、WE生码默认最小授权。
+- **余额中断插曲**：Wave1/Wave4 Agent 首次派发因 codecmd 余额 401 挂掉（worktree 干净无残留），充值后已唤醒续跑；新增保险：撞墙先 commit 再停。
+
+- **启动**：P2 定价已交付（127 测试绿，commit 9945d82），按路线图开工 P2 另一半：入驻生态 + WE 员工。
+- **核对**：确认架构全局设计 P0 已有（schema/api-spec/modules 均覆盖入驻），不重做架构设计，直接落地核对。
+- **调查**：并行两 Agent 完成——PRD 提取（6 主题+6 设计缺口）+ 代码现状（Flyway V9→V10、tenant 审批先例可复用、员工码只差白名单、AccountServiceImpl:222 接入点、错误码 50201-50205 预留可用）。产出 findings.md。
+- **规划**：task_plan.md 五波：Wave1 入驻主链（后端）∥ Wave4 前端第一批 → Wave2 R13/R14 → Wave3 WE → Wave4b 前端第二批 → Wave5 测试审查合并。决策 O-1~O-6 已记录。
+- **下一步**：建 worktree（.claude/worktrees/onboard + onboard-fe），派发 Wave1/Wave4 并行 Agent。
+
+## 踩坑 / 注意（沿袭）
+- 后端本地跑必须 `dev,local` profile，否则 MySQL 认证失败。
+- 这台机 `npx claude-mem restart/stop` 会产生端口僵尸，别碰。
+- `.worktrees` 是文件占位，worktree 建在 `.claude/worktrees/`。
