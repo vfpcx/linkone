@@ -37,6 +37,21 @@ public class Wholesaler {
 
     private String source;
 
+    /** 退驻申请时间（WA 发起退驻时刻，R13） */
+    private LocalDateTime withdrawApplyAt;
+
+    /** 退驻生效时间（TA 审批通过时刻=申请单 audited_at 快照；60 天恢复/归档窗口唯一时间基准，R13） */
+    private LocalDateTime withdrawnAt;
+
+    /** 强制下架时间（R14） */
+    private LocalDateTime offlineAt;
+
+    /** 强制下架原因（R14 必填留痕） */
+    private String offlineReason;
+
+    /** 归档时间（退驻超 60 天定时归档） */
+    private LocalDateTime archivedAt;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

@@ -86,6 +86,7 @@
 | 41105 | `AUTH_ACCOUNT_005` | 200 | 新密码与旧密码相同 | New password same as current | 提示修改 |
 | 41106 | `AUTH_ACCOUNT_006` | 200 | 新密码不能与最近 5 次密码相同 | New password matched history | 提示修改 |
 | 41107 | `AUTH_ACCOUNT_007` | 200 | 旧密码错误 | Old password incorrect | — |
+| 41110 | `ACCOUNT_ALL_ROLES_DISABLED` | 200 | 账号已被禁用，请联系商户管理员 | 有角色记录但全部非 ACTIVE（如 R17 禁用的单角色 WE）；不兜底 TA 放行（P2 Wave3，WEM-S5-01） | 联系 WA 恢复 |
 
 ### AUTH_SMS（41200–41299）短信验证码
 
@@ -201,13 +202,53 @@
 
 ### STATE_WHOLESALER（50200–50299）批发商状态
 
+> P2 入驻 Wave1 落地（决策 O-3）：50201–50205 已在 ErrorCode 枚举实现；50203/50204 语义
+> 由原「退驻前置」预留调整为入驻主链实际用途（Team Lead 拍板，Wave1 任务指令）。
+> R13 退驻前置校验（账单未结清/库存未清空）在 Wave2 落地时使用溢出段 50312+。
+
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
 |---|---|---|---|---|---|
-| 50201 | `STATE_WHOLESALER_001` | 200 | 批发商入驻审核中 | Wholesaler pending audit | — |
-| 50202 | `STATE_WHOLESALER_002` | 200 | 批发商已退驻 | Wholesaler withdrawn | — |
-| 50203 | `STATE_WHOLESALER_003` | 200 | 退驻申请前需结清账单 | Cannot withdraw with unpaid bills | — |
-| 50204 | `STATE_WHOLESALER_004` | 200 | 退驻申请前需清空库存 | Cannot withdraw with non-zero stock | — |
-| 50205 | `STATE_WHOLESALER_005` | 200 | 批发商已在黑名单中，无法入驻 | Wholesaler in blacklist | — |
+| 50201 | `WHOLESALER_APPLICATION_PENDING` | 200 | 批发商入驻审核中，请勿重复申请 | Duplicate pending application | 等待 TA 审批 |
+| 50202 | `WHOLESALER_WITHDRAWN` | 200 | 批发商已退驻 | Wholesaler withdrawn（Wave2 已落地：已退驻再发起退驻 / 已退驻→已下架等所有 from=WITHDRAWN 的不可达转移统一由状态机抛此码） | 60 天内可恢复或重新入驻 |
+| 50203 | `WHOLESALER_APPLICATION_NOT_AUDITABLE` | 200 | 入驻申请不存在或当前状态不可审核 | Application not found / not PENDING（含跨租户不可见、并发审核被抢占） | 刷新列表 |
+| 50204 | `WHOLESALER_ALREADY_ONBOARDED` | 200 | 该账号已入驻批发商，一个账号仅可入驻一个仓库 | WA already bound to an active wholesaler | — |
+| 50205 | `BLACKLIST_HIT` | 200 | 已被列入平台黑名单，无法入驻 | Blacklist hit（自助申请 / OPS 代建 / TA 自营三路径同检，决策 O-2） | 联系平台 |
+
+### 黑名单管理（50310–50329，O-3 溢出段，P2 Wave1）
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50310 | `BLACKLIST_ENTRY_EXISTS` | 200 | 黑名单条目已存在 | Duplicate blacklist entry (type,value) | — |
+| 50311 | `BLACKLIST_ENTRY_NOT_FOUND` | 200 | 黑名单条目不存在 | Entry not found or already removed | — |
+
+### R13 退驻 / R14 强制下架（50312–50318，O-3 溢出段，P2 Wave2）
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50312 | `WITHDRAW_STOCK_NOT_ZERO` | 200 | 退驻前须清空库存（当前仍有在库商品） | R13 前置：inventory 域 qty>0 行存在（发起与审批通过双检） | 清库存后重试 |
+| 50313 | `WHOLESALER_NOT_ACTIVE` | 200 | 该批发商已下架或退驻，无法受理新业务 | R14 新拒老放分界：新询价创建 / PENDING 询价确认在商户非 ACTIVE 时拒绝（document 域校验点）；已确认询价与已生成出库单允许走完 | — |
+| 50314 | `WITHDRAW_OPEN_DOCS_EXIST` | 200 | 退驻前须结清单据（存在未完结的询价/出库单） | R13 前置：询价 PENDING/CONFIRMED 或出库非 COMPLETED 存在 | 结清单据后重试 |
+| 50315 | `WITHDRAW_APPLICATION_NOT_AUDITABLE` | 200 | 退驻申请不存在或当前状态不可审核 | Not found / not PENDING（含跨租户不可见、并发审核 CAS 被抢占、撤回目标已被审批） | 刷新列表 |
+| 50316 | `WITHDRAW_APPLICATION_PENDING` | 200 | 已有退驻申请审核中，请勿重复提交 | Duplicate pending withdraw application | 等待 TA 审批或撤回 |
+| 50317 | `WITHDRAW_RESTORE_EXPIRED` | 200 | 退驻恢复窗口已过（超 60 天或已归档） | 恢复窗口 <60 天（数据库时间，起点=审批通过时刻 withdrawn_at）；>=60 天整归档，两口径互补 | 重新入驻 |
+| 50318 | `WHOLESALER_STATE_TRANSITION_INVALID` | 200 | 批发商当前状态不允许该操作 | 状态机不可达转移兜底（已下架→正常 / 已下架→已退驻 / 已归档→任意 等；from=WITHDRAWN 的不可达用 50202） | — |
+
+### WE 批发商员工（50319–50322，O-3 溢出段，P2 Wave3）
+
+> 原「50319 起预留 P4 billing」顺延为 **50323 起**（Wave3 占用 50319–50322；决策 O-5 占位不变，代码中 TODO 标注）。
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50319 | `EMPLOYEE_INVITE_PERMISSION_INVALID` | 200 | 员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM） | WE 授权位白名单校验（生码 permissions / 员工授权变更共用，G-3.1） | — |
+| 50320 | `EMPLOYEE_NOT_FOUND` | 200 | 员工不存在或不属于本商户 | user_roles 行不存在 / role≠WE / 跨商户按不存在处理（SEC-S4-10 不泄漏存在性） | 刷新员工列表 |
+| 50321 | `EMPLOYEE_STATE_INVALID` | 200 | 员工当前状态不允许该操作 | 重复禁用（CAS 防 disabled_at 改写续期）/ 对 ACTIVE 员工 restore 等 | — |
+| 50322 | `EMPLOYEE_RESTORE_EXPIRED` | 200 | 员工禁用已超 30 天，无法恢复 | 恢复窗口 <30 天整（数据库时间，起点=disabled_at；口径同 50317 的 60 天窗口） | 重新生码入驻 |
+
+> 关联落地（Wave3）：`42004 PERMISSION_ROLE_004`（本文件 §3 已预留）在枚举实装，用于 WE 未持
+> PRICE_EDIT / INQUIRY_CONFIRM 授权位调用对应写路径；`41110 ACCOUNT_ALL_ROLES_DISABLED`
+> 新增——账号存在但全部角色被禁用（如 R17 禁用的单角色 WE）登录时语义拒绝，不再兜底 TA 放行（WEM-S5-01）。
+
+> 预留：50323 起留给 P4 billing 的退驻账单未结清校验（决策 O-5 占位，代码中 TODO 标注）。
 
 ### STATE_BILL（50300–50399）账单状态
 

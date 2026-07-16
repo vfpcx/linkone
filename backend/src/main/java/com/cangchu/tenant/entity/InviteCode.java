@@ -27,6 +27,8 @@ public class InviteCode {
     private Integer usedCount;
     private LocalDateTime expireAt;
     private String status;
+    /** WE 码初始授权位 JSON 数组文本（仅 target_role=WE 使用；P2 Wave3，V12） */
+    private String permissions;
 
     private LocalDateTime createdAt;
     private Long createdBy;

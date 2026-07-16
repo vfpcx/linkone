@@ -38,6 +38,9 @@ public class UserRole {
 
     private Integer priority;
 
+    /** WE 授权位 JSON 数组文本，如 ["PRICE_EDIT"]；NULL/空=无授权（P2 Wave3，V12） */
+    private String permissions;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

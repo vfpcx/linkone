@@ -20,11 +20,18 @@ public class EmployeeInviteVo {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long tenantId;
 
-    /** 注册码（明文随机串，供 TA 复制分发给员工） */
+    /** 归属批发商（仅 WE 码非空，P2 Wave3） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long wholesalerId;
+
+    /** 注册码（明文随机串，供 TA/WA 复制分发给员工） */
     private String code;
 
-    /** 目标角色 WK / ST */
+    /** 目标角色 WK / ST / WE(P2 Wave3 WA 端) */
     private String role;
+
+    /** WE 码初始授权位（PRICE_EDIT/INQUIRY_CONFIRM；非 WE 码为空列表） */
+    private java.util.List<String> permissions;
 
     private Integer maxUses;
     private Integer usedCount;

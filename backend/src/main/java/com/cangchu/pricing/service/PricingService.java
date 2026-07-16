@@ -49,6 +49,18 @@ public interface PricingService {
      */
     int disableBySku(Long skuId);
 
+    /**
+     * 商户退驻级联失效（P2 入驻 Wave2 R13，PRD 05 §14b.5）：把该商户全部 ACTIVE 专属价
+     * 批量置 DISABLED，并逐行失效 Redis 价格匹配缓存（复用 {@code invalidateAfterCommit}
+     * 提交后失效链路，防脏缓存），后续 resolvePrice 回退公开价。
+     *
+     * <p>供 tenant 域在退驻审批通过的同一事务内调用（数据级联，无归属鉴权入参——
+     * 审批动作在 tenant 域已完成 S4 校验）。60 天恢复不回滚：已失效的专属价不复活。
+     *
+     * @return 本次被置为 DISABLED 的专属价行数
+     */
+    int disableByWholesaler(Long wholesalerId);
+
     /** 列出某商户的专属价（归属校验），仅未软删记录。 */
     List<CustomerPriceVo> listCustomerPrices(Long wholesalerId, Long operatorUserId);
 

@@ -14,6 +14,7 @@ import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.service.TenantService;
+import com.cangchu.tenant.service.WholesalerApplicationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RAtomicLong;
@@ -49,6 +50,8 @@ public class AccountServiceImpl implements AccountService {
     private final SmsUtil smsUtil;
     private final RedissonClient redissonClient;
     private final TenantService tenantService;
+    // P2 入驻 Wave1：WA 注册直申接入（同 tenantService 跨域调用先例）
+    private final WholesalerApplicationService wholesalerApplicationService;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -174,10 +177,11 @@ public class AccountServiceImpl implements AccountService {
         // 验证验证码
         verifySmsCode(phone, "REGISTER", dto.getSmsCode());
 
-        // ---- 员工注册码路径（WK/ST 等仓库员工凭码绑定到既有租户）----
+        // ---- 员工注册码路径（WK/ST 仓库员工 / WE 批发商员工凭码绑定）----
         // inviteCode 非空时：以码上的 role/tenant_id 为准（覆盖入口 role），不建租户、不要求 tenantName。
-        // 校验(存在/未过期/未超 maxUses/角色∈WK,ST)与 used_count+1 在 consumeInviteForRegister 内完成，
+        // 校验(存在/未过期/未超 maxUses/角色∈WK,ST,WE)与 used_count+1 在 consumeInviteForRegister 内完成，
         // 先于建账号执行，校验失败抛 AUTH_INVITE_* / INVITE_*，避免脏数据。
+        // WE 码（P2 Wave3）另带 wholesaler_id + 初始 permissions，注册时一并落 user_roles。
         boolean viaInvite = dto.getInviteCode() != null && !dto.getInviteCode().isBlank();
         com.cangchu.tenant.entity.InviteCode invite = null;
         if (viaInvite) {
@@ -202,6 +206,11 @@ public class AccountServiceImpl implements AccountService {
         userRole.setRole(role);
         if (viaInvite) {
             userRole.setTenantId(invite.getTenantId());
+            // WE 码：绑定商户 + 落初始授权位（WEM-S1-02；wholesaler_id 非空已在消费时校验）
+            if ("WE".equals(role)) {
+                userRole.setWholesalerId(invite.getWholesalerId());
+                userRole.setPermissions(invite.getPermissions());
+            }
         }
         userRole.setStatus("ACTIVE");
         userRole.setPriority(getRolePriority(role));
@@ -217,11 +226,14 @@ public class AccountServiceImpl implements AccountService {
         if (!viaInvite && "TA".equals(role) && dto.getTenantName() != null && !dto.getTenantName().isBlank()) {
             tenantService.createPendingTenantShell(user.getId(), dto.getTenantName().trim(), phone);
         }
-        // WA/WE 入驻（wholesalerName/targetTenantId）依赖批发商入驻模块（wholesalers 表/服务尚未落地），
-        // 当前仅接收并校验字段，不静默丢弃；持久化方案见交付「Team Lead 待决点」。
+        // P2 入驻 Wave1：WA 注册带 targetTenantId → 自动创建 PENDING 入驻申请单（进入 TA 审批队列）。
+        // 校验（目标租户存在/黑名单/重复申请）在 WholesalerApplicationService 内完成，
+        // 失败抛业务码（如黑名单 50205）使注册整体回滚，不留半截账号入驻。
         if ("WA".equals(role) && dto.getTargetTenantId() != null && !dto.getTargetTenantId().isBlank()) {
-            log.info("[D-16] WA 注册携带 targetTenantId={} wholesalerName={}（待批发商入驻模块落地，暂记录日志）",
-                    dto.getTargetTenantId(), dto.getWholesalerName());
+            Long applicationId = wholesalerApplicationService.createFromRegister(
+                    user.getId(), dto.getTargetTenantId().trim(), dto.getWholesalerName(), phone);
+            log.info("[D-16][P2入驻] WA 注册直申自动建单：user={} application={} targetTenantId={} wholesalerName={}",
+                    user.getId(), applicationId, dto.getTargetTenantId(), dto.getWholesalerName());
         }
 
         // 注册后自动登录（重新取主角色，确保 tenantId 已绑定时随登录响应下发）
@@ -507,7 +519,8 @@ public class AccountServiceImpl implements AccountService {
     private void verifySmsCode(String phone, String scene, String code) {
         // D-03: mock 万能验证码短路仅 dev 生效；prod 下 isMockEnabled()=false，永不放行 888888。
         if (smsUtil.isMockEnabled() && smsUtil.getMockCode().equals(code)) {
-            log.info("[SMS VERIFY] Mock code matched for {} scene={}", phone, scene);
+            // F7：日志手机号脱敏
+            log.info("[SMS VERIFY] Mock code matched for {} scene={}", SmsUtil.maskPhone(phone), scene);
             return;
         }
 
@@ -604,13 +617,20 @@ public class AccountServiceImpl implements AccountService {
         }
     }
 
-    /** 解析用户主角色 */
+    /** 解析用户主角色（D52 优先级 TA>ST>WK>WA>WE，经 priority 升序体现） */
     private String resolvePrimaryRole(Long userId) {
         List<UserRole> roles = userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, userId)
                 .eq(UserRole::getStatus, "ACTIVE")
                 .orderByAsc(UserRole::getPriority));
         if (roles.isEmpty()) {
+            // WEM-S5-01：有角色记录但全部被禁用（如 R17 禁用的 WE）→ 语义拒绝，不兜底 TA 放行
+            long anyRole = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
+                    .eq(UserRole::getUserId, userId));
+            if (anyRole > 0) {
+                throw new BizException(ErrorCode.ACCOUNT_ALL_ROLES_DISABLED);
+            }
+            // 无任何角色记录的历史账号：维持兜底 TA（兼容旧注册路径）
             return "TA";
         }
         return roles.get(0).getRole();
@@ -666,15 +686,15 @@ public class AccountServiceImpl implements AccountService {
         return OffsetDateTime.now(APP_ZONE).plusSeconds(StpUtil.getTokenSessionTimeout());
     }
 
-    /** 角色到路由的映射 */
+    /** 角色到路由的映射（D52 修正：WA/WE 落 WA 端，不再占位跳 /ta/dashboard） */
     private String resolveRouter(String role) {
         return switch (role) {
             case "OPS" -> "/ops/dashboard";
             case "TA" -> "/ta/dashboard";
             case "ST" -> "/st/dashboard";
             case "WK" -> "/ta/dashboard";
-            case "WA" -> "/ta/dashboard";
-            case "WE" -> "/ta/dashboard";
+            // WA 主页 = 询价确认（与前端路由 /wa 重定向一致）；WE 是批发商员工，同落 WA 端（D52）
+            case "WA", "WE" -> "/wa/inquiry";
             // RT(二批/终端) 是 H5/小程序买家，admin 后台不承载 RT 页面（前端无 /rt/* 路由）。
             // 与前端 defaultRouterFor(RT) 对齐，回兜底工作台，避免 admin 内 404。
             case "RT" -> "/ta/dashboard";

@@ -39,6 +39,15 @@ public class TenantController {
         return R.ok();
     }
 
+    /** OPS 租户列表（P2 Wave3；status ∈ PENDING/ACTIVE/REJECTED 可选过滤，返回 PageData 形状） */
+    @GetMapping("/api/v1/admin/tenants")
+    public R<Map<String, Object>> listTenantsForAdmin(@RequestParam(required = false) String status,
+                                                      @RequestParam(defaultValue = "1") int page,
+                                                      @RequestParam(defaultValue = "10") int size) {
+        Long opsUserId = StpUtil.getLoginIdAsLong();
+        return R.ok(tenantService.pageTenantsForAdmin(opsUserId, status, page, size));
+    }
+
     /** OPS 代建租户（直接通过 + 短信临时密码） */
     @PostMapping("/api/v1/admin/tenant/create")
     public R<Map<String, Object>> createByOps(@Valid @RequestBody TenantCreateDto dto) {

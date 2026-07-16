@@ -69,6 +69,8 @@ public class InquiryServiceImpl implements InquiryService {
     // G-S1/G-S2 还债：他域数据只走对方 Service（不再直连 SkuMapper/TenantMapper）
     private final SkuService skuService;
     private final TenantService tenantService;
+    // P2 入驻 Wave2：R14 新拒老放分界需读商户状态（经 tenant 域 Service，不直连 WholesalerMapper）
+    private final com.cangchu.tenant.service.WholesalerService wholesalerService;
     // G-S1/G-S2 还债：user_roles 归 account 域，requireWaRole/listForWa 经 AuthService 鉴权/查询。
     private final AuthService authService;
     private final StoreFrontService storeFrontService;
@@ -103,6 +105,15 @@ public class InquiryServiceImpl implements InquiryService {
         StoreFrontVo store = storeFrontService.getStorePage(dto.getStoreId(), dto.getCode());
         Long tenantId = store.getTenantId();
         Long storeId = store.getStoreId();
+
+        // P2 Wave2 R14/R13（FOF 分界·新业务拒绝）：商户属本店但已 OFFLINE/WITHDRAWN → 明确拒 50313
+        // （区别于"不属本店"的 50282，不泄漏跨店信息的前提是先核对租户归属）。
+        com.cangchu.tenant.vo.WholesalerVo wsState = wholesalerService.getById(dto.getWholesalerId());
+        if (wsState != null && tenantId.equals(wsState.getTenantId())
+                && !"ACTIVE".equals(wsState.getStatus())) {
+            throw new BizException(ErrorCode.WHOLESALER_NOT_ACTIVE);
+        }
+
         boolean waInStore = store.getWholesalers() != null && store.getWholesalers().stream()
                 .map(StoreWholesalerVo::getWholesalerId)
                 .anyMatch(id -> id.equals(dto.getWholesalerId()));
@@ -183,6 +194,15 @@ public class InquiryServiceImpl implements InquiryService {
 
         // S4：操作人必须在该 inquiry 的 wholesaler 下有 ACTIVE 的 WA 角色（user_roles 唯一可信来源）
         requireWaRole(inquiry.getWholesalerId(), waUserId);
+
+        // P2 Wave2 R14（FOF 分界·老业务放行/新业务拒绝）：分界 = 下架时刻的单据状态——
+        // 未确认（PENDING）询价在商户 OFFLINE/WITHDRAWN 后**不可再确认**（此处拦 50313）；
+        // 下架前已确认的询价在本实现中确认即原子转出库完成（CONFIRMED→COMPLETED 同事务），
+        // 已生成的出库单/已完成单据不受影响（不做一刀切回滚）。
+        com.cangchu.tenant.vo.WholesalerVo wsState = wholesalerService.getById(inquiry.getWholesalerId());
+        if (wsState == null || !"ACTIVE".equals(wsState.getStatus())) {
+            throw new BizException(ErrorCode.WHOLESALER_NOT_ACTIVE);
+        }
 
         // S5 + 并发（§10 P2 状态条件 CAS）：仅 PENDING 可确认；用 UPDATE...WHERE status=PENDING
         // 校验 affected==1，防止并发双击两个请求都读到 PENDING 而重复建出库单/重复扣库存。
@@ -275,8 +295,10 @@ public class InquiryServiceImpl implements InquiryService {
 
     @Override
     public List<InquiryVo> listForWa(Long tenantId, Long waUserId) {
-        // 该用户作为 WA 归属的所有 wholesaler（跨租户集合，随后按 tenantId 过滤 inquiry）
-        List<Long> waWholesalerIds = authService.listActiveWholesalerIds(waUserId, "WA");
+        // 该用户作为 WA 归属的所有 wholesaler（跨租户集合，随后按 tenantId 过滤 inquiry）；
+        // P2 Wave3：WE 员工同看本商户询价列表（只读不限授权位，确认在 requireWaRole 卡授权）
+        List<Long> waWholesalerIds = new ArrayList<>(authService.listActiveWholesalerIds(waUserId, "WA"));
+        waWholesalerIds.addAll(authService.listActiveWeWholesalerIds(waUserId));
         if (waWholesalerIds.isEmpty()) {
             return List.of();
         }
@@ -291,13 +313,41 @@ public class InquiryServiceImpl implements InquiryService {
         return out;
     }
 
+    // ==================== 跨域出口（P2 Wave2 R13） ====================
+
+    @Override
+    public long countOpenDocsForWholesaler(Long wholesalerId) {
+        // 非终态询价：PENDING（待确认）/ CONFIRMED（确认中间态，正常同事务即转 COMPLETED，
+        // 若存在说明流程未走完）；COMPLETED 为终态不计。
+        long openInquiries = inquiryRequestMapper.selectCount(new LambdaQueryWrapper<InquiryRequest>()
+                .eq(InquiryRequest::getWholesalerId, wholesalerId)
+                .in(InquiryRequest::getStatus,
+                        InquiryRequest.STATUS_PENDING, InquiryRequest.STATUS_CONFIRMED));
+        // 非终态出库单（phase-1 出库单生成即 COMPLETED，此计数当前恒 0，防御性保留口径）
+        long openOutbounds = outboundRequestMapper.selectCount(new LambdaQueryWrapper<OutboundRequest>()
+                .eq(OutboundRequest::getWholesalerId, wholesalerId)
+                .ne(OutboundRequest::getStatus, OutboundRequest.STATUS_COMPLETED));
+        return openInquiries + openOutbounds;
+    }
+
     // ==================== 私有 ====================
 
-    /** S4：用户在指定 wholesaler 下须有 ACTIVE 的 WA 角色，否则越权拒绝。 */
+    /**
+     * S4：确认询价的操作人须为该 wholesaler 的 WA，或该商户持 INQUIRY_CONFIRM 授权位的
+     * WE（P2 Wave3 切点，WEM-S1-05/S4-02）：未授权 WE → 42004，非本商户 → 50286。
+     */
     private void requireWaRole(Long wholesalerId, Long userId) {
-        if (!authService.hasWholesalerRole(userId, "WA", wholesalerId)) {
-            throw new BizException(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
+        if (authService.hasWholesalerRole(userId, "WA", wholesalerId)) {
+            return;
         }
+        if (authService.hasWholesalerRole(userId, "WE", wholesalerId)) {
+            if (!authService.hasWholesalerPermission(userId, wholesalerId,
+                    com.cangchu.common.util.WePermissions.INQUIRY_CONFIRM)) {
+                throw new BizException(ErrorCode.PERMISSION_ROLE_004, "未获得询价确认授权，请联系商户管理员");
+            }
+            return;
+        }
+        throw new BizException(ErrorCode.INQUIRY_OPERATOR_NOT_WA);
     }
 
     /** 取租户简码用于 docNo；查不到则用 tenantId 占位。经 TenantService 取值（G-S2，不直连 TenantMapper）。 */

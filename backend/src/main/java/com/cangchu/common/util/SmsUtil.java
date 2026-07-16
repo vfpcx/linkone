@@ -52,8 +52,22 @@ public class SmsUtil {
      * @param scene 场景: REGISTER/LOGIN/RESET_PWD/CHANGE_PHONE/RT_LOGIN
      * @return 验证码（mock 模式返回固定码，生产返回 null）
      */
-    public String sendSmsCode(String phone, String scene) {
+    /**
+     * 手机号日志脱敏：138****5678（F7 审查修复统一出口——任何日志严禁明文手机号/密码）。
+     * 非 11 位等异常输入原样打星兜底，绝不回退为明文。
+     */
+    public static String maskPhone(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return "***";
+        }
         String masked = phone.replaceAll("(\\d{3})\\d{4}(\\d{4})", "$1****$2");
+        return masked.equals(phone) && phone.length() > 4
+                ? phone.substring(0, 2) + "****" + phone.substring(phone.length() - 2)
+                : masked;
+    }
+
+    public String sendSmsCode(String phone, String scene) {
+        String masked = maskPhone(phone);
         if (mockEnabled) {
             log.info("[SMS MOCK] 向 {} 发送验证码 [{}], scene={}, code={}", masked, scene, mockCode);
             return mockCode;
