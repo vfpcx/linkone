@@ -302,8 +302,17 @@ export const opsAddBlacklist = (
   reason: string,
 ) => apiPost<BlacklistRow>('/ops/blacklist', { targetType, targetValue, reason }, opsToken)
 
-export const opsListBlacklist = (opsToken: string, status = 'ACTIVE') =>
-  apiGet<BlacklistRow[]>('/ops/blacklist', opsToken, { status })
+/** Wave6 DEF-6：列表改分页契约 {records,total,page,size}（§31） */
+export const opsListBlacklist = (
+  opsToken: string,
+  status = 'ACTIVE',
+  extra: { page?: number; size?: number; keyword?: string } = {},
+) =>
+  apiGet<{ records: BlacklistRow[]; total: number; page: number; size: number }>(
+    '/ops/blacklist',
+    opsToken,
+    { status, ...extra },
+  )
 
 export const opsRemoveBlacklist = (opsToken: string, id: string) =>
   apiDelete(`/ops/blacklist/${id}`, opsToken)

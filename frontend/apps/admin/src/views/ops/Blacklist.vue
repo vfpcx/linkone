@@ -3,8 +3,9 @@
  * OPS 黑名单管理（PC）— P2 入驻生态 Wave4 前端第一批 · OPS 端第一个真实页面
  *
  * 来源：
- *  - 契约（10-onboarding-design.md §1.2/§2，后端已落地）：
- *          GET    /api/v1/ops/blacklist（列表返回裸数组，可按 status 过滤）
+ *  - 契约（10-onboarding-design.md §1.2/§2 + §31 Wave6 分页改造，后端已落地）：
+ *          GET    /api/v1/ops/blacklist?page=&size=&status=&keyword=
+ *                 （{records,total,page,size}；keyword 模糊匹配键值；createdAt 倒序）
  *          POST   /api/v1/ops/blacklist（{targetType, targetValue, reason} 均必填；重复 50310）
  *          DELETE /api/v1/ops/blacklist/{id}（移除=置 REMOVED）
  *  - 视觉：沿用 TA 端 shell（顶栏 + 左侧菜单）+ el-table/el-dialog 风格（MASTER §4.2/§4.4）
@@ -22,6 +23,7 @@ import {
   Stamp,
   Plus,
   Refresh,
+  Search,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type { BlacklistItem, CreateBlacklistRequest } from '@cangchu/api-types'
@@ -81,20 +83,51 @@ const handleMenuSelect = (key: string) => {
   ElMessage.info('该页面留给后续 Agent 实现')
 }
 
-// ============ 列表（后端返回裸数组，仅看生效中条目） ============
+// ============ 列表（DEF-6 · §31 分页契约：{records,total,page,size}，仅看生效中条目） ============
 const loading = ref(false)
 const list = ref<BlacklistItem[]>([])
+const page = ref(1)
+const size = ref(10)
+const total = ref(0)
+/** 键值搜索：手机号 / 执照号同框（后端模糊匹配 targetValue） */
+const keyword = ref('')
 
 const fetchList = async () => {
   loading.value = true
   try {
-    const data = await opsApi.listBlacklist({ status: 'ACTIVE' })
-    list.value = data ?? []
+    const data = await opsApi.listBlacklist({
+      page: page.value,
+      size: size.value,
+      status: 'ACTIVE',
+      keyword: keyword.value.trim() || undefined,
+    })
+    list.value = data?.records ?? []
+    total.value = data?.total ?? 0
+    // 后端钳制回显（size 1..100、page>=1）
+    if (data?.page) page.value = data.page
+    if (data?.size) size.value = data.size
   } catch {
     // 全局 toast 已提示；保持已有数据以便重试
   } finally {
     loading.value = false
   }
+}
+
+/** 搜索 / 清空：回到第 1 页再查 */
+const onSearch = () => {
+  page.value = 1
+  fetchList()
+}
+
+const onPageChange = (p: number) => {
+  page.value = p
+  fetchList()
+}
+
+const onSizeChange = (s: number) => {
+  size.value = s
+  page.value = 1
+  fetchList()
 }
 
 // ============ 类型 / 格式化 ============
@@ -209,6 +242,8 @@ const onRemove = async (row: BlacklistItem) => {
   try {
     await opsApi.removeBlacklist(String(row.id))
     ElMessage.success('已移出黑名单')
+    // 当页只剩这一条且非首页 → 回退一页，避免落在空页
+    if (list.value.length === 1 && page.value > 1) page.value -= 1
     await fetchList()
   } catch {
     // 全局 toast 已提示
@@ -257,12 +292,30 @@ onMounted(fetchList)
         </header>
 
         <section class="card">
+          <!-- 键值搜索（DEF-6）：手机号 / 执照号同框，回车或点搜索触发 -->
+          <div class="bl-toolbar">
+            <el-input
+              v-model="keyword"
+              class="bl-toolbar__search"
+              placeholder="按键值搜索：手机号 / 执照号（支持部分匹配）"
+              :prefix-icon="Search"
+              clearable
+              @keyup.enter="onSearch"
+              @clear="onSearch"
+            />
+            <el-button type="primary" plain @click="onSearch">搜索</el-button>
+          </div>
+
           <el-table
             v-loading="loading"
             :data="list"
             stripe
             class="bl-table"
-            empty-text="黑名单为空。点击右上角「加入黑名单」可按手机号或执照号拉黑"
+            :empty-text="
+              keyword.trim()
+                ? '未找到匹配的黑名单条目，换个关键词试试'
+                : '黑名单为空。点击右上角「加入黑名单」可按手机号或执照号拉黑'
+            "
           >
             <el-table-column label="类型" width="110">
               <template #default="{ row }">
@@ -301,6 +354,20 @@ onMounted(fetchList)
               </template>
             </el-table-column>
           </el-table>
+
+          <!-- 分页（DEF-6 · §31：records/total/page/size） -->
+          <div class="bl-pagination">
+            <el-pagination
+              :current-page="page"
+              :page-size="size"
+              :total="total"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
+              background
+              @current-change="onPageChange"
+              @size-change="onSizeChange"
+            />
+          </div>
         </section>
       </main>
     </div>
@@ -436,8 +503,21 @@ onMounted(fetchList)
   padding: var(--space-5);
   box-shadow: var(--shadow-base);
 }
+.bl-toolbar {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.bl-toolbar__search {
+  max-width: 360px;
+}
 .bl-table {
   width: 100%;
+}
+.bl-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
 }
 .cell-code {
   font-family: var(--font-family-mono, ui-monospace, monospace);

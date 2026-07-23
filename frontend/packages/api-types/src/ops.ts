@@ -1,9 +1,11 @@
 /**
  * OPS 平台运营接口 TS 类型（P2 入驻生态 · 黑名单）
  *
- * 权威来源：shared/architecture/10-onboarding-design.md §1.2/§2（据实现编写）：
- *  - GET    /api/v1/ops/blacklist?status=       黑名单列表（返回裸数组，可按 status 过滤）
- *  - POST   /api/v1/ops/blacklist               加入黑名单（body: {targetType, targetValue, reason}）
+ * 权威来源：shared/architecture/10-onboarding-design.md §1.2/§2 + §31（Wave6 分页改造，据实现编写）：
+ *  - GET    /api/v1/ops/blacklist?page=&size=&status=&keyword=
+ *        黑名单分页列表（Wave6 起返回 PageRecords 分页对象，records 元素即 BlacklistItem；
+ *        keyword 模糊匹配 targetValue；createdAt 倒序，同刻按 id 倒序）
+ *  - POST   /api/v1/ops/blacklist               加入黑名单（body: {targetType, targetValue, reason}，仍返回单条）
  *  - DELETE /api/v1/ops/blacklist/{id}          移除黑名单（置 REMOVED，保留追溯）
  *
  * 黑名单为平台级共享（不走 TenantLine），手机号 / 营业执照号双键，
@@ -42,9 +44,16 @@ export interface CreateBlacklistRequest {
   reason: string
 }
 
-/** 黑名单列表查询参数（无分页，返回裸数组） */
+/**
+ * 黑名单列表查询参数（DEF-6 · §31 分页契约，均可选）：
+ * page 默认 1（>=1）/ size 默认 10（1..100 钳制）/ status 缺省查全部 /
+ * keyword 模糊匹配 targetValue（手机号/执照号同列）
+ */
 export interface BlacklistListQuery {
+  page?: number
+  size?: number
   status?: BlacklistStatus
+  keyword?: string
 }
 
 // ============================================================
