@@ -134,3 +134,24 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-07-16 | 首版：4 链路 E2E 全绿 + 回归 30/30（修 sell 造数 F5 适配）+ 45 张视觉截图目检 + 缺陷 6 条（TOP DEF-4 窄屏顶栏错版） |
+
+---
+
+## 8. Wave 6 复验记录（2026-07-23）
+
+合并 `fix/p2-defects`（后端 5 commits）+ `fix/p2-defects-fe`（前端 6 commits）→ main 后复验：
+
+| ID | 修复方式 | 复验结果 |
+|---|---|---|
+| DEF-1 | 后端新增公开租户目录端点 `GET /tenants/directory`（仅 ACTIVE、仅 id+name、keyword+limit+IP 限流防枚举）；前端 Register.vue 下拉接真实接口去除硬编码 mock | ✅ E2E-01 全链绿（注册直申经真实目录选仓） |
+| DEF-2 | 后端 50205 message 中性化 + 前端 Apply.vue 分支文案同步，不再透出「黑名单」字样 | ✅ E2E-02 拦截链绿 |
+| DEF-3 | 根治：审批绑定时就地升级/清理 WA 注册占位角色行 + `V14__merge_wa_placeholder_role.sql` 存量清理；`Wave6DefectFixScenarioTest` 覆盖 | ✅ 后端 187/187 绿；E2E-01 审批通过后单角色直落 /wa/inquiry |
+| DEF-4 | 根治：顶栏 shell 抽 `@cangchu/ui-shared` AppTopbar 公共组件（内置窄屏收敛规则），TA/OPS/WA 14 个页面收编 | ✅ typecheck 绿；375 复审截图随 fe 分支自查通过 |
+| DEF-5 | 来源列枚举映射中文（自助申请/OPS 代建/自营） | ✅ |
+| DEF-6 | 后端 blacklist 列表改分页 PageRecords 契约（对齐 wholesaler-applications page/size）+ keyword 键值搜索；前端 el-pagination + 搜索 | ✅ E2E-02 绿 |
+
+**合并后回归**：`mvn test` 187/187 绿（surefire 22 报告聚合，0 failures/errors/skipped）；`pnpm -r typecheck` 全包绿；E2E `onboarding-flow.spec.ts + auth.spec.ts` **12/12 passed (1.9m)**。50310/50311 错误码语义归属已在 `10-onboarding-design.md` 收口。**P2 入驻生态收尾完成，缺陷清单清零。**
+
+| 版本 | 日期 | 变更 |
+|---|---|---|
+| v2 | 2026-07-23 | Wave 6 复验：DEF-1~6 全部修复验证，合并后回归全绿 |

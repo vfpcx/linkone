@@ -32,12 +32,17 @@
 
 ## 阶段（Phases / Waves）
 
-- [待办] **Wave 1 后端·入驻主链**：V10 迁移（wholesaler_applications + blacklist + wholesalers 补列 + WE 授权位）；WholesalerApplication/Blacklist 实体+Mapper；申请（自助/注册接入/OPS 代建/TA 自营统一）+ TA 审批 + 黑名单检查 + BlacklistService(OPS CRUD)；错误码 50201-50205；状态机校验；场景测试；10-onboarding-design.md。〔worktree: onboard / branch feat/p2-onboarding〕
-- [待办·并行] **Wave 4 前端·第一批**：api-types 补全 + api/tenant.ts NOT-IMPL 落地；WA 入驻申请表单页；TA 审批页（列表+通过/驳回弹窗）；OPS 黑名单管理页（含 OPS 路由角色守卫）。〔worktree: onboard-fe / branch feat/p2-onboarding-fe〕
-- [待办] **Wave 2 后端·R13/R14**：退驻申请+TA 审批+副作用链（SKU 下架/店铺隐藏/CustomerPrice 失效/kickout）；60 天恢复+归档定时任务；强制下架+document 域新业务拒绝校验点；场景测试。〔等 Wave1〕
-- [待办] **Wave 3 后端·WE 员工**：员工码白名单放开（WE+wholesaler_id）；WE 注册绑定；授权位读写+校验切点（pricing/inquiry）；R17 禁用踢出；登录路由 D52 修正；场景测试；**顺路补 `GET /api/v1/admin/tenants?status&page&size`（OPS 租户列表，前端已契约先行，字段见 api-types/ops.ts AdminTenantItem，注意通过态是 ACTIVE 非 APPROVED）**。〔等 Wave2（授权切点碰 pricing 代码）〕
-- [待办] **Wave 4b 前端·第二批**：WA 退驻发起页+强制下架确认；WA 员工管理页（生码/授权/禁用，仿 ta/Employees.vue）；WE 注册流适配。〔等 Wave2/3 接口〕
-- [待办] **Wave 5 测试/审查/合并**：onboarding-flow E2E（Playwright）+ 视觉验收（§3.5/3.6）；code-review + 修复；合并双分支；回归绿（后端全量+前端 E2E）；交付报告。
+- [完成] **Wave 1 后端·入驻主链**：142/142 绿，commit 至 feat/p2-onboarding（已合并 c6b3b52）
+- [完成] **Wave 4 前端·第一批**：3 页+守卫，typecheck 绿（已合并 8843141）
+- [完成] **Wave 2 后端·R13/R14**：158/158 绿含 16 新增，9 端点+归档 job
+- [完成] **Wave 3 后端·WE 员工**：176/176 绿含 18 新增，8 端点+D52 路由
+- [完成] **Wave 4b 前端·第二批**：退驻/下架/员工页+WE 注册流，24 截图自查
+- [完成] **Wave 5 测试/审查/合并**：E2E 4 链路绿+回归 30/30+45 截图目检；报告 07（80d4c06）；双分支已合并；遗留缺陷 DEF-1~DEF-6 转 Wave 6
+- [进行中] **Wave 6 收尾·缺陷修复（2026-07-23 启动）**：
+  - 后端〔branch fix/p2-defects〕：DEF-2（50205 message 中性化）、DEF-3 根治（审批通过合并/清理注册占位 WA 角色行）、DEF-6（blacklist 分页 page/size 对齐 wholesaler-applications 契约+键值搜索）、DEF-1（公开租户目录查询端点：仅 ACTIVE、仅 id/name、keyword+limit 防枚举）、50310/50311 错误码语义归属在 10-onboarding-design.md 收口；mvn 全量绿
+  - 前端一批〔branch fix/p2-defects-fe，纯前端可并行〕：DEF-4 根治（顶栏 shell 抽公共组件带窄屏规则，全仓扫 TA/OPS 同类页，补拍 375 复审）、DEF-5（来源列中文映射）
+  - 前端二批〔等后端 DTO〕：DEF-1 下拉接真实接口、DEF-2 前端文案、DEF-3 切换器条目带商户名（缓解项，视后端根治程度取舍）、DEF-6 el-pagination+搜索
+  - 合并+回归：后端全量绿 + E2E（onboarding-flow+auth）+ 报告 07 增补复验记录
 
 ## 接口契约（据 04-api-spec，落地时可微调路径归属）
 

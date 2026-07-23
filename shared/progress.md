@@ -2,6 +2,13 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。定价三件套已归档 `shared/archive/`。
 
+## 2026-07-23
+- **P3 拍板 ✅（用户）**：三题全选 B——72h 待确认库存可售+冲销按剩余在库封顶（差额进 TA 仲裁）；扣库存保持「确认即扣」+状态机补拆（撤回走反向回补流水）；双仲裁最小闭环版（P3 产品首任务补最小 PRD+Q-D04 收口）。两项修正同意：单据号按已上线 WK-/CK-/XJ-（退货 RTN-）修订 PRD；Flyway P3 自 V15 起。详见 09-p3-decision-options.md v2。**P3 解除阻塞。**
+- **headroom 路由修复 ✅**：代理一直在跑但会话绕行——项目 settings.local.json 残留 BASE_URL=codecmd 覆盖了全局 8787 配置；已删除覆盖，/v1/messages 经 8787 端到端验证通。新会话起走压缩。
+- **Wave 6 双分支就绪**：后端 fix/p2-defects 5 commits mvn 全量绿；前端 fix/p2-defects-fe 6 commits typecheck 绿（前端二批 DEF-1 下拉/DEF-6 分页实际已随一批完成，无需再派）。进入合并+回归。
+- **环境插曲**：headroom 压缩代理曾损坏（7-16 起 headroom.exe 报废导致会话报错），已重装 `headroom-ai[proxy,ml]` 0.32.1+开机自启；`.claude/settings.local.json` 清理跨机残留规则；CLAUDE.md 技能列表格式修正（5b0e745）。main 已推送 origin（65 commits，至 5b0e745）。
+- **Wave 6 启动**：P2 收尾缺陷修复（DEF-1~DEF-6，源自 07 报告 §5）。派发：后端 Agent〔fix/p2-defects〕+ 前端一批 Agent〔fix/p2-defects-fe，DEF-4/5 纯前端〕并行；前端二批等后端 DTO 定稿后派（吸取 W1 契约漂移教训，契约类修复以后端据实现文档为真源）。
+
 ## 2026-07-16
 - **WE 前端对账 ✅**：commit 823b876，typecheck 5/5 绿。关键修复：Staff.vue 8 处误用 userId→改角色绑定行 id（运行时必炸级）；41110 登录禁用文案、50319-50322、defaultRouterFor WE→/wa/inquiry、30 天倒计时 disabledAt 自算。守卫备注：WE 进 /wa/* 前端不拦（与 TA/WA 互访策略一致，页面权限靠后端 42004）。
 - **Wave3 后端 ✅（主体）**：WE 员工全套完成（176/176 绿含 18 新增，8 commits 至 b7e2136）。8 端点、50319-50322/42004/41110、permissions 存 user_roles JSON 文本列（白名单解码防脏数据放大权限）、D52 路由（WA/WE→/wa/inquiry）、41110 全角色禁用拒登（修掉"被禁 WE 以 TA 兜底登录"的洞）、TA 端码管理过滤 WE 码。坑：R17 草稿作废为空操作（phase-1 无 WE 草稿单据，钩子已留§21）；询价 reject 端点不存在，将来补须挂 INQUIRY_CONFIRM 切点。
