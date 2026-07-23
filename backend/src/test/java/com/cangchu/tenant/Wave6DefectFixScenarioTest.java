@@ -313,4 +313,91 @@ class Wave6DefectFixScenarioTest {
         assertThat(denied).isNotNull();
         assertThat(denied.getCode()).isEqualTo(42002);
     }
+
+    // ======================================================================
+    // DEF-1 公开租户目录 /api/v1/tenants/directory
+    // ======================================================================
+
+    private static final ParameterizedTypeReference<R<List<Map<String, Object>>>> DIR_LIST =
+            new ParameterizedTypeReference<>() {};
+
+    /** 直插租户行（绕开注册链路，直接控制 status，供目录端点断言）。 */
+    private Tenant insertTenant(String name, String status) {
+        Tenant t = new Tenant();
+        t.setId(snowflakeIdUtil.nextId());
+        t.setTenantSimpleCode("W" + (snowflakeIdUtil.nextId() % 1000000L));
+        t.setName(name);
+        t.setContactUserId(1L);
+        t.setContactPhone("13800000000");
+        t.setStatus(status);
+        tenantMapper.insert(t);
+        return t;
+    }
+
+    @Test
+    @DisplayName("DEF-1a 目录匿名可访问：仅 ACTIVE 租户、仅 id+name 两字段（无手机号等敏感字段）")
+    void def1_directoryAnonymousActiveOnly() {
+        String token = "W6DIRA" + uniquePhone("");
+        Tenant active = insertTenant(token + "-生效仓", "ACTIVE");
+        insertTenant(token + "-待审仓", "PENDING");
+
+        // 匿名（无 Authorization 头）访问
+        R<List<Map<String, Object>>> body = restTemplate.exchange(
+                baseDirectory + "?keyword=" + token, HttpMethod.GET,
+                HttpEntity.EMPTY, DIR_LIST).getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).as("目录端点须匿名可访问").isEqualTo(0);
+        List<Map<String, Object>> items = body.getData();
+        assertThat(items).as("仅 ACTIVE 租户可见（PENDING 不泄漏存在性）").hasSize(1);
+        Map<String, Object> item = items.get(0);
+        assertThat(item.get("id")).isEqualTo(active.getId().toString());
+        assertThat(item.get("name")).isEqualTo(token + "-生效仓");
+        // 防枚举收敛：DTO 恰好 id+name 两字段，严禁 contactPhone/licenseNo 等敏感字段
+        assertThat(item.keySet()).containsExactlyInAnyOrder("id", "name");
+    }
+
+    @Test
+    @DisplayName("DEF-1b limit 钳制：请求 limit=100 至多返回 20 条")
+    void def1_directoryLimitCapped() {
+        String token = "W6DIRB" + uniquePhone("");
+        for (int i = 0; i < 25; i++) {
+            insertTenant(token + "-仓" + String.format("%02d", i), "ACTIVE");
+        }
+        R<List<Map<String, Object>>> body = restTemplate.exchange(
+                baseDirectory + "?keyword=" + token + "&limit=100", HttpMethod.GET,
+                HttpEntity.EMPTY, DIR_LIST).getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        assertThat(body.getData()).as("limit 上限 20（防批量枚举）").hasSize(20);
+
+        // 默认 limit=10
+        R<List<Map<String, Object>>> dft = restTemplate.exchange(
+                baseDirectory + "?keyword=" + token, HttpMethod.GET,
+                HttpEntity.EMPTY, DIR_LIST).getBody();
+        assertThat(dft).isNotNull();
+        assertThat(dft.getData()).hasSize(10);
+    }
+
+    @Test
+    @DisplayName("DEF-1c IP 限流：同一 IP 每分钟 30 次，第 31 次 43001（沿用 Redisson 限流基建）")
+    void def1_directoryRateLimited() {
+        // 伪造非环回 IP（IpUtil 取 X-Forwarded-For 首位）；随机化避免 60s 窗口内重跑相互污染
+        long seed = System.nanoTime();
+        String fakeIp = "10." + ((seed >> 16) & 0xFF) + "." + ((seed >> 8) & 0xFF) + "." + (seed & 0xFF);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Forwarded-For", fakeIp);
+
+        for (int i = 1; i <= 30; i++) {
+            R<List<Map<String, Object>>> ok = restTemplate.exchange(
+                    baseDirectory + "?limit=1", HttpMethod.GET,
+                    new HttpEntity<>(headers), DIR_LIST).getBody();
+            assertThat(ok).isNotNull();
+            assertThat(ok.getCode()).as("第 %s 次仍在阈值内", i).isEqualTo(0);
+        }
+        R<List<Map<String, Object>>> blocked = restTemplate.exchange(
+                baseDirectory + "?limit=1", HttpMethod.GET,
+                new HttpEntity<>(headers), DIR_LIST).getBody();
+        assertThat(blocked).isNotNull();
+        assertThat(blocked.getCode()).as("超过阈值应 43001 限流").isEqualTo(43001);
+    }
 }

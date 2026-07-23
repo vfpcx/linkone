@@ -54,6 +54,8 @@ public class TenantServiceImpl implements TenantService {
     private final AuthService authService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final SmsUtil smsUtil;
+    // DEF-1：公开目录端点 IP 限流（沿用短信基建的 Redisson 原子计数+TTL，G-6.1）
+    private final org.redisson.api.RedissonClient redissonClient;
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
 
@@ -657,6 +659,48 @@ public class TenantServiceImpl implements TenantService {
                 .status(invite.getStatus())
                 .createdAt(invite.getCreatedAt())
                 .build();
+    }
+
+    /** DEF-1：目录端点 IP 维度限流阈值（次/分钟，粗粒度防枚举；精确面靠仅 ACTIVE+仅 id/name 收敛） */
+    private static final int DIRECTORY_IP_MINUTE_MAX = 30;
+
+    @Override
+    public List<com.cangchu.tenant.vo.TenantDirectoryItemVo> directory(String keyword, int limit, String clientIp) {
+        // G-6.1/G-6.2：沿用短信基建的 Redisson 原子计数+TTL（IP 维度，环回豁免同 AccountServiceImpl）
+        if (clientIp != null && !clientIp.isBlank() && !isLoopback(clientIp)) {
+            org.redisson.api.RAtomicLong counter = redissonClient.getAtomicLong(
+                    "tenants:dir:ip:" + DigestUtil.sha256Hex(clientIp));
+            long count = counter.incrementAndGet();
+            if (count == 1L) {
+                counter.expire(java.time.Duration.ofSeconds(60));
+            }
+            if (count > DIRECTORY_IP_MINUTE_MAX) {
+                throw new BizException(ErrorCode.LIMIT_RATE_001);
+            }
+        }
+
+        // 防枚举收敛：仅 ACTIVE 租户、仅 id+name 两列（DB 层 select 收窄，敏感字段不出库）；
+        // limit 钳制 1..20（上限 20，缺省 10 由 Controller 给）。
+        int capped = Math.min(Math.max(limit, 1), 20);
+        String kw = keyword != null ? keyword.trim() : null;
+        return tenantMapper.selectList(new LambdaQueryWrapper<Tenant>()
+                        .select(Tenant::getId, Tenant::getName)
+                        .eq(Tenant::getStatus, "ACTIVE")
+                        .like(kw != null && !kw.isEmpty(), Tenant::getName, kw)
+                        .orderByDesc(Tenant::getCreatedAt)
+                        .orderByDesc(Tenant::getId)
+                        .last("LIMIT " + capped)).stream()
+                .map(t -> com.cangchu.tenant.vo.TenantDirectoryItemVo.builder()
+                        .id(t.getId())
+                        .name(t.getName())
+                        .build())
+                .toList();
+    }
+
+    /** 是否环回/本机地址（dev 手测与本地集成测试豁免 IP 限流，口径同 AccountServiceImpl）。 */
+    private boolean isLoopback(String ip) {
+        return "127.0.0.1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip)
+                || "::1".equals(ip) || "localhost".equalsIgnoreCase(ip);
     }
 
     @Override
