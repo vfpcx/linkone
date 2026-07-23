@@ -326,6 +326,10 @@ class OnboardingScenarioTest {
         R<Map<String, Object>> blocked = selfApply(wa, ta.tenantId(), "黑名单商户-" + wa.phone(), null, null);
         assertThat(blocked).isNotNull();
         assertThat(blocked.getCode()).as("黑名单命中应拒 50205").isEqualTo(50205);
+        // DEF-2：对外文案中性化，不得透出「黑名单」字样
+        assertThat(blocked.getMessage()).as("50205 文案须中性，不透出黑名单字样")
+                .isEqualTo("暂不满足入驻条件，请联系平台客服")
+                .doesNotContain("黑名单");
 
         // 解除黑名单 → 再申请放行
         R<Void> removed = restTemplate.exchange(baseOpsBlacklist + "/" + entryId, HttpMethod.DELETE,
