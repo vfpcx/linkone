@@ -20,8 +20,9 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { z } from 'zod'
-import type { Role } from '@cangchu/api-types'
+import type { Role, TenantDirectoryItem } from '@cangchu/api-types'
 import { accountApi } from '@/api/account'
+import { tenantDirectoryApi } from '@/api/tenant'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 
@@ -174,16 +175,35 @@ const handleFileChange = (file: { raw?: File }) => {
   ElMessage.info('文件已选中（上传接口待后续 Agent 对接 OSS）')
 }
 
-// ============ 目标仓库选项（占位 mock；实际从 /api/v1/rt/stores 查） ============
-const tenantOptions = ref<Array<{ id: string; name: string }>>([])
+// ============ 目标仓库选项（DEF-1 · GET /tenants/directory，§32 公开目录） ============
+// 匿名可访问；仅返回 ACTIVE 租户的 {id, name}；limit 上限 20；
+// 同 IP 30 次/分钟限流，超限 43001（全局拦截器已 toast「操作过于频繁」，此处静默保留旧选项）。
+const tenantOptions = ref<TenantDirectoryItem[]>([])
+const tenantSearching = ref(false)
 
-const fetchTenants = async () => {
-  // 后端接口可能 /api/v1/rt/stores 暂未实现，前端 mock 列表
-  tenantOptions.value = [
-    { id: '184237892374820001', name: 'XX 海鲜库（顺义）' },
-    { id: '184237892374820002', name: 'YY 冷藏中心（朝阳）' },
-    { id: '184237892374820003', name: 'ZZ 仓库（通州）' },
-  ]
+const fetchTenants = async (keyword = '') => {
+  tenantSearching.value = true
+  try {
+    const list = await tenantDirectoryApi.search({
+      keyword: keyword.trim() || undefined,
+      limit: 20,
+    })
+    tenantOptions.value = Array.isArray(list) ? list : []
+  } catch {
+    // 43001 限流等：全局 toast 已提示，保留现有选项便于重试
+  } finally {
+    tenantSearching.value = false
+  }
+}
+
+/** remote-method 防抖（300ms），避免逐字符打请求触发限流 */
+let tenantSearchTimer: ReturnType<typeof setTimeout> | null = null
+const searchTenants = (keyword: string) => {
+  if (tenantSearchTimer) clearTimeout(tenantSearchTimer)
+  tenantSearchTimer = setTimeout(() => {
+    tenantSearchTimer = null
+    fetchTenants(keyword)
+  }, 300)
 }
 
 // ============ 提交 ============
@@ -277,6 +297,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   smsTimer && clearInterval(smsTimer)
+  tenantSearchTimer && clearTimeout(tenantSearchTimer)
 })
 </script>
 
@@ -348,7 +369,18 @@ onBeforeUnmount(() => {
           </el-form-item>
 
           <el-form-item v-if="needTargetTenantId" label="目标仓库" prop="targetTenantId">
-            <el-select v-model="form.targetTenantId" placeholder="选择想入驻的仓库" size="large" style="width: 100%">
+            <el-select
+              v-model="form.targetTenantId"
+              placeholder="选择想入驻的仓库（支持按仓库名搜索）"
+              size="large"
+              style="width: 100%"
+              filterable
+              remote
+              :remote-method="searchTenants"
+              :loading="tenantSearching"
+              loading-text="搜索中…"
+              no-data-text="未找到匹配的仓库，换个关键词试试"
+            >
               <el-option v-for="t in tenantOptions" :key="t.id" :label="t.name" :value="t.id" />
             </el-select>
           </el-form-item>
