@@ -1,6 +1,7 @@
 package com.cangchu.tenant.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
@@ -16,7 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -43,11 +45,25 @@ public class BlacklistServiceImpl implements BlacklistService {
     private final SnowflakeIdUtil snowflakeIdUtil;
 
     @Override
-    public List<Blacklist> list(Long opsUserId, String status) {
+    public Map<String, Object> page(Long opsUserId, int page, int size, String status, String keyword) {
         requireOpsRole(opsUserId);
-        return blacklistMapper.selectList(new LambdaQueryWrapper<Blacklist>()
-                .eq(status != null && !status.isBlank(), Blacklist::getStatus, status)
-                .orderByDesc(Blacklist::getCreatedAt));
+        // DEF-6：全量返回改分页（page>=1，size 1..100），结构对齐 wholesaler-applications 的
+        // PageRecords 契约 {records,total,page,size}；keyword 模糊匹配 target_value（手机号/执照号）。
+        String kw = keyword != null ? keyword.trim() : null;
+        Page<Blacklist> p = blacklistMapper.selectPage(
+                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
+                new LambdaQueryWrapper<Blacklist>()
+                        .eq(status != null && !status.isBlank(), Blacklist::getStatus, status)
+                        .like(kw != null && !kw.isEmpty(), Blacklist::getTargetValue, kw)
+                        .orderByDesc(Blacklist::getCreatedAt)
+                        .orderByDesc(Blacklist::getId));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("records", p.getRecords());
+        result.put("total", p.getTotal());
+        result.put("page", p.getCurrent());
+        result.put("size", p.getSize());
+        return result;
     }
 
     @Override

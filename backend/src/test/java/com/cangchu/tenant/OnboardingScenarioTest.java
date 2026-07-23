@@ -365,12 +365,15 @@ class OnboardingScenarioTest {
         assertThat(addBlacklist(ops, "PHONE", phone, "重复测试").getCode()).isEqualTo(0);
         assertThat(addBlacklist(ops, "PHONE", phone, "重复测试2").getCode()).isEqualTo(50310);
 
-        // 列表可见 ACTIVE 条目
-        R<List<Map<String, Object>>> list = restTemplate.exchange(baseOpsBlacklist, HttpMethod.GET,
-                new HttpEntity<>(bearer(ops)), LIST).getBody();
+        // 列表可见 ACTIVE 条目（DEF-6：分页 PageRecords 契约 records/total/page/size）
+        R<Map<String, Object>> list = restTemplate.exchange(
+                baseOpsBlacklist + "?page=1&size=50&keyword=" + phone, HttpMethod.GET,
+                new HttpEntity<>(bearer(ops)), MAP).getBody();
         assertThat(list).isNotNull();
         assertThat(list.getCode()).isEqualTo(0);
-        assertThat(list.getData()).extracting(m -> m.get("targetValue")).contains(phone);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> blRecords = (List<Map<String, Object>>) list.getData().get("records");
+        assertThat(blRecords).extracting(m -> m.get("targetValue")).contains(phone);
 
         // 非 OPS（TA）操作黑名单 → 42002
         TaContext ta = registerTaWithTenant();

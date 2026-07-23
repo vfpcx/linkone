@@ -238,4 +238,79 @@ class Wave6DefectFixScenarioTest {
         assertThat(rows).as("兼容路径清理后 WA 行唯一").hasSize(1);
         assertThat(rows.get(0).getWholesalerId()).isEqualTo(Long.valueOf(wholesalerId));
     }
+
+    // ======================================================================
+    // DEF-6 黑名单分页 + keyword 搜索
+    // ======================================================================
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> blacklistRecords(R<Map<String, Object>> body) {
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        return (List<Map<String, Object>>) body.getData().get("records");
+    }
+
+    @Test
+    @DisplayName("DEF-6 黑名单列表分页（PageRecords 契约）+ keyword 匹配手机号/执照号")
+    void def6_blacklistPagingAndKeyword() {
+        String ops = registerOps();
+        // 平台级共享表：用唯一前缀隔离本用例数据，保证 total 断言确定性
+        String prefix = "199" + uniquePhone("").substring(0, 4) + String.format("%03d", SEQ.incrementAndGet() % 1000);
+        // 执照号用独立唯一 token（不含 prefix），避免污染手机号前缀搜索的 total 断言
+        String licToken = "W6L" + prefix.substring(3);
+        String license = "91" + licToken + "IC";
+        for (int i = 1; i <= 3; i++) {
+            Map<String, Object> dto = Map.of("targetType", "PHONE",
+                    "targetValue", prefix + i, "reason", "Wave6 分页测试" + i);
+            R<Map<String, Object>> added = restTemplate.exchange(baseOpsBlacklist, HttpMethod.POST,
+                    new HttpEntity<>(dto, bearer(ops)), MAP).getBody();
+            assertThat(added).isNotNull();
+            assertThat(added.getCode()).isEqualTo(0);
+        }
+        Map<String, Object> licDto = Map.of("targetType", "LICENSE_NO",
+                "targetValue", license, "reason", "Wave6 执照搜索测试");
+        assertThat(restTemplate.exchange(baseOpsBlacklist, HttpMethod.POST,
+                new HttpEntity<>(licDto, bearer(ops)), MAP).getBody().getCode()).isEqualTo(0);
+
+        // 分页契约：records/total/page/size；size=2 → 第 1 页 2 条、第 2 页 1 条
+        R<Map<String, Object>> page1 = restTemplate.exchange(
+                baseOpsBlacklist + "?page=1&size=2&status=ACTIVE&keyword=" + prefix,
+                HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
+        List<Map<String, Object>> recs1 = blacklistRecords(page1);
+        assertThat(page1.getData().keySet()).containsExactly("records", "total", "page", "size");
+        assertThat(recs1).hasSize(2);
+        assertThat(Long.parseLong(page1.getData().get("total").toString())).isEqualTo(3);
+        assertThat(Long.parseLong(page1.getData().get("page").toString())).isEqualTo(1);
+        assertThat(Long.parseLong(page1.getData().get("size").toString())).isEqualTo(2);
+
+        R<Map<String, Object>> page2 = restTemplate.exchange(
+                baseOpsBlacklist + "?page=2&size=2&status=ACTIVE&keyword=" + prefix,
+                HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
+        assertThat(blacklistRecords(page2)).hasSize(1);
+
+        // keyword 精确到单个手机号 → total=1
+        R<Map<String, Object>> byPhone = restTemplate.exchange(
+                baseOpsBlacklist + "?page=1&size=10&keyword=" + prefix + "2",
+                HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
+        List<Map<String, Object>> phoneRecs = blacklistRecords(byPhone);
+        assertThat(phoneRecs).hasSize(1);
+        assertThat(phoneRecs.get(0).get("targetValue")).isEqualTo(prefix + "2");
+
+        // keyword 匹配执照号子串
+        R<Map<String, Object>> byLic = restTemplate.exchange(
+                baseOpsBlacklist + "?page=1&size=10&keyword=" + licToken,
+                HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
+        List<Map<String, Object>> licRecs = blacklistRecords(byLic);
+        assertThat(licRecs).hasSize(1);
+        assertThat(licRecs.get(0).get("targetType")).isEqualTo("LICENSE_NO");
+        assertThat(licRecs.get(0).get("targetValue")).isEqualTo(license);
+
+        // 非 OPS 仍拒（越权面不因签名变化回归）
+        TaContext ta = registerTaWithTenant();
+        R<Map<String, Object>> denied = restTemplate.exchange(
+                baseOpsBlacklist + "?page=1&size=10", HttpMethod.GET,
+                new HttpEntity<>(bearer(ta.token())), MAP).getBody();
+        assertThat(denied).isNotNull();
+        assertThat(denied.getCode()).isEqualTo(42002);
+    }
 }
