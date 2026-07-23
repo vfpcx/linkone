@@ -273,4 +273,11 @@ onMounted(() => {
 .wh-menu :deep(.is-current) {
   background: var(--color-info-bg);
 }
+
+/* 窄屏（DEF-4 配套）：仓名收窄留位给顶栏右区 */
+@media (max-width: 480px) {
+  .wh-switcher__name {
+    max-width: 96px;
+  }
+}
 </style>

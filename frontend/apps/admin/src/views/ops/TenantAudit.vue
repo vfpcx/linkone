@@ -15,15 +15,12 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
-  ArrowDown,
-  Switch,
-  Bell,
   Monitor,
   CircleClose,
   Stamp,
   Refresh,
 } from '@element-plus/icons-vue'
-import { StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
+import { AppTopbar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import type { AdminTenantItem, AdminTenantStatus } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import { tenantApi } from '@/api/tenant'
@@ -250,34 +247,12 @@ onMounted(async () => {
 <template>
   <div class="ops-shell">
     <!-- 顶栏 -->
-    <header class="ops-topbar">
-      <div class="ops-topbar__left">
-        <span class="ops-topbar__brand">仓储云</span>
-        <span class="ops-topbar__divider">·</span>
-        <span class="ops-topbar__store">平台运营</span>
-      </div>
-
-      <div class="ops-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-        <el-button text :icon="Bell" class="ops-topbar__bell" />
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="ops-topbar__user">
-            <el-avatar :size="28">O</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+    <AppTopbar
+      store-name="平台运营"
+      avatar-text="O"
+      @switch-role="handleSwitchRole"
+      @profile-command="handleProfileMenu"
+    />
 
     <div class="ops-body">
       <!-- 左侧菜单 -->
@@ -466,63 +441,6 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-/* ===== 顶栏 ===== */
-.ops-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
-.ops-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.ops-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.ops-topbar__divider {
-  opacity: 0.5;
-}
-.ops-topbar__store {
-  font-weight: var(--font-weight-medium);
-  opacity: 0.95;
-}
-.ops-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ops-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.ops-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.ops-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
-.ops-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.ops-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .ops-body {
@@ -647,14 +565,6 @@ onMounted(async () => {
   }
   .page-head {
     flex-direction: column;
-  }
-  /* 顶栏：防止「仓储云 · 平台运营」纵向换行被 56px 高度裁切 */
-  .ops-topbar {
-    padding: 0 var(--space-3);
-  }
-  .ops-topbar__left {
-    white-space: nowrap;
-    flex-shrink: 0;
   }
   .ops-main {
     padding: var(--space-3);

@@ -17,9 +17,6 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowDown,
-  Switch,
-  Bell,
   Document,
   Refresh,
   Check,
@@ -27,6 +24,7 @@ import {
   User,
   Warning as WarningIcon,
 } from '@element-plus/icons-vue'
+import { AppTopbar } from '@cangchu/ui-shared'
 import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
@@ -171,34 +169,11 @@ onMounted(fetchList)
 <template>
   <div class="wa-shell">
     <!-- 顶栏 -->
-    <header class="wa-topbar">
-      <div class="wa-topbar__left">
-        <span class="wa-topbar__brand">仓储云</span>
-        <span class="wa-topbar__divider">·</span>
-        <span class="wa-topbar__store">{{ storeNameDisplay }}</span>
-      </div>
-
-      <div class="wa-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-        <el-button text :icon="Bell" class="wa-topbar__bell" />
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="wa-topbar__user">
-            <el-avatar :size="28">U</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+    <AppTopbar
+      :store-name="storeNameDisplay"
+      @switch-role="handleSwitchRole"
+      @profile-command="handleProfileMenu"
+    />
 
     <div class="wa-body">
       <!-- 左侧菜单 -->
@@ -325,63 +300,6 @@ onMounted(fetchList)
   flex-direction: column;
 }
 
-/* ===== 顶栏 ===== */
-.wa-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
-.wa-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.wa-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.wa-topbar__divider {
-  opacity: 0.5;
-}
-.wa-topbar__store {
-  font-weight: var(--font-weight-medium);
-  opacity: 0.95;
-}
-.wa-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.wa-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.wa-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.wa-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
-.wa-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.wa-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .wa-body {
@@ -472,23 +390,6 @@ onMounted(fetchList)
   .wa-main {
     padding: var(--space-4);
     min-width: 0; /* 表格内部滚动，不撑宽页面 */
-  }
-  /* 窄屏顶栏：品牌/店名单行省略，防纵向折行 */
-  .wa-topbar {
-    padding: 0 var(--space-4);
-  }
-  .wa-topbar__left {
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .wa-topbar__store {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .wa-topbar__right {
-    flex-shrink: 0;
   }
 }
 </style>
