@@ -104,6 +104,20 @@ public class TenantController {
         return R.ok(result);
     }
 
+    /**
+     * 公开租户目录（P2 Wave6 DEF-1，WA 注册页选择目标仓库）。
+     * 匿名可访问（SaTokenConfig 已显式声明公开），仅返回 ACTIVE 租户的 id+name，
+     * limit 上限 20；IP 维度 Redisson 限流防枚举（服务层，超限 43001）。
+     */
+    @GetMapping("/api/v1/tenants/directory")
+    public R<List<com.cangchu.tenant.vo.TenantDirectoryItemVo>> directory(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "10") int limit,
+            jakarta.servlet.http.HttpServletRequest request) {
+        return R.ok(tenantService.directory(keyword, limit,
+                com.cangchu.common.util.IpUtil.getClientIp(request)));
+    }
+
     /** 查实时容量 */
     @GetMapping("/api/v1/tenant/capacity")
     public R<CapacityVo> getCapacity(@RequestParam Long tenantId) {

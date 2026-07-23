@@ -133,7 +133,8 @@ public enum ErrorCode {
     WHOLESALER_WITHDRAWN(50202, "批发商已退驻"),
     WHOLESALER_APPLICATION_NOT_AUDITABLE(50203, "入驻申请不存在或当前状态不可审核"),
     WHOLESALER_ALREADY_ONBOARDED(50204, "该账号已入驻批发商，一个账号仅可入驻一个仓库"),
-    BLACKLIST_HIT(50205, "已被列入平台黑名单，无法入驻"),
+    // DEF-2（Wave6）：对外文案中性化，不透出「黑名单」字样（测试计划硬要求）；语义仍为黑名单拦截
+    BLACKLIST_HIT(50205, "暂不满足入驻条件，请联系平台客服"),
 
     // ==================== BLACKLIST 管理 (P2 入驻 Wave 1，O-3 溢出段 50310+) ====================
     BLACKLIST_ENTRY_EXISTS(50310, "黑名单条目已存在"),

@@ -9,7 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.util.Map;
 
 /**
  * OPS 平台黑名单 Controller（P2 Wave1）。
@@ -23,11 +23,18 @@ public class OpsBlacklistController {
 
     private final BlacklistService blacklistService;
 
-    /** 黑名单列表（可按 status 过滤：ACTIVE/REMOVED） */
+    /**
+     * 黑名单分页列表（Wave6 DEF-6）：page/size 分页 + status 过滤（ACTIVE/REMOVED）
+     * + keyword 键值搜索（匹配手机号/执照号 target_value）。
+     * 返回 PageRecords 契约 {records,total,page,size}（对齐 wholesaler-applications）。
+     */
     @GetMapping
-    public R<List<Blacklist>> list(@RequestParam(required = false) String status) {
+    public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
+                                       @RequestParam(defaultValue = "10") int size,
+                                       @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String keyword) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return R.ok(blacklistService.list(userId, status));
+        return R.ok(blacklistService.page(userId, page, size, status, keyword));
     }
 
     /** 加入黑名单（手机号/执照号双键） */

@@ -41,7 +41,11 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/api/v1/account/login/rt",
                         "/api/v1/account/sms-code",
                         "/api/v1/account/password/reset",
-                        "/api/v1/tenant/capacity");
+                        "/api/v1/tenant/capacity",
+                        // P2 Wave6 DEF-1：公开租户目录（WA 注册页选仓；匿名，服务层 IP 限流防枚举）。
+                        // 注意前缀是 tenants（复数），不落在上方 /api/v1/tenant/** include 内；
+                        // 此处显式登记以声明鉴权归属（G-1.1/G-1.2），防止后续误纳入登录拦截。
+                        "/api/v1/tenants/directory");
 
         // 租户上下文拦截器：覆盖全量业务接口，公开接口（无需登录态）放行不强制租户上下文
         registry.addInterceptor(tenantInterceptor)
@@ -52,6 +56,7 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/api/v1/account/login/rt",
                         "/api/v1/account/sms-code",
                         "/api/v1/account/password/reset",
-                        "/api/v1/tenant/capacity");
+                        "/api/v1/tenant/capacity",
+                        "/api/v1/tenants/directory");
     }
 }

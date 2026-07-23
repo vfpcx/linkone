@@ -326,6 +326,10 @@ class OnboardingScenarioTest {
         R<Map<String, Object>> blocked = selfApply(wa, ta.tenantId(), "黑名单商户-" + wa.phone(), null, null);
         assertThat(blocked).isNotNull();
         assertThat(blocked.getCode()).as("黑名单命中应拒 50205").isEqualTo(50205);
+        // DEF-2：对外文案中性化，不得透出「黑名单」字样
+        assertThat(blocked.getMessage()).as("50205 文案须中性，不透出黑名单字样")
+                .isEqualTo("暂不满足入驻条件，请联系平台客服")
+                .doesNotContain("黑名单");
 
         // 解除黑名单 → 再申请放行
         R<Void> removed = restTemplate.exchange(baseOpsBlacklist + "/" + entryId, HttpMethod.DELETE,
@@ -361,12 +365,15 @@ class OnboardingScenarioTest {
         assertThat(addBlacklist(ops, "PHONE", phone, "重复测试").getCode()).isEqualTo(0);
         assertThat(addBlacklist(ops, "PHONE", phone, "重复测试2").getCode()).isEqualTo(50310);
 
-        // 列表可见 ACTIVE 条目
-        R<List<Map<String, Object>>> list = restTemplate.exchange(baseOpsBlacklist, HttpMethod.GET,
-                new HttpEntity<>(bearer(ops)), LIST).getBody();
+        // 列表可见 ACTIVE 条目（DEF-6：分页 PageRecords 契约 records/total/page/size）
+        R<Map<String, Object>> list = restTemplate.exchange(
+                baseOpsBlacklist + "?page=1&size=50&keyword=" + phone, HttpMethod.GET,
+                new HttpEntity<>(bearer(ops)), MAP).getBody();
         assertThat(list).isNotNull();
         assertThat(list.getCode()).isEqualTo(0);
-        assertThat(list.getData()).extracting(m -> m.get("targetValue")).contains(phone);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> blRecords = (List<Map<String, Object>>) list.getData().get("records");
+        assertThat(blRecords).extracting(m -> m.get("targetValue")).contains(phone);
 
         // 非 OPS（TA）操作黑名单 → 42002
         TaContext ta = registerTaWithTenant();

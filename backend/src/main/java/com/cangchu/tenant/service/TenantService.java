@@ -96,6 +96,16 @@ public interface TenantService {
      */
     Map<String, Object> pageTenantsForAdmin(Long opsUserId, String status, int page, int size);
 
+    /**
+     * 公开租户目录（P2 Wave6 DEF-1，WA 注册页选择目标仓库）：
+     * 仅返回 ACTIVE 租户的 id+name（严禁敏感字段），keyword 按仓库名模糊匹配，
+     * limit 上限 20（默认 10）。匿名可访问——IP 维度 Redisson 限流防枚举（G-6.1/G-6.2），
+     * 超限抛 43001。
+     *
+     * @param clientIp 客户端 IP（IpUtil 解析，环回豁免同短信基建）
+     */
+    List<com.cangchu.tenant.vo.TenantDirectoryItemVo> directory(String keyword, int limit, String clientIp);
+
     /** 查实时容量 */
     CapacityVo getCapacity(Long tenantId);
 
