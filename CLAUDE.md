@@ -10,15 +10,17 @@
 - planning-with-files
 - ui-ux-pro-max
 - code-review
-  -code-simplifier
+- code-simplifier
 
 ## 全局协作规则（强制）
 
 1. 采用 git worktree 隔离各角色工作区，禁止直接修改其他角色文件
 2. 角色之间通过 Superpowers 消息系统通信，自动对齐接口与依赖
-3. 固定流程：产品设计 → 需求拆解 → 架构设计 → 并行开发 → 代码审查 → 合并代码
+3. 固定流程：产品设计 → 需求拆解 → 架构设计 → 并行开发 →（**Java 接口测试** JUnit5/虚拟线程并发 ＋ **UI 自动化测试** Playwright，两类必过）→ 代码审查（code-review + code-simplifier）→ 合并代码。测试为**强制关卡**：后端每波产出即写接口测试并跑绿；具备可观察 UI 的能力上线时补 Playwright E2E；两者均绿方可进入审查与合并。
 4. 每个角色严格遵守职责边界，禁止越权操作
 5. 共享文档、接口规范、任务清单统一放在 ./shared 目录
+6. **编码阶段自主执行**：需求/范围/方案一旦经用户拍板进入编码阶段，后续的常规执行动作（继续下一波、派/并行派开发-测试-审查 Agent、建 worktree、跑构建/测试、启动本地服务、改本地配置、合并回归）**直接执行，无需逐项停下来确认**；仅在遇到真正的产品/需求分叉或不可逆高风险操作时才暂停询问。
+7. **强制使用 planning-with-files**：任何多步/复杂任务在动手前**必须**用 `planning-with-files` 技能维护三件套 `task_plan.md`（阶段/进度/决策）、`findings.md`（调研/发现）、`progress.md`（会话日志），统一放在 `./shared` 目录，并随开发实时更新。不得只用内置临时规划而跳过这套可追踪文档。
 
 ## 角色定义
 
@@ -105,3 +107,18 @@
 
 - ./shared：共享目录，存放接口文档、任务清单、架构文档、产品 PRD/原型/设计稿
 - ./.worktrees：Superpowers自动生成，隔离各角色代码
+
+## 记忆分层规范（所有 Agent 强制）
+
+> 静态代码事实 → codebase-memory MCP；动态会话/决策记忆 → claude-mem。两者互不覆盖，协同降低上下文损耗。
+
+- **codebase-memory (MCP)**：代码结构事实（函数/类/路由、调用链、数据流、架构、复杂度热点）。查"代码在哪/谁调谁/结构如何"先用它（`search_graph`/`search_code`/`trace_path`/`get_architecture`/`get_code_snippet`），**代替 grep 和读整文件**。详细用法见 `.claude/CLAUDE.md` 的「Codebase Memory MCP」节。
+- **claude-mem**：过程与决策（为什么这么改、踩过的坑、被拒方案、任务进展）。查"上次怎么解决/决策来由"先用它，**代替重放旧会话**。
+
+执行约定：
+1. 需要代码结构 → 先查 codebase-memory；
+2. 需要历史决策/进展 → 先查 claude-mem；
+3. 两者都答不上 → 才读文件 / 问用户；
+4. 不重复存：代码结构不写进 claude-mem，决策不写进代码图谱。
+
+> 注：claude-mem 捕获曾自 2026-05-28 停摆，2026-07-03 已修复（插件升 13.9.3，worker 运行于 :37777）；从新会话起正常写入。
