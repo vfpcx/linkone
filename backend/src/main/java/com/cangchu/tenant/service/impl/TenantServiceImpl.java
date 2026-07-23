@@ -170,28 +170,12 @@ public class TenantServiceImpl implements TenantService {
         // D-02(c) 角色鉴权：代建租户仅限 OPS
         requireOpsRole(opsUserId);
 
-        // 检查手机号是否已注册用户
-        String phoneHash = DigestUtil.sha256Hex(dto.getContactPhone());
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhoneHash, phoneHash));
-
-        boolean isNewUser = false;
-        if (user == null) {
-            // 创建 TA 用户
-            user = new User();
-            user.setId(snowflakeIdUtil.nextId());
-            user.setPhone(dto.getContactPhone());
-            user.setPhoneHash(phoneHash);
-            // 生成临时密码
-            String tempPwd = RandomUtil.randomString(8);
-            user.setPasswordHash(PASSWORD_ENCODER.encode(tempPwd));
-            user.setNickname(dto.getContactPhone().substring(dto.getContactPhone().length() - 4));
-            user.setStatus("ACTIVE");
-            user.setRegisterSource("OPS_PROXY");
-            user.setCreatedAt(LocalDateTime.now());
-            user.setUpdatedAt(LocalDateTime.now());
-            userMapper.insert(user);
-            isNewUser = true;
-
+        // 检查手机号是否已注册用户；未注册则代建 TA 账号（临时密码）——
+        // users 表归 account 域，幂等查/建经 UserService（G-S1/G-S2，2026-07-23 还债，语义等价原直连）
+        UserService.EnsuredUser ensured = userService.ensureUserByPhone(dto.getContactPhone(), "OPS_PROXY");
+        Long taUserId = ensured.userId();
+        boolean isNewUser = ensured.isNew();
+        if (isNewUser) {
             // TODO: 发送短信临时密码给 TA
             // F7：日志严禁明文密码与完整手机号
             log.info("[OPS PROXY] 代建租户 TA 手机号={}（临时密码已生成，待短信通道下发）",
@@ -200,14 +184,14 @@ public class TenantServiceImpl implements TenantService {
 
         // 创建租户（直接通过）
         Tenant tenant = createTenant(dto.getName(), dto.getLegalName(), dto.getLicenseNo(),
-                dto.getLicenseUrl(), user.getId(), dto.getContactPhone(), true);
+                dto.getLicenseUrl(), taUserId, dto.getContactPhone(), true);
 
         // 绑定 TA 角色（存在即跳过；user_roles 归 account 域，经 AuthService）
-        authService.ensureTenantRole(user.getId(), "TA", tenant.getId(), opsUserId);
+        authService.ensureTenantRole(taUserId, "TA", tenant.getId(), opsUserId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("tenantId", tenant.getId().toString());
-        result.put("taUserId", user.getId().toString());
+        result.put("taUserId", taUserId.toString());
         result.put("isNewUser", isNewUser);
         result.put("status", "ACTIVE");
         return result;
