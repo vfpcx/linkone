@@ -3,6 +3,7 @@
 > 最新在上。关联 `task_plan.md` / `findings.md`。定价三件套已归档 `shared/archive/`。
 
 ## 2026-07-23
+- **Wave 6 完成 ✅ / P2 全部交付**：双分支合并 main（3564607/bfba12e），回归 187/187 绿 + typecheck 绿 + E2E 12/12 绿（1.9m）；报告 07 v2 增补复验记录（0405b19）；main 已推 origin（aca2ae8）；worktree defects-be/fe 已清理。**发现**：后端 Agent 在 worktree 留有未提交的 G-S1/G-S2 架构债重构（tenant 跨域直连 UserMapper 收敛为 UserService 出口），未混入 Wave6——已抢救到分支 `refactor/account-user-service`（WIP，未经测试验证，P3 期间择机补测合并）。
 - **P3 拍板 ✅（用户）**：三题全选 B——72h 待确认库存可售+冲销按剩余在库封顶（差额进 TA 仲裁）；扣库存保持「确认即扣」+状态机补拆（撤回走反向回补流水）；双仲裁最小闭环版（P3 产品首任务补最小 PRD+Q-D04 收口）。两项修正同意：单据号按已上线 WK-/CK-/XJ-（退货 RTN-）修订 PRD；Flyway P3 自 V15 起。详见 09-p3-decision-options.md v2。**P3 解除阻塞。**
 - **headroom 路由修复 ✅**：代理一直在跑但会话绕行——项目 settings.local.json 残留 BASE_URL=codecmd 覆盖了全局 8787 配置；已删除覆盖，/v1/messages 经 8787 端到端验证通。新会话起走压缩。
 - **Wave 6 双分支就绪**：后端 fix/p2-defects 5 commits mvn 全量绿；前端 fix/p2-defects-fe 6 commits typecheck 绿（前端二批 DEF-1 下拉/DEF-6 分页实际已随一批完成，无需再派）。进入合并+回归。
