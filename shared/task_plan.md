@@ -38,11 +38,7 @@
 - [完成] **Wave 3 后端·WE 员工**：176/176 绿含 18 新增，8 端点+D52 路由
 - [完成] **Wave 4b 前端·第二批**：退驻/下架/员工页+WE 注册流，24 截图自查
 - [完成] **Wave 5 测试/审查/合并**：E2E 4 链路绿+回归 30/30+45 截图目检；报告 07（80d4c06）；双分支已合并；遗留缺陷 DEF-1~DEF-6 转 Wave 6
-- [进行中] **Wave 6 收尾·缺陷修复（2026-07-23 启动）**：
-  - 后端〔branch fix/p2-defects〕：DEF-2（50205 message 中性化）、DEF-3 根治（审批通过合并/清理注册占位 WA 角色行）、DEF-6（blacklist 分页 page/size 对齐 wholesaler-applications 契约+键值搜索）、DEF-1（公开租户目录查询端点：仅 ACTIVE、仅 id/name、keyword+limit 防枚举）、50310/50311 错误码语义归属在 10-onboarding-design.md 收口；mvn 全量绿
-  - 前端一批〔branch fix/p2-defects-fe，纯前端可并行〕：DEF-4 根治（顶栏 shell 抽公共组件带窄屏规则，全仓扫 TA/OPS 同类页，补拍 375 复审）、DEF-5（来源列中文映射）
-  - 前端二批〔等后端 DTO〕：DEF-1 下拉接真实接口、DEF-2 前端文案、DEF-3 切换器条目带商户名（缓解项，视后端根治程度取舍）、DEF-6 el-pagination+搜索
-  - 合并+回归：后端全量绿 + E2E（onboarding-flow+auth）+ 报告 07 增补复验记录
+- [完成] **Wave 6 收尾·缺陷修复（2026-07-23 完成）**：DEF-1~6 全部修复并复验（后端 fix/p2-defects 5 commits + 前端 fix/p2-defects-fe 6 commits，前端二批项已随一批完成）；合并 main 后回归 187/187 绿 + typecheck 绿 + E2E 12/12 绿；报告 07 v2 增补复验记录。**P2 入驻生态全部交付。**
 
 ## 接口契约（据 04-api-spec，落地时可微调路径归属）
 
