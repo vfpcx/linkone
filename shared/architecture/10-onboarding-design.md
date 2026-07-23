@@ -1,6 +1,6 @@
 # 10 · P2 入驻生态设计（Wave1 入驻主链 + Wave2 R13 退驻/R14 强制下架）
 
-> 据实现编写（backend feat/p2-onboarding，2026-07-16 更新至 Wave2）。蓝图依据
+> 据实现编写（backend feat/p2-onboarding，2026-07-23 更新至 Wave6 缺陷修复批次，见文末 §30-§34）。蓝图依据
 > `03-database-schema.sql` §3.2/§3.3、`04-api-spec.md`，先例复用 tenant_applications 双轨审批（决策 O-1）。
 > §1–§9 为 Wave1（入驻主链），§10 起为 Wave2（R13/R14）。WE 员工 → Wave3，本文档暂不含。
 
@@ -94,7 +94,14 @@ tenantId 一律 TenantContext 推导，绝不信任客户端（伪造 X-Tenant-I
 ## 6. 错误码（详见 05-error-codes.md）
 
 50201 审核中重复申请 / 50202 已退驻(Wave2 用) / 50203 申请不存在或状态不可审(含跨租户、并发抢占) /
-50204 重复入驻 / 50205 黑名单拦截（三路径同检）；溢出段：50310 黑名单条目已存在 / 50311 条目不存在。
+50204 重复入驻 / 50205 黑名单拦截（三路径同检；**Wave6 起对外文案中性化**，见 §30）；
+溢出段：50310 黑名单条目已存在 / 50311 条目不存在。
+
+> **归属注记（Wave6 收口，防误用）**：**50310/50311 数值落在 50310+ 溢出段（该段后续被
+> Wave2 退驻/下架 50312-50318、Wave3 WE 50319-50322 顺延占用），但语义属「黑名单管理」
+> 而非退驻**——50310=黑名单条目已存在（重复加黑）、50311=黑名单条目不存在（解除时未命中）。
+> 前端已有注释标记同一口径。后续 Wave 新增退驻/员工域错误码时**不得复用或按段号推断这两个码**；
+> 黑名单域再溢出时从既有占用段之后（50323+，billing 预留亦顺延）向 Team Lead 申请分配。
 
 ## 7. 隔离与配置
 
@@ -361,3 +368,99 @@ WEM-S6-01 作废码注册 50292+跨商户作废 50291 / 授权变更越界 50319
 CON-S7-01 并发重复申请恰一方成功+库中 PENDING 恰一条 / F4a 审批复查 50204+事务回滚保持 PENDING /
 F4b 代建自动关闭（REJECTED+remark 留痕+flag 释放+重申命中 50204 闭环）/
 F5 三状态×自助+代建六断言 / SEC-S4-01 入驻/退驻/员工 21 端点无 token 全扫 41001。
+
+---
+
+# Wave6 · P2 入驻生态收尾（缺陷修复批次，2026-07-23）
+
+> 依据 `shared/test-plan/07-onboarding-e2e-report.md` §5 缺陷清单（DEF-1/2/3/6 后端部分）。
+> **本节为前端对账真源，字段名与实现逐字一致。**
+
+## 30. DEF-2：50205 文案中性化（前端 50205 分支须同步）
+
+- `BLACKLIST_HIT(50205)` message 由「已被列入平台黑名单，无法入驻」改为
+  **「暂不满足入驻条件，请联系平台客服」**——对外一律不透出「黑名单」字样（测试计划硬要求）。
+- 错误码数值、触发路径（自助申请/注册直申/OPS 代建/TA 自营四路径同检）均不变；
+  前端 Apply.vue 的 50205 分支补充文案须同步改为中性口径。
+
+## 31. DEF-6：`GET /api/v1/ops/blacklist` 全量返回 → 分页 + 键值搜索
+
+**请求参数**（query，均可选）：
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| page | int | 1 | 页码（>=1） |
+| size | int | 10 | 每页条数（1..100 钳制） |
+| status | string | —（全部） | ACTIVE / REMOVED |
+| keyword | string | — | 键值搜索：模糊匹配 `targetValue`（手机号/执照号均此列） |
+
+**返回结构**（`data`，PageRecords 契约，对齐 `GET /tenant/wholesaler-applications`）：
+
+```json
+{
+  "records": [
+    {
+      "id": "2080190812872937472",          // 字符串化 Long
+      "targetType": "PHONE",                 // PHONE | LICENSE_NO
+      "targetValue": "13800000000",
+      "reason": "恶意刷单",
+      "operatorUserId": "2080190811623034880", // 字符串化 Long
+      "status": "ACTIVE",                    // ACTIVE | REMOVED
+      "removedAt": "2026-07-23 15:20:00",   // 解除时间；未解除时该字段整体缺省（全局 non_null）
+      "createdAt": "2026-07-23 15:18:32",
+      "updatedAt": "2026-07-23 15:18:32"
+    }
+  ],
+  "total": 3,      // 总条数
+  "page": 1,       // 当前页
+  "size": 10       // 每页条数
+}
+```
+
+- records 元素即既有 Blacklist 实体（字段与改造前全量 list 的元素完全一致，仅外层由数组变分页对象）；
+  值为 null 的字段按全局 `default-property-inclusion: non_null` 整体省略（如未解除条目无 removedAt）。
+- 排序：`createdAt` 倒序（同刻再按 `id` 倒序）。POST/DELETE 端点不变（add 仍返回单条 Blacklist 实体）。
+- 前端 ops/Blacklist.vue 据此接 el-pagination + keyword 搜索框（DEF-6 前端侧）。
+
+## 32. DEF-1：公开租户目录端点（WA 注册页选择目标仓库）
+
+**`GET /api/v1/tenants/directory?keyword=&limit=`**（注意前缀是 **tenants 复数**）
+
+- **匿名可访问**：已在 SaTokenConfig 显式登记公开（G-1.1/G-1.2）；无需 Authorization 头。
+- **请求参数**：`keyword`（可选，按仓库名模糊匹配）；`limit`（可选，默认 10，**上限 20** 强制钳制）。
+- **返回 DTO**（`data` 为数组，元素字段**恰好两个**，严禁出现手机号/执照号等敏感字段）：
+
+```json
+[
+  { "id": "2080190811459457024", "name": "杭州西湖冷链仓" }
+]
+```
+
+  - `id`：租户（仓库）id，**字符串化 Long**——WA 注册时原样作为 `targetTenantId` 提交；
+  - `name`：仓库名。
+- **防枚举**：仅 `status=ACTIVE` 租户可见（PENDING/FROZEN/下线一律不出现，不泄漏存在性）；
+  DB 层 select 只取 id/name 两列；IP 维度限流沿用 Redisson 原子计数+TTL 基建
+  （同 IP **30 次/分钟**，超限 **43001**「操作过于频繁，请稍后再试」；环回地址豁免同短信基建口径）。
+- 前端 Register.vue「选择想入驻的仓库」下拉改接此端点（替换硬编码 mock 三条假数据）。
+
+## 33. DEF-3：审批通过合并 WA 注册占位角色行（行为变化）
+
+- **根因**：WA 注册（未带码）先落一条占位角色行 `(role=WA, tenant_id=NULL, wholesaler_id=NULL)`；
+  审批通过/OPS 代建绑定商户时 `ensureWholesalerRole` 原实现**另插**一条绑定行，
+  同一账号出现两条 WA 角色 → 登录弹两条同名工作空间、选错进空态。
+- **根治（AuthServiceImpl.ensureWholesalerRole）**：绑定时若存在无 wholesaler 绑定的 ACTIVE 占位行，
+  **就地升级**该行（回填 tenantId/wholesalerId + priority=5，与插入路径语义一致），不再另插新行；
+  若绑定行已存在（幂等重放），顺手逻辑删除残留占位行。
+- **存量脏数据**：迁移 `V14__merge_wa_placeholder_role.sql`——凡已有 ACTIVE 绑定行的用户，
+  其无绑定 WA 占位行统一置 `deleted_at`（逻辑删除保留追溯，与 @TableLogic 口径一致）。
+- **对前端的行为变化**：登录响应 `roles` 中对同一商户**恰一条 WA 条目**（携 tenantId/wholesalerId），
+  直申审批通过后不再出现「多工作空间选择」重复条目；WorkspaceSwitcher 无需再做去重兜底
+  （报告建议的「条目带商户名」缓解项可作为体验增强独立排期）。
+
+## 34. Wave6 测试（Wave6DefectFixScenarioTest 6 用例全绿；backend 全量 187 绿）
+
+DEF-3a 直申→审批通过→WA 角色行唯一+登录 roles 唯一 / DEF-3b 存量双行回放→兼容清理且绑定行 id 不变 /
+DEF-6 分页契约 records-total-page-size+keyword 命中手机号与执照号+非 OPS 仍 42002 /
+DEF-1a 匿名访问+仅 ACTIVE+DTO 恰 id/name 两字段 / DEF-1b limit=100 钳到 20（默认 10）/
+DEF-1c 同 IP 第 31 次 43001（X-Forwarded-For 维度）。
+另：OnboardingScenarioTest BLK-01 增补 50205 中性文案断言、BLK-03 改断分页结构。
