@@ -146,10 +146,13 @@ const statusMeta = (status: string): { variant: BadgeVariant; text: string } => 
   return map[status] ?? { variant: 'default', text: status || '—' }
 }
 
+/** DEF-5：来源列中文映射（与状态列中文 tag 口径一致），未知枚举兜底直出 */
 const sourceLabel = (source: string): string => {
   const map: Record<string, string> = {
+    SELF_APPLY: '自助申请',
+    OPS_CREATED: 'OPS 代建',
+    TA_SELF_OPERATED: '自营',
     SELF_OPERATED: '自营',
-    APPLIED: '入驻申请',
   }
   return map[source] ?? source ?? '—'
 }
