@@ -94,7 +94,8 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_WA_WITHDRAWN]: '批发商已退驻',
   [ErrorCode.STATE_WA_APPLICATION_NOT_AUDITABLE]: '申请不存在或状态已变化，请刷新后重试',
   [ErrorCode.STATE_WA_ALREADY_ONBOARDED]: '该账号已入驻仓库，无需重复申请',
-  [ErrorCode.STATE_WA_BLACKLISTED]: '批发商已在黑名单中，无法入驻',
+  // DEF-2（Wave6 §30）：对外一律中性文案，不透出「黑名单」字样（与后端 message 同步）
+  [ErrorCode.STATE_WA_BLACKLISTED]: '暂不满足入驻条件，请联系平台客服',
   [ErrorCode.STATE_INVITE_REVOKED]: '员工注册码已作废，请向管理员索取新码',
   [ErrorCode.STATE_BLACKLIST_DUPLICATE]: '该键值已在黑名单中',
   [ErrorCode.STATE_BLACKLIST_NOT_FOUND]: '黑名单条目不存在或已解除',

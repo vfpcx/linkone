@@ -281,7 +281,8 @@ const onSubmit = async () => {
       } else if (e.code === 50204) {
         ElMessage.info('您已入驻该仓库，无需重复申请')
       } else if (e.code === 50205) {
-        ElMessage.error('该手机号/执照号已被平台列入黑名单，无法提交入驻申请')
+        // DEF-2（§30）：对外一律中性文案，不透出拦截原因
+        ElMessage.error('暂不满足入驻条件，请联系平台客服')
       }
     }
   } finally {
