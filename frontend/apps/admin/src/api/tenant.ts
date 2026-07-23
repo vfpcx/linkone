@@ -36,6 +36,8 @@ import type {
   AdminTenantItem,
   AdminTenantListQuery,
   AuditTenantRequest,
+  TenantDirectoryItem,
+  TenantDirectoryQuery,
 } from '@cangchu/api-types'
 
 // ============================================================
@@ -276,4 +278,18 @@ export const tenantApi = {
       url: `/tenant/inbound-requests/${id}/arbitrate`,
       data,
     }),
+}
+
+// ============================================================
+// 公开端点（匿名可访问，不需登录态）
+// ============================================================
+
+export const tenantDirectoryApi = {
+  /**
+   * ✅ Wave6 · DEF-1 · 公开租户目录（§32）：WA 注册页「选择想入驻的仓库」数据源。
+   * 仅 ACTIVE 租户；元素恰 id/name 两字段；limit 默认 10、上限 20；
+   * 同 IP 30 次/分钟，超限 43001（全局拦截器已 toast 友好提示）。
+   */
+  search: (params?: TenantDirectoryQuery) =>
+    request<TenantDirectoryItem[]>({ method: 'GET', url: '/tenants/directory', params }),
 }

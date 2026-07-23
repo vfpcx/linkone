@@ -470,3 +470,27 @@ export interface SubmitInquiryRequest {
   /** 询价明细（非空；每项 skuId 必填、qty>0） */
   items: Array<{ skuId: SnowflakeId; qty: number }>
 }
+
+// ============================================================
+// 公开租户目录（DEF-1 · 10-onboarding-design.md §32，Wave6）
+// ============================================================
+/**
+ * `GET /api/v1/tenants/directory?keyword=&limit=`（注意前缀是 tenants 复数）
+ *  - 匿名可访问（SaTokenConfig 显式公开）；WA 注册页「选择想入驻的仓库」数据源。
+ *  - 防枚举：仅 status=ACTIVE 租户可见；DTO 恰好 id/name 两字段，无任何敏感信息。
+ *  - IP 限流：同 IP 30 次/分钟，超限 43001「操作过于频繁，请稍后再试」。
+ */
+
+/** 目录查询参数（均可选）：keyword 按仓库名模糊匹配；limit 默认 10、上限 20（后端强制钳制） */
+export interface TenantDirectoryQuery {
+  keyword?: string
+  limit?: number
+}
+
+/** 目录条目（恰好两个字段） */
+export interface TenantDirectoryItem {
+  /** 租户（仓库）id · 字符串化 Long——WA 注册时原样作为 targetTenantId 提交 */
+  id: SnowflakeId
+  /** 仓库名 */
+  name: string
+}

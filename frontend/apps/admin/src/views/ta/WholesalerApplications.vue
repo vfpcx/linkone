@@ -19,9 +19,6 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
-  ArrowDown,
-  Switch,
-  Bell,
   Shop,
   User,
   Document,
@@ -33,7 +30,7 @@ import {
   Stamp,
   Refresh,
 } from '@element-plus/icons-vue'
-import { StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
+import { AppTopbar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import type {
   WaApplicationStatus,
   WholesalerApplication,
@@ -49,7 +46,6 @@ const router = useRouter()
 const auth = useAuthStore()
 
 // ============ 顶栏 ============
-const storeNameDisplay = computed(() => auth.currentStoreName || '我的店铺')
 
 const handleSwitchRole = () => auth.showSwitcher()
 
@@ -441,34 +437,11 @@ onMounted(async () => {
 <template>
   <div class="ta-shell">
     <!-- 顶栏 -->
-    <header class="ta-topbar">
-      <div class="ta-topbar__left">
-        <span class="ta-topbar__brand">仓储云</span>
-        <span class="ta-topbar__divider">·</span>
+    <AppTopbar @switch-role="handleSwitchRole" @profile-command="handleProfileMenu">
+      <template #store>
         <WarehouseSwitcher />
-      </div>
-
-      <div class="ta-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-        <el-button text :icon="Bell" class="ta-topbar__bell" />
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="ta-topbar__user">
-            <el-avatar :size="28">U</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+      </template>
+    </AppTopbar>
 
     <div class="ta-body">
       <!-- 左侧菜单 -->
@@ -764,59 +737,6 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-/* ===== 顶栏 ===== */
-.ta-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
-.ta-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.ta-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.ta-topbar__divider {
-  opacity: 0.5;
-}
-.ta-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ta-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.ta-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.ta-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
-.ta-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.ta-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .ta-body {
