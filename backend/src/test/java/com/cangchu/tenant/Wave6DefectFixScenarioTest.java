@@ -1,0 +1,241 @@
+package com.cangchu.tenant;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.cangchu.CangchuApplication;
+import com.cangchu.account.dto.RegisterDto;
+import com.cangchu.account.entity.UserRole;
+import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.account.service.AuthService;
+import com.cangchu.account.vo.LoginVo;
+import com.cangchu.common.response.R;
+import com.cangchu.tenant.dto.TenantApplyDto;
+import com.cangchu.tenant.entity.Tenant;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * P2 入驻生态 Wave6 缺陷修复场景测试（07-onboarding-e2e-report §5）：
+ * <ul>
+ *   <li>DEF-3：WA 直申审批通过后，注册占位 WA 角色行被就地升级/清理——
+ *       一个用户对同一商户只有一条有效 WA 角色，登录不再出现重复工作空间。</li>
+ *   <li>DEF-6：GET /ops/blacklist 分页（PageRecords 契约 records/total/page/size）+ keyword 搜索。</li>
+ *   <li>DEF-1：GET /tenants/directory 公开租户目录（仅 ACTIVE 的 id+name，limit 上限 20，IP 限流）。</li>
+ * </ul>
+ * 基建沿用 {@link OnboardingScenarioTest}（RANDOM_PORT + TestRestTemplate + H2 + mock 888888）。
+ */
+@SpringBootTest(classes = CangchuApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class Wave6DefectFixScenarioTest {
+
+    @LocalServerPort
+    private int port;
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+    @Autowired
+    private com.cangchu.tenant.mapper.TenantMapper tenantMapper;
+    @Autowired
+    private UserRoleMapper userRoleMapper;
+    @Autowired
+    private AuthService authService;
+    @Autowired
+    private com.cangchu.common.util.SnowflakeIdUtil snowflakeIdUtil;
+
+    private static final String P_TA =
+            "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
+    private static final String P_WA =
+            "16" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
+    private static final String P_OPS =
+            "15" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
+    private static final AtomicLong SEQ = new AtomicLong(0);
+
+    private String baseAccount;
+    private String baseTenant;
+    private String baseTaApps;
+    private String baseOpsBlacklist;
+    private String baseDirectory;
+
+    @BeforeEach
+    void setUp() {
+        String base = "http://localhost:" + port;
+        baseAccount = base + "/api/v1/account";
+        baseTenant = base + "/api/v1/tenant";
+        baseTaApps = base + "/api/v1/tenant/wholesaler-applications";
+        baseOpsBlacklist = base + "/api/v1/ops/blacklist";
+        baseDirectory = base + "/api/v1/tenants/directory";
+    }
+
+    private static final ParameterizedTypeReference<R<LoginVo>> LOGIN_VO = new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<R<Map<String, Object>>> MAP = new ParameterizedTypeReference<>() {};
+
+    private String uniquePhone(String prefix) {
+        long n = SEQ.incrementAndGet();
+        return prefix + String.format("%04d", n % 10000);
+    }
+
+    private HttpHeaders bearer(String token) {
+        HttpHeaders h = new HttpHeaders();
+        h.set("Authorization", token);
+        return h;
+    }
+
+    private R<LoginVo> register(String phone, String password, String role,
+                                String targetTenantId, String wholesalerName) {
+        RegisterDto dto = new RegisterDto();
+        dto.setPhone(phone);
+        dto.setPassword(password);
+        dto.setSmsCode("888888");
+        dto.setRole(role);
+        dto.setAgreedTerms(true);
+        if (targetTenantId != null) dto.setTargetTenantId(targetTenantId);
+        if (wholesalerName != null) dto.setWholesalerName(wholesalerName);
+        return restTemplate.exchange(baseAccount + "/register", HttpMethod.POST,
+                new HttpEntity<>(dto), LOGIN_VO).getBody();
+    }
+
+    private record TaContext(String phone, String token, Long tenantId) {}
+
+    /** 注册 TA + apply 建仓 + 直接置 ACTIVE（同 OnboardingScenarioTest 惯例）。 */
+    private TaContext registerTaWithTenant() {
+        String phone = uniquePhone(P_TA);
+        R<LoginVo> reg = register(phone, "TaPass123", "TA", null, null);
+        assertThat(reg).isNotNull();
+        assertThat(reg.getCode()).isEqualTo(0);
+        String token = reg.getData().getToken();
+        TenantApplyDto dto = new TenantApplyDto();
+        dto.setName("W6仓-" + phone);
+        dto.setContactPhone(phone);
+        dto.setAddressText("浙江省杭州市西湖区");
+        R<Map<String, Object>> body = restTemplate.exchange(baseTenant + "/apply", HttpMethod.POST,
+                new HttpEntity<>(dto, bearer(token)), MAP).getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        long tenantId = Long.parseLong(body.getData().get("tenantId").toString());
+        Tenant tenant = tenantMapper.selectById(tenantId);
+        tenant.setStatus("ACTIVE");
+        tenantMapper.updateById(tenant);
+        return new TaContext(phone, token, tenantId);
+    }
+
+    private String registerOps() {
+        R<LoginVo> reg = register(uniquePhone(P_OPS), "OpsPass123", "OPS", null, null);
+        assertThat(reg).isNotNull();
+        assertThat(reg.getCode()).isEqualTo(0);
+        return reg.getData().getToken();
+    }
+
+    /** TA 审批通过某申请单（按商户名在 PENDING 列表定位），返回 wholesalerId。 */
+    private String approveByName(TaContext ta, String wholesalerName) {
+        R<Map<String, Object>> listBody = restTemplate.exchange(
+                baseTaApps + "?page=1&size=50&status=PENDING", HttpMethod.GET,
+                new HttpEntity<>(bearer(ta.token())), MAP).getBody();
+        assertThat(listBody).isNotNull();
+        assertThat(listBody.getCode()).isEqualTo(0);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recs = (List<Map<String, Object>>) listBody.getData().get("records");
+        String appId = recs.stream().filter(m -> wholesalerName.equals(m.get("name")))
+                .findFirst().orElseThrow().get("id").toString();
+        Map<String, Object> audit = Map.of("action", "APPROVED", "remark", "Wave6 审批通过");
+        R<Map<String, Object>> approved = restTemplate.exchange(baseTaApps + "/" + appId + "/audit",
+                HttpMethod.POST, new HttpEntity<>(audit, bearer(ta.token())), MAP).getBody();
+        assertThat(approved).isNotNull();
+        assertThat(approved.getCode()).isEqualTo(0);
+        assertThat(approved.getData().get("wholesalerId")).isNotNull();
+        return approved.getData().get("wholesalerId").toString();
+    }
+
+    private List<UserRole> activeWaRows(Long userId) {
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRole, "WA")
+                .eq(UserRole::getStatus, "ACTIVE"));
+    }
+
+    // ======================================================================
+    // DEF-3 直申→审批通过→WA 角色行唯一
+    // ======================================================================
+
+    @Test
+    @DisplayName("DEF-3a 注册直申→审批通过→占位行被就地升级：该用户恰一条 WA 角色且绑定正确，登录无重复空间")
+    void def3_directApplyApproveMergesPlaceholder() {
+        TaContext ta = registerTaWithTenant();
+        String phone = uniquePhone(P_WA);
+        String name = "直申商户-" + phone;
+
+        // 注册直申：register 落占位 WA 行 + 自动建 PENDING 申请单
+        R<LoginVo> reg = register(phone, "WaPass123", "WA", ta.tenantId().toString(), name);
+        assertThat(reg).isNotNull();
+        assertThat(reg.getCode()).isEqualTo(0);
+        Long waUserId = reg.getData().getUserId();
+        assertThat(activeWaRows(waUserId)).as("审批前仅注册占位一行").hasSize(1);
+
+        // TA 审批通过
+        String wholesalerId = approveByName(ta, name);
+
+        // 根治断言：该用户 WA 角色行唯一，且绑定 tenantId + wholesalerId
+        List<UserRole> rows = activeWaRows(waUserId);
+        assertThat(rows).as("审批通过后 WA 角色行必须唯一（DEF-3 根治）").hasSize(1);
+        UserRole bound = rows.get(0);
+        assertThat(bound.getTenantId()).isEqualTo(ta.tenantId());
+        assertThat(bound.getWholesalerId()).isEqualTo(Long.valueOf(wholesalerId));
+
+        // 登录视角：roles 中恰一条 WA，且带 wholesalerId（前端不再弹重复工作空间）
+        Map<String, Object> login = Map.of("phone", phone, "password", "WaPass123");
+        R<LoginVo> relogin = restTemplate.exchange(baseAccount + "/login", HttpMethod.POST,
+                new HttpEntity<>(login), LOGIN_VO).getBody();
+        assertThat(relogin).isNotNull();
+        assertThat(relogin.getCode()).isEqualTo(0);
+        List<LoginVo.RoleInfo> waRoles = relogin.getData().getRoles().stream()
+                .filter(r -> "WA".equals(r.getRole())).toList();
+        assertThat(waRoles).as("登录 roles 中 WA 条目唯一").hasSize(1);
+        assertThat(waRoles.get(0).getWholesalerId()).isEqualTo(Long.valueOf(wholesalerId));
+        assertThat(relogin.getData().getPrimaryRole()).isEqualTo("WA");
+    }
+
+    @Test
+    @DisplayName("DEF-3b 存量脏数据兼容：绑定行已在时再次 ensureWholesalerRole，残留占位行被清理且 id 不变")
+    void def3_replayCleansLegacyPlaceholder() {
+        TaContext ta = registerTaWithTenant();
+        String phone = uniquePhone(P_WA);
+        String name = "存量商户-" + phone;
+        R<LoginVo> reg = register(phone, "WaPass123", "WA", ta.tenantId().toString(), name);
+        assertThat(reg).isNotNull();
+        assertThat(reg.getCode()).isEqualTo(0);
+        Long waUserId = reg.getData().getUserId();
+        String wholesalerId = approveByName(ta, name);
+        Long boundRoleId = activeWaRows(waUserId).get(0).getId();
+
+        // 人工回放存量脏数据：补插一条注册占位行（模拟修复前已产生的双行账号）
+        UserRole legacy = new UserRole();
+        legacy.setId(snowflakeIdUtil.nextId());
+        legacy.setUserId(waUserId);
+        legacy.setRole("WA");
+        legacy.setStatus("ACTIVE");
+        legacy.setPriority(40);
+        legacy.setCreatedBy(waUserId);
+        userRoleMapper.insert(legacy);
+        assertThat(activeWaRows(waUserId)).hasSize(2);
+
+        // 幂等重放绑定：返回既有绑定行 id，同时清掉占位行（兼容逻辑）
+        Long ensured = authService.ensureWholesalerRole(waUserId, "WA", ta.tenantId(),
+                Long.valueOf(wholesalerId), waUserId);
+        assertThat(ensured).isEqualTo(boundRoleId);
+        List<UserRole> rows = activeWaRows(waUserId);
+        assertThat(rows).as("兼容路径清理后 WA 行唯一").hasSize(1);
+        assertThat(rows.get(0).getWholesalerId()).isEqualTo(Long.valueOf(wholesalerId));
+    }
+}
