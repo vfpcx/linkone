@@ -13,8 +13,9 @@ import java.time.LocalDateTime;
  *   <li>wholesalerId/tenantId/skuId/qty 必填（同 {@link OutboundContext} 语义）。</li>
  *   <li>palletQty        可空，回补托盘数（按出库单 pallet_qty 还原，默认 0）。</li>
  *   <li>refDocNo         关联出库单号。</li>
- *   <li>reversalOfId     必填，被回补的原 OUTBOUND 流水 id（P4 配对抵消）。</li>
- *   <li>bizTime          必填，=被回补 OUTBOUND 流水的 biz_time（计费视同从未出库）。</li>
+ *   <li>reversalOfId     可空（BE-W2）：空时锁内按 refDocNo+type=OUTBOUND 解析原流水（1:1）；
+ *                        落库流水的 reversal_of_id 恒非空（P4 配对抵消）。</li>
+ *   <li>bizTime          可空：空时沿用解析出的原 OUTBOUND 流水 biz_time（计费视同从未出库）。</li>
  *   <li>operatorUserId   操作人。</li>
  *   <li>remark           可空备注。</li>
  * </ul>

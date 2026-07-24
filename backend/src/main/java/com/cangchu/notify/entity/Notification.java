@@ -31,17 +31,25 @@ public class Notification {
     public static final String TYPE_DISPUTE_CREATED = "DISPUTE_CREATED";
     /** 仲裁裁决 → 通知双方（WA+WK） */
     public static final String TYPE_ARBITRATION_DECIDED = "ARBITRATION_DECIDED";
-    /** R4 撤回申请（BE-W2 启用） */
+    /** R4 撤回申请（BE-W2：已打印单 WA 申请撤回 → 通知 WK 二次确认） */
     public static final String TYPE_OUTBOUND_WITHDRAW_REQUESTED = "OUTBOUND_WITHDRAW_REQUESTED";
     /** 代建出库（BE-W2 启用） */
     public static final String TYPE_OUTBOUND_PROXY_CREATED = "OUTBOUND_PROXY_CREATED";
     /** 30 天客诉（BE-W2 启用） */
     public static final String TYPE_COMPLAINT_CREATED = "COMPLAINT_CREATED";
+    /** R4 撤回/撤销生效（BE-W2：直撤或 WK 确认撤回，已回补流水） */
+    public static final String TYPE_OUTBOUND_WITHDRAWN = "OUTBOUND_WITHDRAWN";
+    /** R4 撤回被 WK 拒绝（BE-W2：flag 清除，单据继续履约） */
+    public static final String TYPE_OUTBOUND_WITHDRAW_REJECTED = "OUTBOUND_WITHDRAW_REJECTED";
+    /** R8 意向单作废联动（BE-W2：整单出库撤销+回补） */
+    public static final String TYPE_INQUIRY_VOIDED = "INQUIRY_VOIDED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
     public static final String REF_OUTBOUND = "OUTBOUND";
     public static final String REF_ARBITRATION = "ARBITRATION";
+    /** R8 意向单作废通知跳转（BE-W2） */
+    public static final String REF_INQUIRY = "INQUIRY";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)

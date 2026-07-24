@@ -206,16 +206,40 @@ public class InventoryServiceImpl implements InventoryService {
         inv.setUpdatedAt(LocalDateTime.now());
         inventoryMapper.updateById(inv);
 
+        // BE-W2（12 §3.1/§3.2）：reversalOfId 未显式传入时，锁内按 refDocNo 解析原 OUTBOUND 流水
+        // （单出库单↔单 OUTBOUND 流水 1:1，confirmByWa/submit/proxy 均以 docNo 落 ref_doc_no）。
+        // 调用方（document 域）无需直连 StockMovementMapper（G-S1 域边界）。
+        Long reversalOfId = ctx.getReversalOfId();
+        LocalDateTime bizTime = ctx.getBizTime();
+        if (reversalOfId == null) {
+            StockMovement original = stockMovementMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<StockMovement>()
+                            .eq(StockMovement::getWholesalerId, ctx.getWholesalerId())
+                            .eq(StockMovement::getSkuId, ctx.getSkuId())
+                            .eq(StockMovement::getType, StockMovement.TYPE_OUTBOUND)
+                            .eq(StockMovement::getRefDocNo, ctx.getRefDocNo())
+                            .orderByAsc(StockMovement::getId)
+                            .last("LIMIT 1"));
+            if (original == null) {
+                // 回补必须能配对原流水（不变量：OUTBOUND_REVERSAL.reversal_of_id 非空），防御性拒绝
+                throw new BizException(ErrorCode.INVENTORY_NOT_FOUND, "原出库流水不存在，无法回补");
+            }
+            reversalOfId = original.getId();
+            if (bizTime == null) {
+                bizTime = original.getBizTime();
+            }
+        }
+
         StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
                 StockMovement.TYPE_OUTBOUND_REVERSAL, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
         // 计费视同从未出库：biz_time 沿用原 OUTBOUND 流水锚点；reversal_of_id 配对（P4 抵消）
-        mv.setBizTime(ctx.getBizTime() != null ? ctx.getBizTime() : LocalDateTime.now());
-        mv.setReversalOfId(ctx.getReversalOfId());
+        mv.setBizTime(bizTime != null ? bizTime : LocalDateTime.now());
+        mv.setReversalOfId(reversalOfId);
         mv.setRemark(ctx.getRemark());
         stockMovementMapper.insert(mv);
 
         log.info("[P3] reverseOutbound wholesaler={} sku={} +{} -> qty={} (doc={}, reversalOf={})",
-                ctx.getWholesalerId(), ctx.getSkuId(), ctx.getQty(), inv.getQty(), ctx.getRefDocNo(), ctx.getReversalOfId());
+                ctx.getWholesalerId(), ctx.getSkuId(), ctx.getQty(), inv.getQty(), ctx.getRefDocNo(), reversalOfId);
         return toVo(inv);
     }
 
