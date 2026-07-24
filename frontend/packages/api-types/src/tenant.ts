@@ -370,7 +370,16 @@ export interface InboundRegisterRequest {
   palletQty?: number
 }
 
-/** 入库单视图对象（InboundRequestVo） */
+/**
+ * 入库单状态机（P3 BE-W1 · 12-p3-design.md §2.1；
+ * 存量 REGISTERED 已由 V16 回填为 CONFIRMED；SUBMITTED/ACCEPTED 等留待 R1/R2 波启用）
+ */
+export type InboundStatus = 'PENDING_WA_CONFIRM' | 'CONFIRMED' | 'DISPUTED' | 'REVOKED'
+
+/** 入库单来源（P3 BE-W1）：WK 现场代建 / WA 正向申请 */
+export type InboundSource = 'WK_CREATED' | 'WA_SUBMIT'
+
+/** 入库单视图对象（InboundRequestVo · P3 BE-W1 增确认链字段） */
 export interface InboundRequest {
   id: SnowflakeId
   docNo: string
@@ -381,8 +390,17 @@ export interface InboundRequest {
   palletQty: number | null
   status: string
   wkUserId: SnowflakeId
-  /** 登记后该 sku 最新库存（便于前端回显） */
+  /** 登记后该 sku 最新库存（便于前端回显；列表端点为 null） */
   currentStock: number | null
+  // ==================== P3 BE-W1 确认链字段 ====================
+  /** 来源：WK_CREATED / WA_SUBMIT */
+  source: InboundSource | null
+  /** 72h 确认截止（WA 队列按此升序倒计时）· LocalDateTime 无时区偏移 */
+  waConfirmDeadline: string | null
+  waConfirmAt: string | null
+  /** 1=72h 超时自动确认 */
+  autoAccepted: number | null
+  disputedAt: string | null
   createdAt: string
 }
 

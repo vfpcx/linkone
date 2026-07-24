@@ -149,6 +149,35 @@ export enum ErrorCode {
   /** 恢复已逾 30 天窗口（员工已永久移除） */
   STATE_EMPLOYEE_RESTORE_EXPIRED = 50322,
 
+  // P3 单据异常链（50330-50349 段 · 05-error-codes.md P3 BE-W1 登记；
+  // 权威来源：12-p3-design.md §6.2；50335-50339 为 BE-W2 预留，先行登记）
+  /** 状态机不可达兜底（迁移矩阵 12 §1.2/§2.1） */
+  STATE_DOC_TRANSITION_INVALID = 50330,
+  /** CAS 抢占失败（并发被抢占/重复提交） */
+  STATE_DOC_CAS_CONFLICT = 50331,
+  /** 72h 确认窗口已关（超窗 confirm/dispute，单据已自动确认） */
+  STATE_INBOUND_CONFIRM_WINDOW_CLOSED = 50332,
+  /** 结论选项与仲裁类型不符 / REJECTED 缺 remark */
+  STATE_ARBITRATION_CONCLUSION_INVALID = 50333,
+  /** 仲裁单不存在/已裁决（跨租户按不存在，不泄漏存在性） */
+  STATE_ARBITRATION_NOT_PENDING = 50334,
+  /** R4 当前状态不可撤回（BE-W2 启用） */
+  STATE_OUTBOUND_NOT_WITHDRAWABLE = 50335,
+  /** 该单无待确认撤回申请（BE-W2 启用） */
+  STATE_OUTBOUND_NO_WITHDRAW_REQUEST = 50336,
+  /** R8 意向单不可作废（BE-W2 启用） */
+  STATE_INQUIRY_NOT_VOIDABLE = 50337,
+  /** 大额出库需复述件数确认（BE-W2 启用） */
+  STATE_OUTBOUND_LARGE_CONFIRM_REQUIRED = 50338,
+  /** 客诉期已过（BE-W2 启用） */
+  STATE_OUTBOUND_COMPLAINT_WINDOW_CLOSED = 50339,
+  /** 上传文件格式/大小不符（jpg/png/webp ≤5MB，魔数校验） */
+  STATE_FILE_UPLOAD_INVALID = 50340,
+  /** 消息不存在（已读非本人/不存在按不存在） */
+  STATE_NOTIFICATION_NOT_FOUND = 50341,
+  /** 差额定责三态校验失败（REJECTED∧shortfall>0 必填；其余必空） */
+  STATE_ARBITRATION_LIABILITY_INVALID = 50342,
+
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,
   STATE_BILL_PAID = 50303,
