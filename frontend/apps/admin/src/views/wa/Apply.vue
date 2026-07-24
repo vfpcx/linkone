@@ -22,6 +22,7 @@ import {
   User,
   Warning as WarningIcon,
   Promotion,
+  Box,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type {
@@ -72,6 +73,7 @@ const activeMenu = ref('/wa/apply')
 
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
+  { key: '/wa/inbound', label: '入库确认', icon: Box },
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
   { key: '/wa/staff', label: '员工管理', icon: User },
   { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },
