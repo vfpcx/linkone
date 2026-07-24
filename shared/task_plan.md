@@ -1,67 +1,40 @@
-# Task Plan · P2 入驻生态（Onboarding）
+# Task Plan · P3 完整单据与履约异常（第一期：三链+双仲裁）
 
-> 规则依据：CLAUDE.md 全局协作规则 §6（编码阶段自主执行）§7（planning-with-files）。架构全局设计 P0 已有（见 findings.md §一），本期为落地实现，不重做架构设计。
+> 规则依据：CLAUDE.md 全局协作规则 §6（编码阶段自主执行）§7（planning-with-files）。
+> 真源：`architecture/09-p3-decision-options.md` v2（用户拍板）→ `architecture/12-p3-design.md` v2（据设计）+ `product/09-p3-arbitration-prd.md` v1.1（命名已对齐落库定稿）。
+> P2 计划已归档 `shared/archive/task_plan-p2-onboarding.md`。
 
-## 目标与范围（用户已拍板按 Team Lead 思路推进）
+## 目标与范围
 
-**做**：
-1. WA 自助入驻申请 → TA 审批（通过/驳回带理由）；WA 注册链路接通（AccountServiceImpl:222 接入点）
-2. OPS 代建 WA（需 TA 授权凭据或客诉单号，留痕；黑名单同样拦截）
-3. TA 建自营 WA 走统一入驻链路（对齐 D15，现有 createSelfOperated 保留兼容）
-4. R13 退驻：前置校验（库存 0+无未结单据；账单校验 P4 占位）→ TA 审批 → SKU 下架+店铺隐藏+专属价失效+踢 token → 60 天恢复/归档（定时任务）
-5. R14 强制下架：TA 单方即时；新业务拒绝、老单据放行；不可原地恢复
-6. OPS 全平台黑名单：手机号/执照号双键，入驻申请+OPS 代建必检
-7. WE 员工：WA 生成员工码（invite_codes 复用）、WE 注册绑定 wholesaler、最小授权集（PRICE_EDIT/INQUIRY_CONFIRM）、R17 禁用踢出、登录路由修正
+**做**（12-p3-design.md 覆盖面）：
+1. T5 出库单状态机补拆（确认即扣不动；待受理→已打印→已出库；撤回/作废走 OUTBOUND_REVERSAL 反向回补流水）
+2. T1 代建入库异常链（72h 待确认可售；异议冲销 `min(登记量,在库)` 封顶；差额入仲裁单定责；72h 自动确认 Job 复用 SchedulingConfig）
+3. T2 出库异常链（R4 撤回两路、R8 作废联动、WA 手动出库、代建出库、30 天客诉）
+4. 双仲裁最小闭环（arbitrations 表多态引用，YY-/KS- 单号；TA 二选+liability 定责；OPS 四选不动库存账单）
+5. 支撑基建：库存流水类型扩展、notifications 站内信、附件上传、错误码 50330-50342
 
-**不做**（明确出圈）：
-- 账单争议中仲裁全流程（billing P4）、客诉单实体（Q-D04 未决）
-- 入驻条件设置字段、退驻数据归档迁移（只做 ARCHIVED 状态位）
-- 仓库广场地图/距离（P5 运营）、容量公示精度
-- 通知走现有 mock 短信基建，不建推送通道
+**不做**（出圈）：T1 正向申请链 R1/R2/R3、T3 退货/盘点、T4 批次临期（P3 后续波次另行设计）；调证/多轮沟通/赔偿追踪（P5）；账单联动（P4）。
 
-## 决策记录（Decisions）
+## 用户拍板（2026-07-23，见 09 v2）
 
-| # | 决策 | 依据 |
-|---|---|---|
-| O-1 | 申请表+主体表双轨，复用 tenant_applications 审批模式 | 代码先例一致性 |
-| O-2 | 黑名单拦截 OPS 代建路径 | 防绕过（R-04），产品缺口补位 |
-| O-3 | 错误码落地文档预留 50201-50205，溢出用 50310-50329 | findings §三 |
-| O-4 | WE 授权最小集两枚：PRICE_EDIT、INQUIRY_CONFIRM，存 user_roles 扩展或独立权限表（开发时按 V10 设计定） | 产品缺口 #5 |
-| O-5 | R13 账单结清校验留 TODO 接口占位（BillingService P4） | 依赖未建 |
-| O-6 | blacklist 不进 TenantLine 白名单（平台级表） | 隔离模型 |
+问题一 B（72h 可售+封顶冲销）、问题二 B（确认即扣+状态补拆）、问题三 B（双仲裁最小闭环）；修正一同意（单据号按已上线，RTN-/PD-/QK-/YY-/KS- 新前缀）、修正二同意（Flyway 自 V15 起，每波开工前复核）。
 
-## 阶段（Phases / Waves）
+## 阶段（Waves，依赖图见 12 §7）
 
-- [完成] **Wave 1 后端·入驻主链**：142/142 绿，commit 至 feat/p2-onboarding（已合并 c6b3b52）
-- [完成] **Wave 4 前端·第一批**：3 页+守卫，typecheck 绿（已合并 8843141）
-- [完成] **Wave 2 后端·R13/R14**：158/158 绿含 16 新增，9 端点+归档 job
-- [完成] **Wave 3 后端·WE 员工**：176/176 绿含 18 新增，8 端点+D52 路由
-- [完成] **Wave 4b 前端·第二批**：退驻/下架/员工页+WE 注册流，24 截图自查
-- [完成] **Wave 5 测试/审查/合并**：E2E 4 链路绿+回归 30/30+45 截图目检；报告 07（80d4c06）；双分支已合并；遗留缺陷 DEF-1~DEF-6 转 Wave 6
-- [完成] **Wave 6 收尾·缺陷修复（2026-07-23 完成）**：DEF-1~6 全部修复并复验（后端 fix/p2-defects 5 commits + 前端 fix/p2-defects-fe 6 commits，前端二批项已随一批完成）；合并 main 后回归 187/187 绿 + typecheck 绿 + E2E 12/12 绿；报告 07 v2 增补复验记录。**P2 入驻生态全部交付。**
-
-## 接口契约（据 04-api-spec，落地时可微调路径归属）
-
-- `POST /api/v1/wholesaler/applications`（WA 提交申请）
-- `GET /api/v1/tenant/wholesaler-applications`（TA 列表）+ `POST .../{id}/audit`（通过/驳回，仿 tenant audit DTO）
-- `POST /api/v1/admin/wholesalers`（OPS 代建，authBasis 必填）
-- `POST /api/v1/wholesaler/withdraw`（R13）+ TA 审批端点 + `POST .../restore`（60 天恢复）
-- `POST /api/v1/tenant/wholesalers/{id}/force-offline`（R14）
-- `GET/POST/DELETE /api/v1/ops/blacklist`
-- 员工码/员工管理（Team Lead 定稿，Wave3 后端与 Wave4b 前端共同遵守）：
-  - `POST /api/v1/wholesaler/employee-invites` body:{expireDays,maxUses,permissions:string[]}（targetRole 固定 WE；permissions ⊆ [PRICE_EDIT,INQUIRY_CONFIRM]）
-  - `GET /api/v1/wholesaler/employee-invites` / `DELETE .../{id}`（作废）
-  - `GET /api/v1/wholesaler/employees`（本商户 WE 列表含 permissions/status/禁用时间）
-  - `PUT /api/v1/wholesaler/employees/{id}/permissions` body:{permissions}
-  - `POST /api/v1/wholesaler/employees/{id}/disable`（R17 踢出+草稿作废）/ `POST .../{id}/restore`（30 天内）
+- [完成] **W0 设计定稿（2026-07-24）**：产品 09-p3-arbitration-prd v1.1 + 架构 12-p3-design v2；并行漂移 3 处已对账收口（liability 列+50342、doc_no YY-/KS-、PRD 命名 9 处对齐；盘点/清库前缀按产品 PD-/QK- 统一）
+- [进行中] **BE-W1 入库异常链+基建**〔branch feat/p3-inbound-chain〕：V15-V17；流水扩展+InventoryService 三新方法；registerByWk 改造；confirm/dispute；72h Job；TA 仲裁 decide；notifications+files；WePermissions 扩 INBOUND_CONFIRM。闸门：JUnit 封顶 4 边界/Job 幂等竞态/biz_time 断言/liability 三态/公式不变量 + mvn 全量绿
+- [待办] **BE-W2 出库状态机+异常链**〔依赖 BE-W1 合并〕：V18；confirmByWa 产 PENDING_ACCEPT；print/revert/register；R4/R8；客诉+OPS decide；R13 assertNoOpenDocs 扩展。闸门：迁移矩阵逐格断言/配对回补流水/30 天窗口边界/P1 卖货 E2E 更新
+- [待办] **FE-W1 入库链前端**〔依赖 BE-W1 合并，与 BE-W2 并行〕：WA 待确认队列+异议弹窗；TA 仲裁弹窗（复用审批中心）；站内信铃铛。闸门：E2E 双路+截图目检（§3.5/§3.6）
+- [待办] **FE-W2 出库链前端**〔依赖 BE-W2+FE-W1〕：WK 作业流（打印/登记/撤回确认）；WA 出库列表（撤回/客诉）；OPS 仲裁列表。闸门：E2E 主链+R4/R8/客诉+截图目检
+- [待办] **W5 测试审查合并**：全量回归+E2E+视觉验收报告；code-review
 
 ## 验证（Verification）
 
-- 后端：`mvn test` 全量绿（含新增场景测试：申请→审批→驳回→黑名单拦截→代建→退驻前置失败/成功→下架老单放行→WE 授权/未授权）
-- 前端：`pnpm test:e2e` onboarding-flow 绿 + Playwright 截图视觉自查（§3.5/3.6）
-- 本地联调：后端 `dev,local` profile（勿忘）:8080 + 前端 :5173
+- 后端 `mvn test` 全量绿（dev,local profile 勿忘，Memurai 需在跑）；每波迁移开工前核 main 最高版本号
+- 前端 `pnpm -r typecheck` + Playwright E2E + 截图目检
+- 合并顺序：BE-W1 → BE-W2 → FE 波次；fe-types 类生成物勿入 commit
 
 ## 未做 / 后续
-- 争议中→OPS 仲裁闭环（P4 billing 后补）
-- 仓库广场（P5）
-- 通知升级为真实短信/推送（X 硬化）
+- WIP 分支 `refactor/account-user-service`（G-S1/G-S2 架构债，未经测试）——P3 期间择机补测合并
+- Boot 3.2.5→3.5.x 硬化升级（chore/hardening-boot-upgrade 空分支待动工，独立于 P3 功能波次）
+- P3 后续期：T1 正向申请链、T3 退货/盘点、T4 批次临期
