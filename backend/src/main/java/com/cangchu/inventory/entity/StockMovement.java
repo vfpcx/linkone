@@ -19,6 +19,12 @@ public class StockMovement {
     public static final String TYPE_INBOUND = "INBOUND";
     /** 出库流水类型 */
     public static final String TYPE_OUTBOUND = "OUTBOUND";
+    /** 出库回补（+）：R4 撤回 / R8 作废联动（P3，reversal_of_id 指向原 OUTBOUND 流水） */
+    public static final String TYPE_OUTBOUND_REVERSAL = "OUTBOUND_REVERSAL";
+    /** 异议冲销（−）：WA 异议按剩余在库封顶（P3，biz_time=异议时刻，计费截止异议日 D39） */
+    public static final String TYPE_DISPUTE_REVERSAL = "DISPUTE_REVERSAL";
+    /** 仲裁恢复（+）：TA 仲裁通过（P3，biz_time=原入库单 created_at，G10） */
+    public static final String TYPE_DISPUTE_RESTORE = "DISPUTE_RESTORE";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)
@@ -45,6 +51,16 @@ public class StockMovement {
 
     @JsonSerialize(using = ToStringSerializer.class)
     private Long operatorUserId;
+
+    /** 计费语义时间锚点（V15，7.6 口径）：默认=created_at；DISPUTE_RESTORE=原入库时间戳（G10） */
+    private LocalDateTime bizTime;
+
+    /** 反向流水指向的原流水 id（V15：OUTBOUND_REVERSAL 必填；DISPUTE_RESTORE 回指配对 DISPUTE_REVERSAL） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long reversalOfId;
+
+    /** 流水备注（V15：冲销托盘数等审计信息） */
+    private String remark;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
