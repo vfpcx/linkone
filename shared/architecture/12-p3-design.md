@@ -445,6 +445,26 @@ BE-W1 (V15–V17)  ──合并──▶  BE-W2 (V18)  ──合并──▶  FE
 
 ---
 
+## 据实现备注（BE-W1，2026-07-24，后端开发 Agent 追加；设计正文未改）
+
+1. **冲销托盘的恢复口径（§2.4/§2.6 补齐）**：设计只规定恢复 `reversed_qty` 件数；实现为防
+   托盘账永久漂移，将异议时刻的 `palletReversed` 快照写入 DISPUTE_REVERSAL 流水 `remark`
+   （格式 `palletReversed=N`），APPROVED 恢复时按该快照等额还原托盘，且 DISPUTE_RESTORE 流水
+   `reversal_of_id` 回指配对的 DISPUTE_REVERSAL（与 OUTBOUND_REVERSAL 配对语义同构，P4 可复用）。
+2. **DocStateMachine 引擎类未随本波落地**：BE-W1 仅入库链两条 CAS 迁移，沿用 LambdaUpdateWrapper
+   条件更新先例直写；§1.1 引擎（含 50330 统一抛出）随 BE-W2 出库迁移矩阵一并落地。50330 错误码
+   已定义登记，本波暂无抛出点。
+3. **CAS 失败语义化细则（§2.3-补）**：confirm/dispute CAS 失败后重读单据——仅当
+   `status=CONFIRMED ∧ auto_accepted=1`（已被 72h Job 自动确认）返回 50332；其余（已手动确认/
+   已异议/并发被抢占）返回 50331。
+4. **notifications.tenant_id 允许 NULL**（§4.3 表未标注约束）：业务链显式落值；Job 系统态从单据
+   带入；极端脏数据（收件人缺失）时通知降级跳过不阻断主链。
+5. **registerByWk 的 created_at 显式落值**：与 `wa_confirm_deadline` 取同一 `now()`，消除
+   自动填充与 deadline 计算之间的微秒漂移（deadline 恒等于 created_at+72h）。
+6. **TA 仲裁列表暂未内联「全量相关流水」**（§2.6 详情项）：列表返回仲裁单全字段（含
+   reversed/shortfall/attachments 解码视图）；流水明细供定责的详情端点随 FE-W1 弹窗联调需要时
+   在 BE 侧补充（流水已可按 `ref_doc_no` 检索，数据无缺口）。
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
