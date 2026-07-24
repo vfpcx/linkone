@@ -47,7 +47,11 @@ public class MybatisPlusConfig {
             // blacklist 为平台级共享表（PLATFORM_TABLE），按决策 O-6 不加入白名单。
             "wholesaler_applications",
             // P2 入驻 Wave2：退驻申请表含 tenant_id，同样纳入兜底隔离。
-            "wholesaler_withdraw_applications"
+            "wholesaler_withdraw_applications",
+            // P3 BE-W1（12 §4.1/§4.3）：仲裁单 + 站内信纳入兜底隔离。
+            // OPS 跨租户查询（客诉仲裁）与 72h Job（系统态）无 TenantContext → 不注入，符合先例。
+            "arbitrations",
+            "notifications"
     );
 
     @Bean
