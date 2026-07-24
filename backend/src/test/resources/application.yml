@@ -39,13 +39,13 @@ sa-token:
 cangchu:
   tenant:
     leak-detection: true
-
-# P3 BE-W1：测试附件落到 target（随 clean 清理）
-app:
-  upload-dir: ./target/test-uploads
   sms:
     mock: true
     mock-code: "888888"
   snowflake:
     worker-id: 9
     datacenter-id: 9
+
+# P3 BE-W1：测试附件落到 target（随 clean 清理）
+app:
+  upload-dir: ./target/test-uploads
