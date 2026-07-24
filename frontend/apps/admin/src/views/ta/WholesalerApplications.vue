@@ -104,7 +104,7 @@ const menus = computed<MenuItem[]>(() => [
   },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
-  { key: '/ta/approvals', label: '单据审批', icon: Document },
+  { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
   { key: '/ta/messages', label: '站内信', icon: ChatLineSquare },
 ])
@@ -115,6 +115,7 @@ const ROUTABLE = new Set([
   '/ta/employees',
   '/ta/wholesalers',
   '/ta/skus',
+  '/ta/approvals',
 ])
 
 const handleMenuSelect = (key: string) => {

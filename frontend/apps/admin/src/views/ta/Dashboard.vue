@@ -116,7 +116,7 @@ const menus = computed<MenuItem[]>(() => [
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   {
     key: '/ta/approvals',
-    label: '单据审批',
+    label: '审批中心',
     icon: Document,
     badge:
       dashboard.value.kpi.pendingInbound +
@@ -137,7 +137,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/settings' ||
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
-    key === '/ta/wholesaler-applications'
+    key === '/ta/wholesaler-applications' ||
+    key === '/ta/approvals'
   ) {
     router.push(key)
     return
