@@ -50,4 +50,13 @@ public class InquiryController {
         Long userId = StpUtil.getLoginIdAsLong();
         return R.ok(inquiryService.confirmByWa(id, dto, userId));
     }
+
+    /**
+     * R8 已确认意向单作废（P3 BE-W2，12 §3.2，WA 发起）：
+     * 前置询价 CONFIRMED 且名下无已出库单（否则 50337）；整单联动撤销出库 + 回补流水。
+     */
+    @PostMapping("/{id}/void")
+    public R<InquiryVo> voidInquiry(@PathVariable("id") Long id) {
+        return R.ok(inquiryService.voidByWa(id, StpUtil.getLoginIdAsLong()));
+    }
 }

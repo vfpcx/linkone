@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.document.dto.ArbitrationDecideDto;
 import com.cangchu.document.entity.Arbitration;
 import com.cangchu.document.entity.InboundRequest;
+import com.cangchu.document.entity.OutboundRequest;
 import com.cangchu.document.vo.ArbitrationVo;
 
 import java.util.List;
@@ -43,4 +44,33 @@ public interface ArbitrationService {
      * </ul>
      */
     ArbitrationVo decideByTa(Long arbitrationId, Long taUserId, ArbitrationDecideDto dto);
+
+    // ==================== P3 BE-W2：出库客诉 OPS 仲裁（12 §3.4 / PRD 09 §3） ====================
+
+    /**
+     * 建出库客诉仲裁单（供 {@code OutboundRequestService.complainByWa} 同事务调用）。
+     * doc_no=KS-；无 reversed/shortfall（客诉仅判责，不动库存）。
+     * 一单一诉（PRD 09 §1.1）：该出库单已存在任意仲裁单（含已裁决）→ 50330。
+     */
+    Arbitration createOutboundComplaint(OutboundRequest outbound, Long initiatorUserId, String initiatorRole,
+                                        String reason, List<String> attachments);
+
+    /**
+     * OPS 客诉仲裁列表（跨租户，12 §3.4）。鉴权：操作人须为平台 OPS；
+     * bizType 缺省/仅允许 OUTBOUND_COMPLAINT；status 可空过滤。
+     */
+    Page<ArbitrationVo> listForOps(Long opsUserId, String bizType, String status, int page, int size);
+
+    /**
+     * OPS 裁决（单事务，仅判责 D43）：结论四选 WK_LIABLE/WA_LIABLE/NEGOTIATED/NO_LIABILITY（错配 50333）；
+     * remark 必填（PRD 09 §1.1 结论备注必填）；liability 不适用（传入 50342）；
+     * 仲裁单 CAS PENDING→DECIDED（50334）+ 出库单 CAS COMPLAINED→COMPLETED（库存/流水/账单一概不动）
+     * + 双方站内信（WA+WK）。
+     */
+    ArbitrationVo decideByOps(Long arbitrationId, Long opsUserId, ArbitrationDecideDto dto);
+
+    /**
+     * R13 退驻前置出口（12 §8.2）：该商户 PENDING 仲裁单数（争议中/客诉中商户不能退驻）。
+     */
+    long countPendingForWholesaler(Long wholesalerId);
 }
