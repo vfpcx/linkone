@@ -787,6 +787,13 @@ public class TenantServiceImpl implements TenantService {
     }
 
     @Override
+    public Long getContactUserId(Long tenantId) {
+        // 只读跨域出口（G-S1/G-S2，P3 BE-W1）：仲裁/通知链取 TA 收件人；未命中返回 null（通知降级）
+        Tenant tenant = tenantMapper.selectById(tenantId);
+        return tenant != null ? tenant.getContactUserId() : null;
+    }
+
+    @Override
     @Transactional
     public Long createPendingTenantShell(Long taUserId, String tenantName, String contactPhone) {
         // 创建 PENDING 租户壳（tenant + 默认 store + settings）

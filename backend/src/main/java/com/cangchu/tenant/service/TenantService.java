@@ -118,4 +118,11 @@ public interface TenantService {
      * @return 租户简码；不存在或未设置返回 null
      */
     String getSimpleCode(Long tenantId);
+
+    /**
+     * 只读：取租户联系人（TA）user id（P3 BE-W1：入库异议仲裁单创建时通知 TA 审批中心角标，
+     * 替代跨域直连 TenantMapper，符合 G-S1/G-S2）。租户不存在返回 {@code null}
+     * （调用方按通知降级处理，不阻断业务主链）。
+     */
+    Long getContactUserId(Long tenantId);
 }

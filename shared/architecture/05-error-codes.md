@@ -250,6 +250,34 @@
 
 > 预留：50323 起留给 P4 billing 的退驻账单未结清校验（决策 O-5 占位，代码中 TODO 标注）。
 
+### P3 单据异常链（50330–50349，12-p3-design §6.2 分配段，BE-W1 落地）
+
+> 勘误注（12 §6.2 要求补录）：代码 ErrorCode 枚举实占段 50201–50205、50240–50253、50260、
+> 50270–50274、50280–50287、50290–50292、50300–50306、50310–50322 均为各批次自定义扩展实装值，
+> 与本文件早期蓝图段（如 STATE_BILL 50300–50399）存在重叠——**以代码枚举为准**；
+> P4 billing 落地时账单状态码改用其它空段另行分配。
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50330 | `DOC_STATE_TRANSITION_INVALID` | 200 | 当前状态不允许此操作 | 状态机不可达兜底（引擎统一抛，迁移矩阵 12 §1.2/§2.1） | — |
+| 50331 | `DOC_STATE_CAS_CONFLICT` | 200 | 单据状态已变更，请刷新后重试 | CAS affected!=1（并发被抢占/重复提交） | 刷新后重试 |
+| 50332 | `INBOUND_CONFIRM_WINDOW_CLOSED` | 200 | 72 小时确认期已过，单据已自动确认 | 超窗 confirm/dispute（50007 语义并入本码） | — |
+| 50333 | `ARBITRATION_CONCLUSION_INVALID` | 200 | 结论选项与仲裁类型不符 | biz_type × conclusion 错配 / REJECTED 缺 remark | — |
+| 50334 | `ARBITRATION_NOT_PENDING` | 200 | 该仲裁已有结论 | 不存在/已裁决/跨租户按不存在（不泄漏存在性） | — |
+| 50335 | `OUTBOUND_NOT_WITHDRAWABLE` | 200 | 当前状态不可撤回（已出库请走退货） | R4 状态不符（BE-W2 启用） | — |
+| 50336 | `OUTBOUND_NO_WITHDRAW_REQUEST` | 200 | 该单无待确认的撤回申请 | WK confirm-withdraw 无 flag（BE-W2 启用） | — |
+| 50337 | `INQUIRY_NOT_VOIDABLE` | 200 | 意向单当前不可作废（存在已出库单据） | R8 前置不满足（BE-W2 启用） | — |
+| 50338 | `OUTBOUND_LARGE_CONFIRM_REQUIRED` | 200 | 大额出库需复述件数确认 | 代建 >50% 未复述/未二次确认（BE-W2 启用） | 复述件数 |
+| 50339 | `OUTBOUND_COMPLAINT_WINDOW_CLOSED` | 200 | 客诉期已过（出库后 30 天内可提） | 超窗客诉（BE-W2 启用） | — |
+| 50340 | `FILE_UPLOAD_INVALID` | 200 | 文件格式或大小不符合要求 | 上传魔数（jpg/png/webp）/≤5MB/空文件校验（12 §4.4） | 换图片重传 |
+| 50341 | `NOTIFICATION_NOT_FOUND` | 200 | 消息不存在 | 已读非本人/不存在（按不存在，不泄漏存在性） | — |
+| 50342 | `ARBITRATION_LIABILITY_INVALID` | 200 | 差额定责选项缺失或不适用 | liability 三态：REJECTED∧shortfall>0 必填；其余必空；枚举非法（12 §4.1 刚性规则） | — |
+| 50343–50349 | 预留 | — | — | T3 退货/盘点波顺延使用 | — |
+
+> 关联落地（P3 BE-W1）：`50319 EMPLOYEE_INVITE_PERMISSION_INVALID` 文案随 WE 授权位白名单
+> 扩 `INBOUND_CONFIRM`（G7）同步为「仅允许 PRICE_EDIT/INQUIRY_CONFIRM/INBOUND_CONFIRM」；
+> WE 未持 INBOUND_CONFIRM 调用入库 confirm/dispute 复用 `42004 PERMISSION_ROLE_004`。
+
 ### STATE_BILL（50300–50399）账单状态
 
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |

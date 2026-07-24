@@ -4,9 +4,13 @@ import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.stp.StpUtil;
 import com.cangchu.common.tenant.TenantInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.nio.file.Path;
 
 /**
  * Sa-Token 鉴权 + TenantInterceptor 注册
@@ -16,6 +20,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
 
     @Autowired
     private TenantInterceptor tenantInterceptor;
+
+    /** 附件本地盘目录（P3 BE-W1，12 §4.4；与 FileStorageServiceImpl 同源） */
+    @Value("${app.upload-dir:./data/uploads}")
+    private String uploadDir;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -34,7 +42,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/api/v1/admin/**",
                         // P2 入驻 Wave1：WA 自助申请 / OPS 黑名单管理均需登录
                         "/api/v1/wholesaler/**",
-                        "/api/v1/ops/**")
+                        "/api/v1/ops/**",
+                        // P3 BE-W1：站内信（收件人=本人）+ 附件上传均需登录（12 §4.3/§4.4）
+                        "/api/v1/notifications/**",
+                        "/api/v1/files")
                 .excludePathPatterns(
                         "/api/v1/account/register",
                         "/api/v1/account/login",
@@ -58,5 +69,16 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/api/v1/account/password/reset",
                         "/api/v1/tenant/capacity",
                         "/api/v1/tenants/directory");
+    }
+
+    /**
+     * P3 BE-W1（12 §4.4）：附件静态映射 /files/** → 本地盘 upload-dir。
+     * GET 免登录放行（不在上方 include 前缀内）：URL 含 UUID 不可枚举，试点可接受；
+     * P5 换 OSS 签名 URL 时前端字段结构不变。
+     */
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String location = Path.of(uploadDir).toAbsolutePath().normalize().toUri().toString();
+        registry.addResourceHandler("/files/**").addResourceLocations(location);
     }
 }
