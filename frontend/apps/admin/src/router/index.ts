@@ -143,7 +143,7 @@ const routes: RouteRecordRaw[] = [
     path: '/ops/dashboard',
     name: 'ops-dashboard',
     component: () => import('@/views/PlaceholderDashboard.vue'),
-    meta: { role: 'OPS', title: 'OPS 控制台' },
+    meta: { role: 'OPS', title: '平台运维控制台' },
   },
   {
     path: '/ops/tenant-audit',
@@ -163,7 +163,7 @@ const routes: RouteRecordRaw[] = [
     path: '/st/dashboard',
     name: 'st-dashboard',
     component: () => import('@/views/PlaceholderDashboard.vue'),
-    meta: { role: 'ST', title: 'ST 结算台' },
+    meta: { role: 'ST', title: '结算员工作台' },
   },
 
   // 根重定向

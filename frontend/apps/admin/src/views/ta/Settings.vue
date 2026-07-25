@@ -459,7 +459,7 @@ onMounted(fetchSettings)
             <div class="switch-block">
               <div class="switch-row__label">
                 <span class="switch-row__name">容量公示</span>
-                <span class="switch-row__desc">决定本店在 RT/WA 列表中的可见性与精度（§8）</span>
+                <span class="switch-row__desc">决定本店在终端买家/批发商列表中的可见性与精度（§8）</span>
               </div>
               <div class="sub-field">
                 <span class="sub-field__label">可见范围</span>

@@ -32,7 +32,14 @@ import {
   Plus,
   Stamp,
 } from '@element-plus/icons-vue'
-import { AppTopbar, MoneyDisplay, StatusBadge } from '@cangchu/ui-shared'
+import {
+  AppTopbar,
+  EntityPickerDialog,
+  MoneyDisplay,
+  StatusBadge,
+  makeClientPickerFetch,
+  type EntityPickerColumn,
+} from '@cangchu/ui-shared'
 import type {
   Wholesaler,
   Sku,
@@ -153,6 +160,56 @@ const onWholesalerChange = async () => {
   await Promise.all([fetchSkus(), fetchCustomerPrices(), fetchChangeLogs()])
 }
 
+/** 商户 id → 名称（弹窗选择器回显） */
+const wholesalerNameMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const w of wholesalers.value) map[String(w.id)] = w.name
+  return map
+})
+
+// ============ 弹窗选择器（开放实体集，UX 规范 2026-07-25） ============
+const wholesalerPickerColumns: EntityPickerColumn<Wholesaler>[] = [
+  { label: '商户名称', prop: 'name', minWidth: 160 },
+  { label: '简介', formatter: (w) => w.intro || '—', minWidth: 160 },
+  { label: '创建时间', formatter: (w) => String(w.createdAt ?? '').slice(0, 10), width: 110 },
+]
+
+const fetchWholesalerPage = makeClientPickerFetch<Wholesaler>(
+  () => wholesalers.value,
+  (w, kw) => w.name.toLowerCase().includes(kw) || (w.intro ?? '').toLowerCase().includes(kw),
+)
+
+const skuPickerColumns: EntityPickerColumn<Sku>[] = [
+  { label: '商品名称', prop: 'name', minWidth: 160 },
+  { label: '规格', formatter: (s) => s.spec || '—', minWidth: 100 },
+  { label: '单价', formatter: (s) => `¥${Number(s.unitPrice).toFixed(2)}`, width: 100, align: 'right' },
+  { label: '状态', formatter: (s) => (s.listed ? '在售' : '已下架'), width: 90 },
+]
+
+const fetchSkuPage = makeClientPickerFetch<Sku>(
+  () => skus.value,
+  (s, kw) => s.name.toLowerCase().includes(kw) || (s.spec ?? '').toLowerCase().includes(kw),
+)
+
+const cpPickerColumns: EntityPickerColumn<CustomerPriceVo>[] = [
+  { label: '终端买家手机号', prop: 'rtPhone', minWidth: 130 },
+  { label: 'SKU', formatter: (cp) => skuNameOf(String(cp.skuId)), minWidth: 150 },
+  {
+    label: '专属单价',
+    formatter: (cp) => `¥${Number(cp.unitPrice).toFixed(2)}`,
+    width: 100,
+    align: 'right',
+  },
+  { label: '状态', formatter: (cp) => statusText(cp.status), width: 90 },
+]
+
+const fetchCpPage = makeClientPickerFetch<CustomerPriceVo>(
+  () => customerPrices.value,
+  (cp, kw) =>
+    cp.rtPhone.toLowerCase().includes(kw) ||
+    skuNameOf(String(cp.skuId)).toLowerCase().includes(kw),
+)
+
 // ============ SKU（供 skuName 映射 + 选择器） ============
 const skus = ref<Sku[]>([])
 
@@ -234,7 +291,7 @@ const cpForm = reactive({
 const cpRules: FormRules = {
   skuId: [{ required: true, message: '请选择 SKU', trigger: 'change' }],
   rtPhone: [
-    { required: true, message: '请输入 RT 手机号', trigger: 'blur' },
+    { required: true, message: '请输入终端买家手机号', trigger: 'blur' },
     { pattern: /^1\d{10}$/, message: '请输入 11 位手机号', trigger: 'blur' },
   ],
   unitPrice: [
@@ -525,21 +582,16 @@ onMounted(fetchWholesalers)
           <!-- 商户选择器 -->
           <div class="toolbar">
             <span class="toolbar__label">商户</span>
-            <el-select
+            <EntityPickerDialog
               v-model="selectedWholesalerId"
-              placeholder="请选择商户"
-              :loading="wholesalerLoading"
+              title="选择商户"
+              placeholder="点击选择商户"
+              :columns="wholesalerPickerColumns"
+              :fetch="fetchWholesalerPage"
+              :selected-label="wholesalerNameMap[selectedWholesalerId] || ''"
               class="toolbar__select"
-              filterable
               @change="onWholesalerChange"
-            >
-              <el-option
-                v-for="w in wholesalers"
-                :key="String(w.id)"
-                :label="w.name"
-                :value="String(w.id)"
-              />
-            </el-select>
+            />
             <span v-if="!wholesalerLoading && wholesalers.length === 0" class="toolbar__empty">
               当前店铺暂无商户，请先在「入驻商户」创建
             </span>
@@ -549,7 +601,7 @@ onMounted(fetchWholesalers)
             <!-- (a) 客户专属价 -->
             <el-tab-pane label="客户专属价">
               <div class="tab-head">
-                <span class="tab-head__hint">为指定 RT 手机号设置某 SKU 的专属单价</span>
+                <span class="tab-head__hint">为指定终端买家手机号设置某 SKU 的专属单价</span>
                 <el-button
                   type="primary"
                   :icon="Plus"
@@ -567,7 +619,7 @@ onMounted(fetchWholesalers)
                 class="pricing-table"
                 empty-text="该商户暂无客户专属价，点击「设置专属价」开始"
               >
-                <el-table-column label="RT 手机号" min-width="140">
+                <el-table-column label="终端买家手机号" min-width="140">
                   <template #default="{ row }">
                     <span class="cell-name">{{ row.rtPhone }}</span>
                   </template>
@@ -632,41 +684,29 @@ onMounted(fetchWholesalers)
                   v-if="batchForm.scope === 'public'"
                   label="选择 SKU（多选，1..200）"
                 >
-                  <el-select
+                  <EntityPickerDialog
                     v-model="batchForm.skuIds"
                     multiple
-                    filterable
-                    collapse-tags
-                    collapse-tags-tooltip
-                    placeholder="请选择要调价的 SKU"
+                    title="选择要调价的 SKU"
+                    placeholder="点击选择 SKU（可多选）"
+                    :columns="skuPickerColumns"
+                    :fetch="fetchSkuPage"
+                    :disabled="!selectedWholesalerId"
                     class="full-width"
-                  >
-                    <el-option
-                      v-for="s in skus"
-                      :key="String(s.id)"
-                      :label="s.name"
-                      :value="String(s.id)"
-                    />
-                  </el-select>
+                  />
                 </el-form-item>
 
                 <el-form-item v-else label="选择专属价（多选，1..500）">
-                  <el-select
+                  <EntityPickerDialog
                     v-model="batchForm.cpIds"
                     multiple
-                    filterable
-                    collapse-tags
-                    collapse-tags-tooltip
-                    placeholder="请选择要调整的专属价"
+                    title="选择要调整的专属价"
+                    placeholder="点击选择专属价（可多选）"
+                    :columns="cpPickerColumns"
+                    :fetch="fetchCpPage"
+                    :disabled="!selectedWholesalerId"
                     class="full-width"
-                  >
-                    <el-option
-                      v-for="cp in customerPrices"
-                      :key="String(cp.id)"
-                      :label="`${cp.rtPhone} · ${skuNameOf(String(cp.skuId))}`"
-                      :value="String(cp.id)"
-                    />
-                  </el-select>
+                  />
                 </el-form-item>
 
                 <el-form-item label="调整方式">
@@ -827,23 +867,19 @@ onMounted(fetchWholesalers)
         @submit.prevent="onCpSubmit"
       >
         <el-form-item label="SKU" prop="skuId">
-          <el-select
+          <EntityPickerDialog
             v-model="cpForm.skuId"
-            filterable
-            placeholder="请选择 SKU"
-            class="full-width"
+            title="选择 SKU"
+            placeholder="点击选择 SKU"
+            :columns="skuPickerColumns"
+            :fetch="fetchSkuPage"
+            :selected-label="cpForm.skuId ? skuNameOf(cpForm.skuId) : ''"
             :disabled="!!cpEditingId"
-          >
-            <el-option
-              v-for="s in skus"
-              :key="String(s.id)"
-              :label="s.name"
-              :value="String(s.id)"
-            />
-          </el-select>
+            class="full-width"
+          />
         </el-form-item>
 
-        <el-form-item label="RT 手机号" prop="rtPhone">
+        <el-form-item label="终端买家手机号" prop="rtPhone">
           <el-input
             v-model="cpForm.rtPhone"
             placeholder="11 位手机号"

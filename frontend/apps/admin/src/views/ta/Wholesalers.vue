@@ -151,7 +151,7 @@ const statusMeta = (status: string): { variant: BadgeVariant; text: string } => 
 const sourceLabel = (source: string): string => {
   const map: Record<string, string> = {
     SELF_APPLY: '自助申请',
-    OPS_CREATED: 'OPS 代建',
+    OPS_CREATED: '平台运维代建',
     TA_SELF_OPERATED: '自营',
     SELF_OPERATED: '自营',
   }
@@ -366,7 +366,7 @@ onMounted(fetchList)
                 <span class="cell-muted">{{ row.intro || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="WA 账号" width="100">
+            <el-table-column label="管理员账号" width="110">
               <template #default="{ row }">
                 <StatusBadge
                   v-if="row.waUserId"
@@ -442,8 +442,8 @@ onMounted(fetchList)
         </el-form-item>
 
         <el-form-item v-if="dialogMode === 'create'" label="负责人手机号（可选）" prop="waPhone">
-          <el-input v-model="form.waPhone" placeholder="填写则为该商户开通 WA 账号" maxlength="11" />
-          <span class="form-hint">传入手机号将为商户负责人创建/绑定 WA 账号</span>
+          <el-input v-model="form.waPhone" placeholder="填写则为该商户开通批发商管理员账号" maxlength="11" />
+          <span class="form-hint">传入手机号将为商户负责人创建/绑定批发商管理员账号</span>
         </el-form-item>
       </el-form>
 

@@ -282,7 +282,7 @@ onMounted(fetchList)
           <div>
             <h2 class="page-head__title">黑名单</h2>
             <p class="page-head__sub">
-              平台级黑名单（手机号 / 营业执照号双键）：命中的主体无法提交入驻申请，OPS 代建同样拦截
+              平台级黑名单（手机号 / 营业执照号双键）：命中的主体无法提交入驻申请，平台运维代建同样拦截
             </p>
           </div>
           <div class="page-head__actions">
@@ -384,7 +384,7 @@ onMounted(fetchList)
         :closable="false"
         show-icon
         title="加黑后全平台生效"
-        description="命中黑名单的手机号 / 执照号将无法提交入驻申请（含 OPS 代建），请谨慎操作。"
+        description="命中黑名单的手机号 / 执照号将无法提交入驻申请（含平台运维代建），请谨慎操作。"
         class="bl-dialog__alert"
       />
       <el-form
