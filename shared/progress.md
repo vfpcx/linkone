@@ -2,6 +2,9 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-07-25
+- **BE-W2 出库状态机+异常链 ✅（待 Team Lead 复验合并）**〔feat/p3-outbound-chain，5 commits〕：V18（出库补拆列+inquiry voided_at，存量回填幂等）；DocStateMachine 引擎（OUTBOUND/INBOUND 双矩阵+assertCanGo 50330+通用 casTransition，兑现 BE-W1 备注 2）；confirmByWa 唯一触主链改动（出库 PENDING_ACCEPT/询价停 CONFIRMED）；R4 两路/R8 作废/代建大额 50%/30 天客诉+OPS 四选（remark 必填按 PRD）；R13 未结扩展至入库+仲裁；R14 钩子三处接入。测试 219/219 绿（基线 202+17 新增，P1 断言适配 4 文件）。错误码零新增（BE-W1 预登记段全启用）。偏差 10 处已回写 12 据实现备注（要点：WE 暂不开放出库、一单一诉查历史仲裁单、托盘账不动、50004 不存在改 50330）。中途插曲：上游 502×1 + codecmd 余额×1，均按「撞墙先 commit」纪律无损续跑；新拍板规则 8（文案去角色码）已在本波落地。
+
 ## 2026-07-24
 - **P3 W0 设计定稿 ✅**：并行两 Agent 产出——产品 09-p3-arbitration-prd.md v1.1（双仲裁最小 PRD，Q-D04/Q-D10 收口，04 §1.2 确认即扣转正，05 §7.1 新前缀 RTN-/PD-/QK-/YY-/KS-，决策日志 D57-D60）+ 架构 12-p3-design.md v2（V15-V18 迁移、状态机 String+CAS、封顶冲销口径、72h Job 复用 SchedulingConfig、错误码 50330-50342、四波次拆分）。**Team Lead 契约对账拦下 3 处并行漂移**（liability 列缺失→补+50342、仲裁 doc_no 缺失→补 YY-/KS-、PRD 命名 9 处漂移→对齐落库定稿；另架构自查出盘点/清库前缀冲突按产品 PD-/QK- 统一）——W1 教训的对账机制第二次见效。
 - **headroom 生效确认 ✅**：会话重启后 BASE_URL=127.0.0.1:8787，stats 显示 262 请求被压缩、累计省 25.6 万 token。

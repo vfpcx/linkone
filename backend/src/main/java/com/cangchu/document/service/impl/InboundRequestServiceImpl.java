@@ -75,6 +75,8 @@ public class InboundRequestServiceImpl implements InboundRequestService {
     // P3 BE-W1（12 §2）：异议冲销→仲裁单同事务编排 + 站内信
     private final ArbitrationService arbitrationService;
     private final NotificationService notificationService;
+    // P3 BE-W2（12 §1.1）：R14 商户 ACTIVE 前置钩子（50313）
+    private final com.cangchu.document.statemachine.DocPreconditions docPreconditions;
 
     /** 代建入库 WA 确认窗口（12 §2.2：72h，登记时显式落列） */
     private static final int WA_CONFIRM_WINDOW_HOURS = 72;
@@ -97,11 +99,9 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             throw new BizException(ErrorCode.INBOUND_QTY_INVALID);
         }
 
-        // 校验 wholesaler 存在且属当前租户（经 WholesalerService，内部同受 TenantLine 兜底，跨租户不可见）
-        WholesalerVo wholesaler = wholesalerService.getById(dto.getWholesalerId());
-        if (wholesaler == null) {
-            throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
-        }
+        // R14 前置钩子（P3 BE-W2 补齐，12 §1.1：代建入库/代建出库/WA 手动出库三处复用）：
+        // 商户须存在且 ACTIVE（OFFLINE/WITHDRAWN → 50313 拒新业务），TenantLine 兜底跨租户不可见
+        WholesalerVo wholesaler = docPreconditions.requireWholesalerActive(dto.getWholesalerId());
         // tenantId 由 wholesaler 真实归属推导（不取客户端），后续所有落库以此为准
         Long tenantId = wholesaler.getTenantId();
 
@@ -323,6 +323,15 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         return inboundRequestMapper.selectList(qw).stream()
                 .map(r -> toVo(r, null))
                 .toList();
+    }
+
+    @Override
+    public long countOpenForWholesaler(Long wholesalerId) {
+        // R13（12 §8.2）：争议中/待确认入库单未结（防"提诉即跑路"）；CONFIRMED/REVOKED 已结
+        return inboundRequestMapper.selectCount(new LambdaQueryWrapper<InboundRequest>()
+                .eq(InboundRequest::getWholesalerId, wholesalerId)
+                .in(InboundRequest::getStatus,
+                        InboundRequest.STATUS_PENDING_WA_CONFIRM, InboundRequest.STATUS_DISPUTED));
     }
 
     // ==================== 私有 ====================

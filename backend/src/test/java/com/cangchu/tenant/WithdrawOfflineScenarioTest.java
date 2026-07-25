@@ -762,17 +762,19 @@ class WithdrawOfflineScenarioTest {
         InquiryVo inqB = submitInquiry(storeId, wa.wholesalerId(), skuId, 2, "18855557777");
         TenantContext.clear();
         InquiryVo confirmedA = inquiryService.confirmByWa(inqA.getId(), null, wa.userId());
-        assertThat(confirmedA.getStatus()).isEqualTo(InquiryRequest.STATUS_COMPLETED);
+        // P3 BE-W2（12 §8.1）：确认后停 CONFIRMED，出库单 PENDING_ACCEPT（库存已扣）
+        assertThat(confirmedA.getStatus()).isEqualTo(InquiryRequest.STATUS_CONFIRMED);
 
         // TA 强制下架
         assertThat(forceOffline(ta.token(), wa.wholesalerId(), "违规经营").getCode()).isEqualTo(0);
 
-        // 老业务放行：下架前完成的出库单原样保留（不回滚不作废）
+        // 老业务放行（12 §8.3）：下架前确认生成的出库单原样保留（不回滚不作废），
+        // PENDING_ACCEPT 的老单允许走完（print/register 不做 R14 前置）
         List<OutboundRequest> outbounds = outboundRequestMapper.selectList(
                 new LambdaQueryWrapper<OutboundRequest>()
                         .eq(OutboundRequest::getInquiryId, inqA.getId()));
         assertThat(outbounds).hasSize(1);
-        assertThat(outbounds.get(0).getStatus()).isEqualTo(OutboundRequest.STATUS_COMPLETED);
+        assertThat(outbounds.get(0).getStatus()).isEqualTo(OutboundRequest.STATUS_PENDING_ACCEPT);
 
         // 新业务拒绝①：下架后新询价创建被拒 50313
         TenantContext.clear();

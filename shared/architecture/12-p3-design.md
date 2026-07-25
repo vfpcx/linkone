@@ -465,6 +465,38 @@ BE-W1 (V15–V17)  ──合并──▶  BE-W2 (V18)  ──合并──▶  FE
    reversed/shortfall/attachments 解码视图）；流水明细供定责的详情端点随 FE-W1 弹窗联调需要时
    在 BE 侧补充（流水已可按 `ref_doc_no` 检索，数据无缺口）。
 
+## 据实现备注（BE-W2，2026-07-25，后端开发 Agent 追加；设计正文未改）
+
+> 分支 feat/p3-outbound-chain。V18 已用（开工实测 main 最高 V17）。错误码零新增：50330-50342 段
+> BE-W1 已全量预登记，本波启用其中 50330/50331/50335-50339/50333/50334/50342 的出库侧抛出点。
+
+1. **WE 暂不开放出库操作（§6.1 偏差）**：§6.1 将 WA 手动出库/客诉标注 WA/WE，但 PRD 09 §5 权限矩阵
+   客诉行 WE 为 ❌（P3 不开放），且 WePermissions 白名单无出库授权位——为免造无位授权先例，
+   本波出库提交/撤回/客诉一律仅 WA（出库列表 WE 仍只读可见，对齐入库队列先例）。
+   WE 开放须产品先定授权位（建议 OUTBOUND_SUBMIT/COMPLAIN 两位），随 R1-R3 波一并收口。
+2. **OPS 裁决 remark 必填（§3.4 偏差）**：§3.4 写 `remark?`，PRD 09 §1.1 定结论备注必填
+   （线下赔偿唯一依据必须留痕）——按 PRD 执行，缺 remark 抛 50333。
+3. **「50004 非代建不可诉」不存在**：§3.4 引用的 50004 现码不存在（ErrorCode 无 5000x 段）。
+   非代建/未出库客诉、出库单不存在/跨租户，统一抛 50330（语义化 message；不占 50343+ T3 预留段）。
+4. **客诉一单一诉的真正闸门**：出库矩阵 COMPLAINED→COMPLETED 可回环，单据状态不能当唯一性闸门
+   （§4.1 备注只对入库成立）。`createOutboundComplaint` 内查该出库单历史仲裁单（含 DECIDED），
+   已有即拒 50330——PRD 09 §1.1「已裁决后不可再提（多轮→P5）」由此落地。
+5. **出库链不动托盘账**：P1 `deductStock` 即不扣托盘（OutboundContext 无 palletQty），故
+   OUTBOUND_REVERSAL 回补对称传 0，`outbound_requests.pallet_qty`（V18）仅作业登记字段。
+   §3.3 body 的 `receiverPhone` 因 V18 无对应列未实现（列与字段随 T3 需要时一并补）。
+6. **回补配对解析下沉 InventoryService**：`OutboundReversalContext.reversalOfId/bizTime` 改为可空——
+   空时锁内按 `refDocNo+type=OUTBOUND` 解析原流水（1:1），落库 `reversal_of_id` 恒非空；
+   document 域免直连 StockMovementMapper（G-S1）。
+7. **意向单混合终态口径（§1.4/§3.1 空白补齐）**：名下出库单全部终态时——全撤→询价回 PENDING；
+   ≥1 张 COMPLETED（含与撤销混合）→ 询价迁 COMPLETED（已有实际履约，不回待确认）。
+8. **RT 通知降级**：R4 回滚/R8 作废的 RT 侧通知因 RT 免登录无 user_id，站内信跳过（recipient=null
+   静默语义）；仓库侧通知收件人=代建单登记库管员，其余单据发租户联系人（无定向库管员）。
+9. **R14 三处复用钩子补齐**：`DocPreconditions.requireWholesalerActive`（§1.1）本波落地并接入
+   代建入库（registerByWk，BE-W1 未接）、代建出库、WA 手动出库；print/register/withdraw 等存量单
+   作业不调钩子（§8.3 老放新拒）。
+10. **用户可见文案去角色码（CLAUDE.md 规则 8）**：本波通知/错误文案按 01 §3 中文名透出
+    （OPS 结论对外文案：库管员责任/批发商管理员责任/双方协商/无责）；枚举值/DB/API 参数不变。
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |

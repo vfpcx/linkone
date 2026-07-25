@@ -16,6 +16,8 @@ public class InquiryRequest {
 
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_CONFIRMED = "CONFIRMED";
+    /** R8 已作废（P3 BE-W2，12 §3.2：作废联动整单撤销+回补） */
+    public static final String STATUS_VOIDED = "VOIDED";
     public static final String STATUS_COMPLETED = "COMPLETED";
 
     @TableId(type = IdType.ASSIGN_ID)
@@ -42,4 +44,7 @@ public class InquiryRequest {
     private LocalDateTime createdAt;
 
     private LocalDateTime confirmedAt;
+
+    /** R8 作废时刻（V18，状态 VOIDED） */
+    private LocalDateTime voidedAt;
 }

@@ -1,0 +1,112 @@
+package com.cangchu.document.statemachine;
+
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+import com.cangchu.common.exception.BizException;
+import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.document.entity.InboundRequest;
+import com.cangchu.document.entity.OutboundRequest;
+
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+
+/**
+ * 单据状态机引擎（P3 12 §1.1：转换表 + CAS，不换存储模型）。
+ *
+ * <p>BE-W1 据实现备注 2 兑现：引擎随 BE-W2 出库迁移矩阵落地。只做三件事——
+ * <ol>
+ *   <li>每单据类型一张静态迁移表（{@link DocKind}），不可达迁移统一抛 50330；</li>
+ *   <li>{@link #assertCanGo} 前置校验（终态/跳变红线由矩阵天然覆盖）；</li>
+ *   <li>{@link #casTransition} 条件更新 CAS（UPDATE...WHERE id=? AND status=from），
+ *       affected!=1 返回 false，由调用方语义化（50331 或业务码，先例：InboundRequestServiceImpl.casConflict）。</li>
+ * </ol>
+ * 不引入 Spring StateMachine / 事件总线：副作用由调用方同事务直调（P1/P2 先例）。
+ */
+public final class DocStateMachine {
+
+    /** 单据类型（每类一张迁移表）。 */
+    public enum DocKind {
+        /** 出库单（12 §1.2 矩阵，BE-W2 启用） */
+        OUTBOUND,
+        /** 入库单（12 §2.1 矩阵；BE-W1 直写 CAS 先落地，表在此冻结备查/供断言） */
+        INBOUND
+    }
+
+    /**
+     * 出库迁移矩阵（12 §1.2，行=from）：
+     * PENDING_ACCEPT → PRINTED（打印）| WITHDRAWN（R4 直撤）| CANCELLED（R8 联动）；
+     * PRINTED → PENDING_ACCEPT（WK 重新核对回退）| COMPLETED（登记出库）| CANCELLED（R4 二次确认/R8 联动）；
+     * COMPLETED → COMPLAINED（30d 客诉，WK_CREATED）；
+     * COMPLAINED → COMPLETED（OPS 裁决，任何结论）；
+     * WITHDRAWN / CANCELLED 终态。补打不迁移状态（PRINTED→PRINTED 不走状态机）。
+     */
+    private static final Map<String, Set<String>> OUTBOUND_TRANSITIONS = Map.of(
+            OutboundRequest.STATUS_PENDING_ACCEPT, Set.of(
+                    OutboundRequest.STATUS_PRINTED,
+                    OutboundRequest.STATUS_WITHDRAWN,
+                    OutboundRequest.STATUS_CANCELLED),
+            OutboundRequest.STATUS_PRINTED, Set.of(
+                    OutboundRequest.STATUS_PENDING_ACCEPT,
+                    OutboundRequest.STATUS_COMPLETED,
+                    OutboundRequest.STATUS_CANCELLED),
+            OutboundRequest.STATUS_COMPLETED, Set.of(OutboundRequest.STATUS_COMPLAINED),
+            OutboundRequest.STATUS_COMPLAINED, Set.of(OutboundRequest.STATUS_COMPLETED),
+            OutboundRequest.STATUS_WITHDRAWN, Set.of(),
+            OutboundRequest.STATUS_CANCELLED, Set.of());
+
+    /** 入库迁移矩阵（12 §2.1；BE-W1 已按此直写 CAS，此处冻结为权威表）。 */
+    private static final Map<String, Set<String>> INBOUND_TRANSITIONS = Map.of(
+            InboundRequest.STATUS_PENDING_WA_CONFIRM, Set.of(
+                    InboundRequest.STATUS_CONFIRMED,
+                    InboundRequest.STATUS_DISPUTED),
+            InboundRequest.STATUS_DISPUTED, Set.of(
+                    InboundRequest.STATUS_CONFIRMED,
+                    InboundRequest.STATUS_REVOKED),
+            InboundRequest.STATUS_CONFIRMED, Set.of(),
+            InboundRequest.STATUS_REVOKED, Set.of());
+
+    private static final Map<DocKind, Map<String, Set<String>>> TABLES = Map.of(
+            DocKind.OUTBOUND, OUTBOUND_TRANSITIONS,
+            DocKind.INBOUND, INBOUND_TRANSITIONS);
+
+    private DocStateMachine() {
+    }
+
+    /** 迁移是否合法（矩阵查表；from/to 未知值一律不可达）。 */
+    public static boolean canGo(DocKind kind, String from, String to) {
+        if (from == null || to == null) {
+            return false;
+        }
+        return TABLES.get(kind).getOrDefault(from, Set.of()).contains(to);
+    }
+
+    /** 前置校验：不可达迁移统一抛 {@code DOC_STATE_TRANSITION_INVALID}(50330)。 */
+    public static void assertCanGo(DocKind kind, String from, String to) {
+        if (!canGo(kind, from, to)) {
+            throw new BizException(ErrorCode.DOC_STATE_TRANSITION_INVALID);
+        }
+    }
+
+    /**
+     * CAS 迁移：先 {@link #assertCanGo}（不可达 50330），再
+     * {@code UPDATE ... SET status=to WHERE id=? AND status=from}（+extraSet 附加列）。
+     *
+     * @return affected==1（false=并发被抢占/状态漂移，调用方语义化为 50331 或业务码）
+     */
+    public static <T> boolean casTransition(BaseMapper<T> mapper, DocKind kind, Long id,
+                                            SFunction<T, ?> idCol, SFunction<T, String> statusCol,
+                                            String from, String to,
+                                            Consumer<LambdaUpdateWrapper<T>> extraSet) {
+        assertCanGo(kind, from, to);
+        LambdaUpdateWrapper<T> uw = new LambdaUpdateWrapper<T>()
+                .eq(idCol, id)
+                .eq(statusCol, from)
+                .set(statusCol, to);
+        if (extraSet != null) {
+            extraSet.accept(uw);
+        }
+        return mapper.update(null, uw) == 1;
+    }
+}

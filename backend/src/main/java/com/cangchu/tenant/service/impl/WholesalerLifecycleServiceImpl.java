@@ -62,6 +62,9 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
     private final AuthService authService;
     private final InventoryService inventoryService;
     private final InquiryService inquiryService;
+    // P3 BE-W2（12 §8.2）：R13「未结单据」扩展——入库确认链 + 仲裁 PENDING（争议中/客诉中不能退驻）
+    private final com.cangchu.document.service.InboundRequestService inboundRequestService;
+    private final com.cangchu.document.service.ArbitrationService arbitrationService;
     private final SkuService skuService;
     private final PricingService pricingService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -402,8 +405,13 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
     private Precheck precheck(Long wholesalerId) {
         // 库存清零（inventory 域现有能力：listInStockSkusFor 只返回 qty>0 行）
         boolean stockCleared = inventoryService.listInStockSkusFor(wholesalerId).isEmpty();
-        // 未结单据（document 域出口：询价 PENDING/CONFIRMED + 出库非 COMPLETED）
-        long openDocs = inquiryService.countOpenDocsForWholesaler(wholesalerId);
+        // 未结单据（document 域出口，P3 BE-W2 扩展 12 §8.2）：
+        // 询价 PENDING/CONFIRMED ∪ 出库 PENDING_ACCEPT/PRINTED/COMPLAINED
+        // ∪ 入库 PENDING_WA_CONFIRM/DISPUTED ∪ 仲裁 PENDING——争议中/客诉中商户不能退驻
+        // （防"提诉即跑路"，有意设计），须等仲裁 DECIDED。
+        long openDocs = inquiryService.countOpenDocsForWholesaler(wholesalerId)
+                + inboundRequestService.countOpenForWholesaler(wholesalerId)
+                + arbitrationService.countPendingForWholesaler(wholesalerId);
         return new Precheck(stockCleared, openDocs);
     }
 

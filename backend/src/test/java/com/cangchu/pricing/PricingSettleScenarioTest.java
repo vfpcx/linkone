@@ -244,7 +244,7 @@ class PricingSettleScenarioTest {
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         InquiryVo confirmed = inquiryService.confirmByWa(inquiryId,
                 confirmDto(itemId, new BigDecimal("6.00"), true), wa);
-        assertThat(confirmed.getStatus()).isEqualTo("COMPLETED");
+        assertThat(confirmed.getStatus()).isEqualTo("CONFIRMED"); // P3 BE-W2（12 §8.1）：确认后停 CONFIRMED
 
         // 生成一条 source=from_inquiry 的 ACTIVE 专属价，价=6.00
         List<CustomerPrice> rows = settledRows(wid, RT_PHONE, sku);
@@ -279,7 +279,7 @@ class PricingSettleScenarioTest {
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         InquiryVo confirmed = inquiryService.confirmByWa(inquiryId,
                 confirmDto(itemId, new BigDecimal("9.90"), true), wa);
-        assertThat(confirmed.getStatus()).isEqualTo("COMPLETED");
+        assertThat(confirmed.getStatus()).isEqualTo("CONFIRMED"); // P3 BE-W2（12 §8.1）：确认后停 CONFIRMED
 
         assertThat(settledRows(wid, RT_PHONE, sku)).isEmpty();
         // 无专属价 → resolvePrice 回退公开价（qty=20>=起批量10 → 8.50）
@@ -315,7 +315,7 @@ class PricingSettleScenarioTest {
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         InquiryVo confirmed = inquiryService.confirmByWa(inquiryId,
                 confirmDto(itemId, new BigDecimal("6.00"), true), wa);
-        assertThat(confirmed.getStatus()).as("确认应到 COMPLETED（无回滚）").isEqualTo("COMPLETED");
+        assertThat(confirmed.getStatus()).as("确认应到 CONFIRMED（无回滚，P3 12 §8.1）").isEqualTo("CONFIRMED");
 
         // 库存确实被扣减：100 - 20 = 80（证明确认事务未回滚）
         assertThat(stockQty(wid, sku)).as("库存已扣减 20").isEqualTo(80);

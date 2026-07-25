@@ -59,4 +59,11 @@ public interface InboundRequestService {
      * @param wholesalerId 可空；非空则只列该商户的入库单
      */
     List<InboundRequestVo> listByTenant(Long tenantId, Long wholesalerId);
+
+    /**
+     * R13 退驻前置出口（P3 BE-W2，12 §8.2）：该商户未结入库单数——
+     * status IN (PENDING_WA_CONFIRM, DISPUTED)。CONFIRMED/REVOKED 视为已结。
+     * 供 tenant 域退驻链调用（不直连 document Mapper，G-S1/G-S2）。
+     */
+    long countOpenForWholesaler(Long wholesalerId);
 }
