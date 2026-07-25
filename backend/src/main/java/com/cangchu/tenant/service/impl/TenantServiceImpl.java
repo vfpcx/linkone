@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.AuthService;
+import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
@@ -52,6 +53,8 @@ public class TenantServiceImpl implements TenantService {
     private final UserMapper userMapper;
     // user_roles 归 account 域，跨域鉴权/角色绑定经 AuthService（G-S1/G-S2）
     private final AuthService authService;
+    // users 表归 account 域，幂等查/建与显示名批量查询经 UserService（G-S1/G-S2 还债出口）
+    private final UserService userService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final SmsUtil smsUtil;
     // DEF-1：公开目录端点 IP 限流（沿用短信基建的 Redisson 原子计数+TTL，G-6.1）
