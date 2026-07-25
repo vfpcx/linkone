@@ -280,7 +280,7 @@ public class ArbitrationServiceImpl implements ArbitrationService {
         requireOpsRole(opsUserId);
         // OPS 端点只受理出库客诉（入库异议归 TA）；显式传入其他 bizType → 50333
         if (bizType != null && !bizType.isBlank() && !Arbitration.BIZ_OUTBOUND_COMPLAINT.equals(bizType)) {
-            throw new BizException(ErrorCode.ARBITRATION_CONCLUSION_INVALID, "OPS 仅受理出库客诉仲裁");
+            throw new BizException(ErrorCode.ARBITRATION_CONCLUSION_INVALID, "平台运维仅受理出库客诉仲裁");
         }
         // OPS 无租户上下文 → TenantLine 不注入 → 跨租户全平台可见（MybatisPlusConfig 先例）
         Page<Arbitration> p = arbitrationMapper.selectPage(
@@ -357,8 +357,8 @@ public class ArbitrationServiceImpl implements ArbitrationService {
 
         // 双方站内信（WA+WK）：结论仅线下赔偿依据（平台不接资金）
         String conclusionText = switch (conclusion) {
-            case Arbitration.WK_LIABLE -> "WK 责任";
-            case Arbitration.WA_LIABLE -> "WA 责任";
+            case Arbitration.WK_LIABLE -> "库管员责任";
+            case Arbitration.WA_LIABLE -> "批发商管理员责任";
             case Arbitration.NEGOTIATED -> "双方协商";
             default -> "无责";
         };

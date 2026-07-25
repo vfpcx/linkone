@@ -189,7 +189,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                         OutboundRequest.STATUS_PENDING_ACCEPT, OutboundRequest.STATUS_WITHDRAWN, null)) {
                     throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
                 }
-                reverseForDoc(out, userId, "R4 WA 直撤回补");
+                reverseForDoc(out, userId, "R4 商户直撤回补");
                 recomputeInquiryState(out.getInquiryId());
                 notificationService.send(out.getTenantId(), warehouseRecipient(out),
                         Notification.TYPE_OUTBOUND_WITHDRAWN, "出库单已撤回",
@@ -268,7 +268,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         // 通知 WK（OPS 端角标=待仲裁列表计数，平台角色无定向收件人——12 §3.4 最小实现）
         notificationService.send(out.getTenantId(), warehouseRecipient(out),
                 Notification.TYPE_COMPLAINT_CREATED, "代建出库被客诉",
-                "客诉单 " + arb.getDocNo() + "：出库单 " + out.getDocNo() + " 被商户提出客诉，等待平台（OPS）仲裁。",
+                "客诉单 " + arb.getDocNo() + "：出库单 " + out.getDocNo() + " 被商户提出客诉，等待平台运维仲裁。",
                 Notification.REF_ARBITRATION, arb.getId());
 
         log.info("[P3] WA {} 客诉代建出库 doc={} arb={}", userId, out.getDocNo(), arb.getDocNo());
@@ -374,7 +374,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                 OutboundRequest.STATUS_PRINTED, OutboundRequest.STATUS_CANCELLED, null)) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
-        reverseForDoc(out, wkUserId, "R4 WK 确认撤回回补");
+        reverseForDoc(out, wkUserId, "R4 仓库确认撤回回补");
         recomputeInquiryState(out.getInquiryId());
         notificationService.send(out.getTenantId(), waOwner(out.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_WITHDRAWN, "撤回申请已确认",
@@ -576,21 +576,21 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
      */
     private void requireWaRole(Long wholesalerId, Long userId) {
         if (!authService.hasWholesalerRole(userId, "WA", wholesalerId)) {
-            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅该批发商(WA)可操作出库单");
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅批发商管理员可操作出库单");
         }
     }
 
     /** S4：WK 侧作业操作人须为该租户 WK。 */
     private void requireWkRole(Long tenantId, Long userId) {
         if (!authService.hasRole(userId, "WK", tenantId)) {
-            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅本租户仓管(WK)可执行出库作业");
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅本仓库管员可执行出库作业");
         }
     }
 
     /** 作业列表：WK 或 TA 可见。 */
     private void requireWkOrTa(Long tenantId, Long userId) {
         if (!authService.hasRole(userId, "WK", tenantId) && !authService.hasRole(userId, "TA", tenantId)) {
-            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅本租户仓管(WK)或管理员(TA)可查看出库作业");
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅本仓库管员或租户管理员可查看出库作业");
         }
     }
 
