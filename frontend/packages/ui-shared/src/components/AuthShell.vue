@@ -139,10 +139,13 @@ withDefaults(defineProps<Props>(), {
   }
   .cc-auth__brand {
     flex: 0 0 auto;
-    flex-direction: row;
+    padding: 14px 20px;
+  }
+  .cc-auth__content {
+    display: flex;
     align-items: baseline;
     gap: var(--space-3, 12px);
-    padding: 18px 20px;
+    min-width: 0;
   }
   .cc-auth__logo {
     font-size: 22px;
@@ -152,6 +155,9 @@ withDefaults(defineProps<Props>(), {
   .cc-auth__slogan {
     font-size: 13px;
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .cc-auth__bullets,
   .cc-auth__footer {
