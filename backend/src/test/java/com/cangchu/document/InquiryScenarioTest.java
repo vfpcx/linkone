@@ -62,6 +62,8 @@ class InquiryScenarioTest {
     @Autowired
     private InquiryService inquiryService;
     @Autowired
+    private com.cangchu.document.service.OutboundRequestService outboundRequestService;
+    @Autowired
     private InventoryService inventoryService;
     @Autowired
     private TenantMapper tenantMapper;
@@ -150,6 +152,20 @@ class InquiryScenarioTest {
         return userId;
     }
 
+    /** seed 一个租户 WK 用户（P3 出库作业走 WK），返回 userId。 */
+    private long seedWkUser(long tenantId) {
+        long userId = snowflakeIdUtil.nextId();
+        UserRole r = new UserRole();
+        r.setId(snowflakeIdUtil.nextId());
+        r.setUserId(userId);
+        r.setRole("WK");
+        r.setTenantId(tenantId);
+        r.setStatus("ACTIVE");
+        r.setPriority(3);
+        userRoleMapper.insert(r);
+        return userId;
+    }
+
     private SubmitInquiryDto dto(long storeId, long wholesalerId, long skuId, Integer qty) {
         SubmitInquiryDto d = new SubmitInquiryDto();
         d.setStoreId(storeId);
@@ -229,7 +245,7 @@ class InquiryScenarioTest {
     }
 
     @Test
-    @DisplayName("INQ-S1-02 WA 确认 → CONFIRMED→COMPLETED + 出库单 + 库存扣减 + OUTBOUND 流水")
+    @DisplayName("INQ-S1-02 WA 确认 → CONFIRMED + 出库单 PENDING_ACCEPT + 扣库存；WK 打印→登记后询价 COMPLETED（12 §8.1）")
     void s1_waConfirmAutoOutbound() {
         long tenantId = baseTenant(710_000_200_001L);
         long store = seedStore(tenantId);
@@ -246,20 +262,37 @@ class InquiryScenarioTest {
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         InquiryVo confirmed = inquiryService.confirmByWa(inquiryId, null, wa);
 
-        assertThat(confirmed.getStatus()).isEqualTo(InquiryRequest.STATUS_COMPLETED);
+        // P3 BE-W2（12 §1.4/§8.1）：确认后停 CONFIRMED；扣库存断言不变
+        assertThat(confirmed.getStatus()).isEqualTo(InquiryRequest.STATUS_CONFIRMED);
         assertThat(confirmed.getConfirmedAt()).isNotNull();
 
-        // 每 item 一条出库单（COMPLETED）
+        // 每 item 一条出库单（PENDING_ACCEPT / INQUIRY_AUTO，确认即扣）
         assertThat(countOutbound(wid, sku)).isEqualTo(1);
         OutboundRequest out = outboundRequestMapper.selectList(new LambdaQueryWrapper<OutboundRequest>()
                 .eq(OutboundRequest::getInquiryId, inquiryId)).get(0);
-        assertThat(out.getStatus()).isEqualTo(OutboundRequest.STATUS_COMPLETED);
+        assertThat(out.getStatus()).isEqualTo(OutboundRequest.STATUS_PENDING_ACCEPT);
+        assertThat(out.getSource()).isEqualTo(OutboundRequest.SOURCE_INQUIRY_AUTO);
         assertThat(out.getQty()).isEqualTo(30);
         assertThat(out.getDocNo()).startsWith("CK-");
 
         // 库存扣减 100 → 70，OUTBOUND 流水 1 条
         assertThat(currentStock(wid, sku)).isEqualTo(70);
         assertThat(countOutboundMovements(wid, sku)).isEqualTo(1);
+
+        // 主链补两步（12 §8.1）：WK 打印 → 登记出库，末态 COMPLETED；询价终态联动 COMPLETED
+        long wk = seedWkUser(tenantId);
+        TenantContext.set(TenantContext.TenantInfo.of(tenantId, wk, "WK"));
+        outboundRequestService.printByWk(out.getId(), wk);
+        outboundRequestService.registerByWk(out.getId(), wk);
+        OutboundRequest done = outboundRequestMapper.selectById(out.getId());
+        assertThat(done.getStatus()).isEqualTo(OutboundRequest.STATUS_COMPLETED);
+        assertThat(done.getPrintedAt()).isNotNull();
+        assertThat(done.getCompletedAt()).isNotNull();
+        assertThat(inquiryService.listForWa(tenantId, wa).stream()
+                .filter(v -> v.getId().equals(inquiryId)).findFirst().orElseThrow().getStatus())
+                .isEqualTo(InquiryRequest.STATUS_COMPLETED);
+        // 登记出库为纯作业记录：库存不再变动
+        assertThat(currentStock(wid, sku)).isEqualTo(70);
     }
 
     // ======================================================================
@@ -401,7 +434,7 @@ class InquiryScenarioTest {
         TenantContext.set(TenantContext.TenantInfo.of(tenantId, wa, "WA"));
         // 第一次确认成功
         InquiryVo first = inquiryService.confirmByWa(inquiryId, null, wa);
-        assertThat(first.getStatus()).isEqualTo(InquiryRequest.STATUS_COMPLETED);
+        assertThat(first.getStatus()).isEqualTo(InquiryRequest.STATUS_CONFIRMED); // P3：停 CONFIRMED
         // 第二次确认被状态机拒绝（非 PENDING）
         BizException ex = Assertions.assertThrows(BizException.class,
                 () -> inquiryService.confirmByWa(inquiryId, null, wa));

@@ -16,9 +16,6 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
-  ArrowDown,
-  Switch,
-  Bell,
   Shop,
   User,
   Document,
@@ -31,7 +28,13 @@ import {
   Plus,
   Stamp,
 } from '@element-plus/icons-vue'
-import { StatusBadge } from '@cangchu/ui-shared'
+import {
+  AppTopbar,
+  EntityPickerDialog,
+  StatusBadge,
+  makeClientPickerFetch,
+  type EntityPickerColumn,
+} from '@cangchu/ui-shared'
 import type { Wholesaler, Sku, CreateSkuRequest } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
@@ -43,7 +46,6 @@ const router = useRouter()
 const auth = useAuthStore()
 
 // ============ 顶栏 ============
-const storeNameDisplay = computed(() => auth.currentStoreName || '我的店铺')
 
 const handleSwitchRole = () => auth.showSwitcher()
 
@@ -90,7 +92,7 @@ const menus: MenuItem[] = [
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
-  { key: '/ta/approvals', label: '单据审批', icon: Document },
+  { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
   { key: '/ta/messages', label: '站内信', icon: ChatLineSquare },
 ]
@@ -106,7 +108,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
     key === '/ta/pricing' ||
-    key === '/ta/wholesaler-applications'
+    key === '/ta/wholesaler-applications' ||
+    key === '/ta/approvals'
   ) {
     router.push(key)
     return
@@ -138,6 +141,24 @@ const fetchWholesalers = async () => {
 const onWholesalerChange = () => {
   void fetchSkus()
 }
+
+/** 商户 id → 名称（弹窗选择器回显） */
+const selectedWholesalerName = computed(() => {
+  const w = wholesalers.value.find((x) => String(x.id) === selectedWholesalerId.value)
+  return w?.name ?? ''
+})
+
+// 弹窗选择器：商户（开放实体集，UX 规范 2026-07-25）
+const wholesalerPickerColumns: EntityPickerColumn<Wholesaler>[] = [
+  { label: '商户名称', prop: 'name', minWidth: 160 },
+  { label: '简介', formatter: (w) => w.intro || '—', minWidth: 160 },
+  { label: '创建时间', formatter: (w) => String(w.createdAt ?? '').slice(0, 10), width: 110 },
+]
+
+const fetchWholesalerPage = makeClientPickerFetch<Wholesaler>(
+  () => wholesalers.value,
+  (w, kw) => w.name.toLowerCase().includes(kw) || (w.intro ?? '').toLowerCase().includes(kw),
+)
 
 // ============ SKU 列表 ============
 const loading = ref(false)
@@ -272,34 +293,11 @@ onMounted(fetchWholesalers)
 <template>
   <div class="ta-shell">
     <!-- 顶栏 -->
-    <header class="ta-topbar">
-      <div class="ta-topbar__left">
-        <span class="ta-topbar__brand">仓储云</span>
-        <span class="ta-topbar__divider">·</span>
+    <AppTopbar @switch-role="handleSwitchRole" @profile-command="handleProfileMenu">
+      <template #store>
         <WarehouseSwitcher />
-      </div>
-
-      <div class="ta-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-        <el-button text :icon="Bell" class="ta-topbar__bell" />
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="ta-topbar__user">
-            <el-avatar :size="28">U</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+      </template>
+    </AppTopbar>
 
     <div class="ta-body">
       <!-- 左侧菜单 -->
@@ -333,21 +331,16 @@ onMounted(fetchWholesalers)
           <!-- 商户选择器 -->
           <div class="toolbar">
             <span class="toolbar__label">商户</span>
-            <el-select
+            <EntityPickerDialog
               v-model="selectedWholesalerId"
-              placeholder="请选择商户"
-              :loading="wholesalerLoading"
+              title="选择商户"
+              placeholder="点击选择商户"
+              :columns="wholesalerPickerColumns"
+              :fetch="fetchWholesalerPage"
+              :selected-label="selectedWholesalerName"
               class="toolbar__select"
-              filterable
               @change="onWholesalerChange"
-            >
-              <el-option
-                v-for="w in wholesalers"
-                :key="String(w.id)"
-                :label="w.name"
-                :value="String(w.id)"
-              />
-            </el-select>
+            />
             <span v-if="!wholesalerLoading && wholesalers.length === 0" class="toolbar__empty">
               当前店铺暂无商户，请先在「入驻商户」创建
             </span>
@@ -493,63 +486,6 @@ onMounted(fetchWholesalers)
   flex-direction: column;
 }
 
-/* ===== 顶栏 ===== */
-.ta-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
-.ta-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.ta-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.ta-topbar__divider {
-  opacity: 0.5;
-}
-.ta-topbar__store {
-  font-weight: var(--font-weight-medium);
-  opacity: 0.95;
-}
-.ta-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ta-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.ta-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.ta-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
-.ta-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.ta-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .ta-body {

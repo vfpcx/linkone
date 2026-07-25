@@ -14,6 +14,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElDialog } from 'element-plus'
+import { roleLabel } from '@cangchu/ui-shared'
 import type { LoginRoleEntry, Role } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 
@@ -30,16 +31,6 @@ const sortedRoles = computed(() => {
 })
 
 const recommendedRole = computed(() => sortedRoles.value[0]?.role)
-
-const ROLE_LABEL: Record<Role, string> = {
-  OPS: '运维',
-  TA: '租户管理员',
-  WK: '库管员',
-  ST: '结算员',
-  WA: '批发商管理员',
-  WE: '批发商员工',
-  RT: '终端买家',
-}
 
 const ROLE_ICON: Record<Role, string> = {
   OPS: '🛠',
@@ -75,11 +66,11 @@ const handleEnter = (entry: LoginRoleEntry) => {
         <div class="switcher__icon">{{ ROLE_ICON[entry.role] }}</div>
         <div class="switcher__info">
           <div class="switcher__title">
-            {{ entry.storeName || ROLE_LABEL[entry.role] }}
+            {{ entry.storeName || roleLabel(entry.role) }}
             <span v-if="entry.role === recommendedRole" class="switcher__dot" />
           </div>
           <div class="switcher__sub">
-            {{ ROLE_LABEL[entry.role] }}
+            {{ roleLabel(entry.role) }}
             <span v-if="entry.pendingCount" class="switcher__pending">
               · {{ entry.pendingCount }} 个待办
             </span>
@@ -88,7 +79,9 @@ const handleEnter = (entry: LoginRoleEntry) => {
         <el-button type="primary" @click="handleEnter(entry)">进入</el-button>
       </div>
 
-      <p class="switcher__priority">已选优先级: TA &gt; ST &gt; WK &gt; WA &gt; WE</p>
+      <p class="switcher__priority">
+        默认推荐优先级: 租户管理员 &gt; 结算员 &gt; 库管员 &gt; 批发商管理员 &gt; 批发商员工
+      </p>
     </div>
   </el-dialog>
 </template>

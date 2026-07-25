@@ -150,13 +150,29 @@ public enum ErrorCode {
     WHOLESALER_STATE_TRANSITION_INVALID(50318, "批发商当前状态不允许该操作"),
 
     // ==================== WE 批发商员工 (P2 入驻 Wave 3，50319+) ====================
-    EMPLOYEE_INVITE_PERMISSION_INVALID(50319, "员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM）"),
+    // P3 BE-W1：授权位白名单扩 INBOUND_CONFIRM（G7），文案同步
+    EMPLOYEE_INVITE_PERMISSION_INVALID(50319, "员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM/INBOUND_CONFIRM）"),
     EMPLOYEE_NOT_FOUND(50320, "员工不存在或不属于本商户"),
     EMPLOYEE_STATE_INVALID(50321, "员工当前状态不允许该操作"),
     EMPLOYEE_RESTORE_EXPIRED(50322, "员工禁用已超 30 天，无法恢复"),
 
     // WEM-S5-01：账号存在但全部角色被禁用（如被 R17 禁用的 WE）→ 登录给语义提示而非兜底 TA
-    ACCOUNT_ALL_ROLES_DISABLED(41110, "账号已被禁用，请联系商户管理员");
+    ACCOUNT_ALL_ROLES_DISABLED(41110, "账号已被禁用，请联系商户管理员"),
+
+    // ==================== P3 单据异常链 (12-p3-design §6.2，50330-50349 段；50343+ 预留 T3) ====================
+    DOC_STATE_TRANSITION_INVALID(50330, "当前状态不允许此操作"),
+    DOC_STATE_CAS_CONFLICT(50331, "单据状态已变更，请刷新后重试"),
+    INBOUND_CONFIRM_WINDOW_CLOSED(50332, "72 小时确认期已过，单据已自动确认"),
+    ARBITRATION_CONCLUSION_INVALID(50333, "结论选项与仲裁类型不符"),
+    ARBITRATION_NOT_PENDING(50334, "该仲裁已有结论"),
+    OUTBOUND_NOT_WITHDRAWABLE(50335, "当前状态不可撤回（已出库请走退货）"),
+    OUTBOUND_NO_WITHDRAW_REQUEST(50336, "该单无待确认的撤回申请"),
+    INQUIRY_NOT_VOIDABLE(50337, "意向单当前不可作废（存在已出库单据）"),
+    OUTBOUND_LARGE_CONFIRM_REQUIRED(50338, "大额出库需复述件数确认"),
+    OUTBOUND_COMPLAINT_WINDOW_CLOSED(50339, "客诉期已过（出库后 30 天内可提）"),
+    FILE_UPLOAD_INVALID(50340, "文件格式或大小不符合要求"),
+    NOTIFICATION_NOT_FOUND(50341, "消息不存在"),
+    ARBITRATION_LIABILITY_INVALID(50342, "差额定责选项缺失或不适用");
 
     private final int code;
     private final String message;

@@ -36,8 +36,8 @@ import {
  * 已知契约偏差（详见 shared/test-plan/07-onboarding-e2e-report.md 缺陷清单）：
  *  - DEF-1: 注册页(role=wa)「目标仓库」下拉为硬编码 mock（Register.vue fetchTenants），
  *    真实租户 ID 无法经 UI 选择 → E2E-01 的「注册携 targetTenantId」走 API（与后端接入点等价）。
- *  - DEF-2: 黑名单拦截文案（后端 message + Apply.vue 补充提示）均透出「黑名单」字样，
- *    与「不透出黑名单」要求不符 → 本套件断言"拒绝生效"，文案问题登记缺陷不阻断。
+ *  - DEF-2 已修（Wave6 §30）：拦截文案已中性化「暂不满足入驻条件，请联系平台客服」；
+ *    下方仍保留「透出黑名单字样则登记 annotation」的哨兵逻辑防回退。
  */
 
 // ============================== ONB-E2E-01 入驻主链 ==============================

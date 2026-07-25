@@ -3,8 +3,9 @@
  * OPS 黑名单管理（PC）— P2 入驻生态 Wave4 前端第一批 · OPS 端第一个真实页面
  *
  * 来源：
- *  - 契约（10-onboarding-design.md §1.2/§2，后端已落地）：
- *          GET    /api/v1/ops/blacklist（列表返回裸数组，可按 status 过滤）
+ *  - 契约（10-onboarding-design.md §1.2/§2 + §31 Wave6 分页改造，后端已落地）：
+ *          GET    /api/v1/ops/blacklist?page=&size=&status=&keyword=
+ *                 （{records,total,page,size}；keyword 模糊匹配键值；createdAt 倒序）
  *          POST   /api/v1/ops/blacklist（{targetType, targetValue, reason} 均必填；重复 50310）
  *          DELETE /api/v1/ops/blacklist/{id}（移除=置 REMOVED）
  *  - 视觉：沿用 TA 端 shell（顶栏 + 左侧菜单）+ el-table/el-dialog 风格（MASTER §4.2/§4.4）
@@ -17,16 +18,14 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
-  ArrowDown,
-  Switch,
-  Bell,
   Monitor,
   CircleClose,
   Stamp,
   Plus,
   Refresh,
+  Search,
 } from '@element-plus/icons-vue'
-import { StatusBadge } from '@cangchu/ui-shared'
+import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type { BlacklistItem, CreateBlacklistRequest } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import { opsApi } from '@/api/ops'
@@ -84,20 +83,51 @@ const handleMenuSelect = (key: string) => {
   ElMessage.info('该页面留给后续 Agent 实现')
 }
 
-// ============ 列表（后端返回裸数组，仅看生效中条目） ============
+// ============ 列表（DEF-6 · §31 分页契约：{records,total,page,size}，仅看生效中条目） ============
 const loading = ref(false)
 const list = ref<BlacklistItem[]>([])
+const page = ref(1)
+const size = ref(10)
+const total = ref(0)
+/** 键值搜索：手机号 / 执照号同框（后端模糊匹配 targetValue） */
+const keyword = ref('')
 
 const fetchList = async () => {
   loading.value = true
   try {
-    const data = await opsApi.listBlacklist({ status: 'ACTIVE' })
-    list.value = data ?? []
+    const data = await opsApi.listBlacklist({
+      page: page.value,
+      size: size.value,
+      status: 'ACTIVE',
+      keyword: keyword.value.trim() || undefined,
+    })
+    list.value = data?.records ?? []
+    total.value = data?.total ?? 0
+    // 后端钳制回显（size 1..100、page>=1）
+    if (data?.page) page.value = data.page
+    if (data?.size) size.value = data.size
   } catch {
     // 全局 toast 已提示；保持已有数据以便重试
   } finally {
     loading.value = false
   }
+}
+
+/** 搜索 / 清空：回到第 1 页再查 */
+const onSearch = () => {
+  page.value = 1
+  fetchList()
+}
+
+const onPageChange = (p: number) => {
+  page.value = p
+  fetchList()
+}
+
+const onSizeChange = (s: number) => {
+  size.value = s
+  page.value = 1
+  fetchList()
 }
 
 // ============ 类型 / 格式化 ============
@@ -212,6 +242,8 @@ const onRemove = async (row: BlacklistItem) => {
   try {
     await opsApi.removeBlacklist(String(row.id))
     ElMessage.success('已移出黑名单')
+    // 当页只剩这一条且非首页 → 回退一页，避免落在空页
+    if (list.value.length === 1 && page.value > 1) page.value -= 1
     await fetchList()
   } catch {
     // 全局 toast 已提示
@@ -226,34 +258,12 @@ onMounted(fetchList)
 <template>
   <div class="ops-shell">
     <!-- 顶栏 -->
-    <header class="ops-topbar">
-      <div class="ops-topbar__left">
-        <span class="ops-topbar__brand">仓储云</span>
-        <span class="ops-topbar__divider">·</span>
-        <span class="ops-topbar__store">平台运营</span>
-      </div>
-
-      <div class="ops-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-        <el-button text :icon="Bell" class="ops-topbar__bell" />
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="ops-topbar__user">
-            <el-avatar :size="28">O</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+    <AppTopbar
+      store-name="平台运营"
+      avatar-text="O"
+      @switch-role="handleSwitchRole"
+      @profile-command="handleProfileMenu"
+    />
 
     <div class="ops-body">
       <!-- 左侧菜单 -->
@@ -272,7 +282,7 @@ onMounted(fetchList)
           <div>
             <h2 class="page-head__title">黑名单</h2>
             <p class="page-head__sub">
-              平台级黑名单（手机号 / 营业执照号双键）：命中的主体无法提交入驻申请，OPS 代建同样拦截
+              平台级黑名单（手机号 / 营业执照号双键）：命中的主体无法提交入驻申请，平台运维代建同样拦截
             </p>
           </div>
           <div class="page-head__actions">
@@ -282,12 +292,30 @@ onMounted(fetchList)
         </header>
 
         <section class="card">
+          <!-- 键值搜索（DEF-6）：手机号 / 执照号同框，回车或点搜索触发 -->
+          <div class="bl-toolbar">
+            <el-input
+              v-model="keyword"
+              class="bl-toolbar__search"
+              placeholder="按键值搜索：手机号 / 执照号（支持部分匹配）"
+              :prefix-icon="Search"
+              clearable
+              @keyup.enter="onSearch"
+              @clear="onSearch"
+            />
+            <el-button type="primary" plain @click="onSearch">搜索</el-button>
+          </div>
+
           <el-table
             v-loading="loading"
             :data="list"
             stripe
             class="bl-table"
-            empty-text="黑名单为空。点击右上角「加入黑名单」可按手机号或执照号拉黑"
+            :empty-text="
+              keyword.trim()
+                ? '未找到匹配的黑名单条目，换个关键词试试'
+                : '黑名单为空。点击右上角「加入黑名单」可按手机号或执照号拉黑'
+            "
           >
             <el-table-column label="类型" width="110">
               <template #default="{ row }">
@@ -326,6 +354,20 @@ onMounted(fetchList)
               </template>
             </el-table-column>
           </el-table>
+
+          <!-- 分页（DEF-6 · §31：records/total/page/size） -->
+          <div class="bl-pagination">
+            <el-pagination
+              :current-page="page"
+              :page-size="size"
+              :total="total"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
+              background
+              @current-change="onPageChange"
+              @size-change="onSizeChange"
+            />
+          </div>
         </section>
       </main>
     </div>
@@ -342,7 +384,7 @@ onMounted(fetchList)
         :closable="false"
         show-icon
         title="加黑后全平台生效"
-        description="命中黑名单的手机号 / 执照号将无法提交入驻申请（含 OPS 代建），请谨慎操作。"
+        description="命中黑名单的手机号 / 执照号将无法提交入驻申请（含平台运维代建），请谨慎操作。"
         class="bl-dialog__alert"
       />
       <el-form
@@ -393,63 +435,6 @@ onMounted(fetchList)
   flex-direction: column;
 }
 
-/* ===== 顶栏 ===== */
-.ops-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
-.ops-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.ops-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.ops-topbar__divider {
-  opacity: 0.5;
-}
-.ops-topbar__store {
-  font-weight: var(--font-weight-medium);
-  opacity: 0.95;
-}
-.ops-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ops-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.ops-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.ops-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
-.ops-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.ops-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .ops-body {
@@ -518,8 +503,21 @@ onMounted(fetchList)
   padding: var(--space-5);
   box-shadow: var(--shadow-base);
 }
+.bl-toolbar {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.bl-toolbar__search {
+  max-width: 360px;
+}
 .bl-table {
   width: 100%;
+}
+.bl-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
 }
 .cell-code {
   font-family: var(--font-family-mono, ui-monospace, monospace);
@@ -542,14 +540,6 @@ onMounted(fetchList)
   }
   .page-head {
     flex-direction: column;
-  }
-  /* 顶栏：防止「仓储云 · 平台运营」纵向换行被 56px 高度裁切 */
-  .ops-topbar {
-    padding: 0 var(--space-3);
-  }
-  .ops-topbar__left {
-    white-space: nowrap;
-    flex-shrink: 0;
   }
   .ops-main {
     padding: var(--space-3);

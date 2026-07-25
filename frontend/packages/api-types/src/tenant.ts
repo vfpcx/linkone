@@ -370,7 +370,16 @@ export interface InboundRegisterRequest {
   palletQty?: number
 }
 
-/** 入库单视图对象（InboundRequestVo） */
+/**
+ * 入库单状态机（P3 BE-W1 · 12-p3-design.md §2.1；
+ * 存量 REGISTERED 已由 V16 回填为 CONFIRMED；SUBMITTED/ACCEPTED 等留待 R1/R2 波启用）
+ */
+export type InboundStatus = 'PENDING_WA_CONFIRM' | 'CONFIRMED' | 'DISPUTED' | 'REVOKED'
+
+/** 入库单来源（P3 BE-W1）：WK 现场代建 / WA 正向申请 */
+export type InboundSource = 'WK_CREATED' | 'WA_SUBMIT'
+
+/** 入库单视图对象（InboundRequestVo · P3 BE-W1 增确认链字段） */
 export interface InboundRequest {
   id: SnowflakeId
   docNo: string
@@ -381,8 +390,17 @@ export interface InboundRequest {
   palletQty: number | null
   status: string
   wkUserId: SnowflakeId
-  /** 登记后该 sku 最新库存（便于前端回显） */
+  /** 登记后该 sku 最新库存（便于前端回显；列表端点为 null） */
   currentStock: number | null
+  // ==================== P3 BE-W1 确认链字段 ====================
+  /** 来源：WK_CREATED / WA_SUBMIT */
+  source: InboundSource | null
+  /** 72h 确认截止（WA 队列按此升序倒计时）· LocalDateTime 无时区偏移 */
+  waConfirmDeadline: string | null
+  waConfirmAt: string | null
+  /** 1=72h 超时自动确认 */
+  autoAccepted: number | null
+  disputedAt: string | null
   createdAt: string
 }
 
@@ -469,4 +487,28 @@ export interface SubmitInquiryRequest {
   rtPhone: string
   /** 询价明细（非空；每项 skuId 必填、qty>0） */
   items: Array<{ skuId: SnowflakeId; qty: number }>
+}
+
+// ============================================================
+// 公开租户目录（DEF-1 · 10-onboarding-design.md §32，Wave6）
+// ============================================================
+/**
+ * `GET /api/v1/tenants/directory?keyword=&limit=`（注意前缀是 tenants 复数）
+ *  - 匿名可访问（SaTokenConfig 显式公开）；WA 注册页「选择想入驻的仓库」数据源。
+ *  - 防枚举：仅 status=ACTIVE 租户可见；DTO 恰好 id/name 两字段，无任何敏感信息。
+ *  - IP 限流：同 IP 30 次/分钟，超限 43001「操作过于频繁，请稍后再试」。
+ */
+
+/** 目录查询参数（均可选）：keyword 按仓库名模糊匹配；limit 默认 10、上限 20（后端强制钳制） */
+export interface TenantDirectoryQuery {
+  keyword?: string
+  limit?: number
+}
+
+/** 目录条目（恰好两个字段） */
+export interface TenantDirectoryItem {
+  /** 租户（仓库）id · 字符串化 Long——WA 注册时原样作为 targetTenantId 提交 */
+  id: SnowflakeId
+  /** 仓库名 */
+  name: string
 }

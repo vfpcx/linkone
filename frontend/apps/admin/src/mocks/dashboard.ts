@@ -35,7 +35,7 @@ export const mockTenantDashboard: TenantDashboardResponse = {
 
 /** 顶部通知 mock */
 export const mockNotifications = [
-  { id: 'n1', title: '新增 1 个 WA 入驻申请', time: '10:30', unread: true },
+  { id: 'n1', title: '新增 1 个批发商入驻申请', time: '10:30', unread: true },
   { id: 'n2', title: '盘点单 CT-XX-20260607-12 待审', time: '09:15', unread: true },
   { id: 'n3', title: '账单 BL-202605 已下发', time: '昨日', unread: false },
 ]

@@ -20,9 +20,6 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
-  ArrowDown,
-  Switch,
-  Bell,
   Shop,
   User,
   Document,
@@ -34,7 +31,7 @@ import {
   Plus,
   Stamp,
 } from '@element-plus/icons-vue'
-import { StatusBadge } from '@cangchu/ui-shared'
+import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type {
   Wholesaler,
   CreateWholesalerRequest,
@@ -50,7 +47,6 @@ const router = useRouter()
 const auth = useAuthStore()
 
 // ============ 顶栏 ============
-const storeNameDisplay = computed(() => auth.currentStoreName || '我的店铺')
 
 const handleSwitchRole = () => auth.showSwitcher()
 
@@ -96,7 +92,7 @@ const menus: MenuItem[] = [
   { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
-  { key: '/ta/approvals', label: '单据审批', icon: Document },
+  { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
   { key: '/ta/messages', label: '站内信', icon: ChatLineSquare },
 ]
@@ -111,7 +107,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/settings' ||
     key === '/ta/skus' ||
     key === '/ta/employees' ||
-    key === '/ta/wholesaler-applications'
+    key === '/ta/wholesaler-applications' ||
+    key === '/ta/approvals'
   ) {
     router.push(key)
     return
@@ -150,10 +147,13 @@ const statusMeta = (status: string): { variant: BadgeVariant; text: string } => 
   return map[status] ?? { variant: 'default', text: status || '—' }
 }
 
+/** DEF-5：来源列中文映射（与状态列中文 tag 口径一致），未知枚举兜底直出 */
 const sourceLabel = (source: string): string => {
   const map: Record<string, string> = {
+    SELF_APPLY: '自助申请',
+    OPS_CREATED: '平台运维代建',
+    TA_SELF_OPERATED: '自营',
     SELF_OPERATED: '自营',
-    APPLIED: '入驻申请',
   }
   return map[source] ?? source ?? '—'
 }
@@ -304,34 +304,11 @@ onMounted(fetchList)
 <template>
   <div class="ta-shell">
     <!-- 顶栏 -->
-    <header class="ta-topbar">
-      <div class="ta-topbar__left">
-        <span class="ta-topbar__brand">仓储云</span>
-        <span class="ta-topbar__divider">·</span>
+    <AppTopbar @switch-role="handleSwitchRole" @profile-command="handleProfileMenu">
+      <template #store>
         <WarehouseSwitcher />
-      </div>
-
-      <div class="ta-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-        <el-button text :icon="Bell" class="ta-topbar__bell" />
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="ta-topbar__user">
-            <el-avatar :size="28">U</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+      </template>
+    </AppTopbar>
 
     <div class="ta-body">
       <!-- 左侧菜单 -->
@@ -389,7 +366,7 @@ onMounted(fetchList)
                 <span class="cell-muted">{{ row.intro || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="WA 账号" width="100">
+            <el-table-column label="管理员账号" width="110">
               <template #default="{ row }">
                 <StatusBadge
                   v-if="row.waUserId"
@@ -465,8 +442,8 @@ onMounted(fetchList)
         </el-form-item>
 
         <el-form-item v-if="dialogMode === 'create'" label="负责人手机号（可选）" prop="waPhone">
-          <el-input v-model="form.waPhone" placeholder="填写则为该商户开通 WA 账号" maxlength="11" />
-          <span class="form-hint">传入手机号将为商户负责人创建/绑定 WA 账号</span>
+          <el-input v-model="form.waPhone" placeholder="填写则为该商户开通批发商管理员账号" maxlength="11" />
+          <span class="form-hint">传入手机号将为商户负责人创建/绑定批发商管理员账号</span>
         </el-form-item>
       </el-form>
 
@@ -547,63 +524,6 @@ onMounted(fetchList)
   flex-direction: column;
 }
 
-/* ===== 顶栏（复用 Dashboard 风格） ===== */
-.ta-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
-.ta-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.ta-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.ta-topbar__divider {
-  opacity: 0.5;
-}
-.ta-topbar__store {
-  font-weight: var(--font-weight-medium);
-  opacity: 0.95;
-}
-.ta-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ta-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.ta-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.ta-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
-.ta-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.ta-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .ta-body {

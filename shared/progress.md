@@ -1,6 +1,27 @@
-# Progress Log · P2 入驻生态
+# Progress Log · P3 完整单据与履约异常
 
-> 最新在上。关联 `task_plan.md` / `findings.md`。定价三件套已归档 `shared/archive/`。
+> 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
+
+## 2026-07-25
+- **FE-W1 入库链前端 ✅（feat/p3-inbound-fe，4 commits 31f5f6f→f5ec4db，已合并）**：
+  - 交付：WA `/wa/inbound` 入库确认页（待确认/全部页签、72h 秒级倒计时 deadline 升序、来源映射 仓库代建/我方提交、autoAccepted 标记、确认二次弹窗、异议弹窗〔预设四选+补充说明合成 reason≤512+附件≤5〕、冲销结果回显 登记/已冲销/差额/YY-单号）；TA `/ta/approvals` 审批中心（待仲裁角标=PENDING total、⏰超72h提醒、decide 弹窗按 09 §4.1：通过·恢复流水/驳回·保留冲销、差额>0 驳回时定责四选必填、备注必填、已裁决只读详情）；NotificationBell（unread-count 60s 轮询+抽屉+标记已读）；AttachmentUpload（≤5MB jpg/png/webp 预检）；api-types/error-codes 50330-50342/四组 API 封装；TA 各页菜单接通「审批中心」、WA 四页菜单增「入库确认」；用户可见文案零角色码（liability 中文四选）。
+  - 闸门：typecheck 绿；Playwright `inbound-dispute.spec.ts` 3/3 绿（INB-01 确认链/INB-02 异议链含真实附件上传/INB-03 TA decide + TA 侧铃铛角标-条目-已读全链断言）；截图 6 张逐张目检无对齐/溢出/错位（动画入镜的 3 张已加静置重拍）。
+  - **契约偏差 →BE 待修**：① `registerByWk`/72h Job 的「通知归属 WA」发给 `wholesalers.owner_user_id`，SELF_OPERATED 商户该列= TA 操作人，绑定 WA 账号收不到通知（listForWa 用 user_roles 推导无此问题；E2E 改在 TA 侧断言铃铛全链）。② `/files/**` GET 静态映射在启动时 `Path.toUri()`，若 upload-dir 尚不存在则 URI 缺尾斜杠 → 上传成功但 GET 500，重启后自愈（建议 addResourceHandlers 先 createDirectories 或手工拼尾斜杠）。③ PRD 09 §6.2 要求异议弹窗展示实时在库 M/差额 N−M，后端无异议前在库查询端点，已降级为口径文案+提交后回显（如需严格达标需 BE 补端点）。
+  - 环境插曲：8080 曾跑 BE-W1 合并前旧实例（新端点 404→90001、V15-V17 未迁移），Team Lead 重启后解决；又因 ② 再重启一次使 /files GET 生效。axios 实例默认 application/json 覆盖 FormData 检测的坑已修（file.ts 摘除 Content-Type）。
+- **BE-W2 出库状态机+异常链 ✅（待 Team Lead 复验合并）**〔feat/p3-outbound-chain，5 commits〕：V18（出库补拆列+inquiry voided_at，存量回填幂等）；DocStateMachine 引擎（OUTBOUND/INBOUND 双矩阵+assertCanGo 50330+通用 casTransition，兑现 BE-W1 备注 2）；confirmByWa 唯一触主链改动（出库 PENDING_ACCEPT/询价停 CONFIRMED）；R4 两路/R8 作废/代建大额 50%/30 天客诉+OPS 四选（remark 必填按 PRD）；R13 未结扩展至入库+仲裁；R14 钩子三处接入。测试 219/219 绿（基线 202+17 新增，P1 断言适配 4 文件）。错误码零新增（BE-W1 预登记段全启用）。偏差 10 处已回写 12 据实现备注（要点：WE 暂不开放出库、一单一诉查历史仲裁单、托盘账不动、50004 不存在改 50330）。中途插曲：上游 502×1 + codecmd 余额×1，均按「撞墙先 commit」纪律无损续跑；新拍板规则 8（文案去角色码）已在本波落地。
+
+## 2026-07-24
+- **P3 W0 设计定稿 ✅**：并行两 Agent 产出——产品 09-p3-arbitration-prd.md v1.1（双仲裁最小 PRD，Q-D04/Q-D10 收口，04 §1.2 确认即扣转正，05 §7.1 新前缀 RTN-/PD-/QK-/YY-/KS-，决策日志 D57-D60）+ 架构 12-p3-design.md v2（V15-V18 迁移、状态机 String+CAS、封顶冲销口径、72h Job 复用 SchedulingConfig、错误码 50330-50342、四波次拆分）。**Team Lead 契约对账拦下 3 处并行漂移**（liability 列缺失→补+50342、仲裁 doc_no 缺失→补 YY-/KS-、PRD 命名 9 处漂移→对齐落库定稿；另架构自查出盘点/清库前缀冲突按产品 PD-/QK- 统一）——W1 教训的对账机制第二次见效。
+- **headroom 生效确认 ✅**：会话重启后 BASE_URL=127.0.0.1:8787，stats 显示 262 请求被压缩、累计省 25.6 万 token。
+- **BE-W1 派发**：入驻异常链+基建〔feat/p3-inbound-chain〕，闸门见 task_plan。
+
+## 2026-07-23
+- **Wave 6 完成 ✅ / P2 全部交付**：双分支合并 main（3564607/bfba12e），回归 187/187 绿 + typecheck 绿 + E2E 12/12 绿（1.9m）；报告 07 v2 增补复验记录（0405b19）；main 已推 origin（aca2ae8）；worktree defects-be/fe 已清理。**发现**：后端 Agent 在 worktree 留有未提交的 G-S1/G-S2 架构债重构（tenant 跨域直连 UserMapper 收敛为 UserService 出口），未混入 Wave6——已抢救到分支 `refactor/account-user-service`（WIP，未经测试验证，P3 期间择机补测合并）。
+- **P3 拍板 ✅（用户）**：三题全选 B——72h 待确认库存可售+冲销按剩余在库封顶（差额进 TA 仲裁）；扣库存保持「确认即扣」+状态机补拆（撤回走反向回补流水）；双仲裁最小闭环版（P3 产品首任务补最小 PRD+Q-D04 收口）。两项修正同意：单据号按已上线 WK-/CK-/XJ-（退货 RTN-）修订 PRD；Flyway P3 自 V15 起。详见 09-p3-decision-options.md v2。**P3 解除阻塞。**
+- **headroom 路由修复 ✅**：代理一直在跑但会话绕行——项目 settings.local.json 残留 BASE_URL=codecmd 覆盖了全局 8787 配置；已删除覆盖，/v1/messages 经 8787 端到端验证通。新会话起走压缩。
+- **Wave 6 双分支就绪**：后端 fix/p2-defects 5 commits mvn 全量绿；前端 fix/p2-defects-fe 6 commits typecheck 绿（前端二批 DEF-1 下拉/DEF-6 分页实际已随一批完成，无需再派）。进入合并+回归。
+- **环境插曲**：headroom 压缩代理曾损坏（7-16 起 headroom.exe 报废导致会话报错），已重装 `headroom-ai[proxy,ml]` 0.32.1+开机自启；`.claude/settings.local.json` 清理跨机残留规则；CLAUDE.md 技能列表格式修正（5b0e745）。main 已推送 origin（65 commits，至 5b0e745）。
+- **Wave 6 启动**：P2 收尾缺陷修复（DEF-1~DEF-6，源自 07 报告 §5）。派发：后端 Agent〔fix/p2-defects〕+ 前端一批 Agent〔fix/p2-defects-fe，DEF-4/5 纯前端〕并行；前端二批等后端 DTO 定稿后派（吸取 W1 契约漂移教训，契约类修复以后端据实现文档为真源）。
 
 ## 2026-07-16
 - **WE 前端对账 ✅**：commit 823b876，typecheck 5/5 绿。关键修复：Staff.vue 8 处误用 userId→改角色绑定行 id（运行时必炸级）；41110 登录禁用文案、50319-50322、defaultRouterFor WE→/wa/inquiry、30 天倒计时 disabledAt 自算。守卫备注：WE 进 /wa/* 前端不拦（与 TA/WA 互访策略一致，页面权限靠后端 42004）。

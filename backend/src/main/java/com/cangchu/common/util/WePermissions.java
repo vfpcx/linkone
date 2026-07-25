@@ -22,8 +22,10 @@ public final class WePermissions {
     public static final String PRICE_EDIT = "PRICE_EDIT";
     /** 询价确认（确认即原子转出库） */
     public static final String INQUIRY_CONFIRM = "INQUIRY_CONFIRM";
+    /** 代建入库确认/异议（P3 BE-W1，G7 授权位扩 1 枚） */
+    public static final String INBOUND_CONFIRM = "INBOUND_CONFIRM";
 
-    public static final Set<String> ALLOWED = Set.of(PRICE_EDIT, INQUIRY_CONFIRM);
+    public static final Set<String> ALLOWED = Set.of(PRICE_EDIT, INQUIRY_CONFIRM, INBOUND_CONFIRM);
 
     private WePermissions() {
     }

@@ -33,6 +33,9 @@ public class InquiryVo {
 
     private LocalDateTime confirmedAt;
 
+    /** R8 作废时刻（P3 BE-W2，状态 VOIDED） */
+    private LocalDateTime voidedAt;
+
     private List<InquiryItemVo> items;
 
     @Data

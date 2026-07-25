@@ -93,6 +93,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ta/WholesalerApplications.vue'),
     meta: { role: 'TA', title: '入驻审批' },
   },
+  {
+    path: '/ta/approvals',
+    name: 'ta-approvals',
+    component: () => import('@/views/ta/Approvals.vue'),
+    meta: { role: 'TA', title: '审批中心' },
+  },
 
   // WA 工作台（批发商）
   {
@@ -106,6 +112,12 @@ const routes: RouteRecordRaw[] = [
     name: 'wa-inquiry',
     component: () => import('@/views/wa/Inquiry.vue'),
     meta: { role: 'WA', title: '询价确认' },
+  },
+  {
+    path: '/wa/inbound',
+    name: 'wa-inbound',
+    component: () => import('@/views/wa/Inbound.vue'),
+    meta: { role: 'WA', title: '入库确认' },
   },
   {
     path: '/wa/apply',
@@ -131,7 +143,7 @@ const routes: RouteRecordRaw[] = [
     path: '/ops/dashboard',
     name: 'ops-dashboard',
     component: () => import('@/views/PlaceholderDashboard.vue'),
-    meta: { role: 'OPS', title: 'OPS 控制台' },
+    meta: { role: 'OPS', title: '平台运维控制台' },
   },
   {
     path: '/ops/tenant-audit',
@@ -151,7 +163,7 @@ const routes: RouteRecordRaw[] = [
     path: '/st/dashboard',
     name: 'st-dashboard',
     component: () => import('@/views/PlaceholderDashboard.vue'),
-    meta: { role: 'ST', title: 'ST 结算台' },
+    meta: { role: 'ST', title: '结算员工作台' },
   },
 
   // 根重定向

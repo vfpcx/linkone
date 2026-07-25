@@ -23,9 +23,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Notification,
-  ArrowDown,
   Sunny,
-  Switch,
   Bell,
   Box,
   Shop,
@@ -37,7 +35,7 @@ import {
   TrendCharts,
   Stamp,
 } from '@element-plus/icons-vue'
-import { CapacityBar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
+import { AppTopbar, CapacityBar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { accountApi } from '@/api/account'
@@ -47,9 +45,6 @@ const router = useRouter()
 const auth = useAuthStore()
 
 // ============ 顶栏 ============
-const storeNameDisplay = computed(
-  () => auth.currentStoreName || mockTenantDashboard.storeName,
-)
 
 const handleSwitchRole = () => {
   auth.showSwitcher()
@@ -121,7 +116,7 @@ const menus = computed<MenuItem[]>(() => [
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   {
     key: '/ta/approvals',
-    label: '单据审批',
+    label: '审批中心',
     icon: Document,
     badge:
       dashboard.value.kpi.pendingInbound +
@@ -142,7 +137,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/settings' ||
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
-    key === '/ta/wholesaler-applications'
+    key === '/ta/wholesaler-applications' ||
+    key === '/ta/approvals'
   ) {
     router.push(key)
     return
@@ -199,22 +195,14 @@ onMounted(fetchDashboard)
 <template>
   <div class="ta-shell" v-loading="loading">
     <!-- 顶栏 -->
-    <header class="ta-topbar">
-      <div class="ta-topbar__left">
-        <span class="ta-topbar__brand">仓储云</span>
-        <span class="ta-topbar__divider">·</span>
+    <AppTopbar @switch-role="handleSwitchRole" @profile-command="handleProfileMenu">
+      <template #store>
         <WarehouseSwitcher />
-      </div>
-
-      <div class="ta-topbar__right">
-        <el-button text @click="handleSwitchRole">
-          <el-icon><Switch /></el-icon>
-          切换角色
-        </el-button>
-
+      </template>
+      <template #bell>
         <el-popover trigger="click" placement="bottom-end" :width="320">
           <template #reference>
-            <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="ta-topbar__bell">
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="cc-topbar__bell">
               <el-button text :icon="Bell" />
             </el-badge>
           </template>
@@ -226,22 +214,8 @@ onMounted(fetchDashboard)
             <div v-if="notifications.length === 0" class="notif__empty">暂无通知</div>
           </div>
         </el-popover>
-
-        <el-dropdown trigger="click" @command="handleProfileMenu">
-          <span class="ta-topbar__user">
-            <el-avatar :size="28">U</el-avatar>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-              <el-dropdown-item command="security">安全设置</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+      </template>
+    </AppTopbar>
 
     <div class="ta-body">
       <!-- 左侧菜单 -->
@@ -394,66 +368,9 @@ onMounted(fetchDashboard)
   flex-direction: column;
 }
 
-/* ===== 顶栏 ===== */
-.ta-topbar {
-  height: 56px;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-fixed);
-  box-shadow: var(--shadow-base);
-}
 
-.ta-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-h3);
-}
-.ta-topbar__brand {
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-}
-.ta-topbar__divider {
-  opacity: 0.5;
-}
-.ta-topbar__store {
-  font-weight: var(--font-weight-medium);
-  opacity: 0.95;
-}
 
-.ta-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ta-topbar__right :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-}
-.ta-topbar__right :deep(.el-button.is-text:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-.ta-topbar__bell :deep(.el-button.is-text) {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
-}
 
-.ta-topbar__user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-}
-.ta-topbar__user :deep(.el-icon) {
-  color: rgba(255, 255, 255, 0.7);
-}
 
 /* ===== body ===== */
 .ta-body {

@@ -16,7 +16,17 @@ public enum DocType {
     /** 出库单（C2） */
     OUTBOUND("CK"),
     /** 询价单（C2） */
-    INQUIRY("XJ");
+    INQUIRY("XJ"),
+    /** 入库异议仲裁单（P3 BE-W1 启用，12 §1.6/§4.1） */
+    DISPUTE_ARBITRATION("YY"),
+    /** 出库客诉单（P3 BE-W2 启用） */
+    COMPLAINT("KS"),
+    /** 退货单（T3 波预留，前缀按产品 05 §7.1 修订版） */
+    RETURN("RTN"),
+    /** 盘点单（T3 波预留） */
+    STOCKTAKE("PD"),
+    /** 清库单（T4 波预留） */
+    CLEARANCE("QK");
 
     private final String prefix;
 

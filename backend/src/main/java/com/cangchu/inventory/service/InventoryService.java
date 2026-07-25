@@ -1,7 +1,11 @@
 package com.cangchu.inventory.service;
 
+import com.cangchu.inventory.dto.DisputeReversalResult;
+import com.cangchu.inventory.dto.DisputeRestoreContext;
 import com.cangchu.inventory.dto.InboundContext;
+import com.cangchu.inventory.dto.InboundDisputeContext;
 import com.cangchu.inventory.dto.OutboundContext;
+import com.cangchu.inventory.dto.OutboundReversalContext;
 import com.cangchu.inventory.vo.InventoryVo;
 
 import java.util.List;
@@ -40,6 +44,40 @@ public interface InventoryService {
      * 以保证 {@code @Transactional} 生效。<b>勿直接调用</b>（绕过锁会超卖）。
      */
     InventoryVo doDeductInTx(OutboundContext ctx);
+
+    // ==================== P3 反向流水（12 §1.5 / §2.4 / §2.6） ====================
+
+    /**
+     * R4/R8 出库回补：锁内 {@code qty += ctx.qty}，写 OUTBOUND_REVERSAL 流水
+     * （reversal_of_id=原 OUTBOUND 流水，biz_time=原出库 biz_time → P4 配对抵消，计费视同从未出库）。
+     * @return 回补后最新库存
+     */
+    InventoryVo reverseOutbound(OutboundReversalContext ctx);
+
+    /** 出库回补事务体（内部用）：仅由 {@link #reverseOutbound} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    InventoryVo doReverseOutboundInTx(OutboundReversalContext ctx);
+
+    /**
+     * 异议冲销：锁内按剩余在库封顶（12 §2.4 精确口径：reversedQty=min(Q, max(onhand,0))，
+     * 锁内消灭「计算→扣减」TOCTOU 间隙），写 DISPUTE_REVERSAL（biz_time=异议时刻）；
+     * reversedQty=0（售罄）时不写流水。托盘按比例、双重封顶，冲销托盘数落流水 remark 供仲裁恢复还原。
+     * @return 实际冲销/差额/托盘/剩余在库
+     */
+    DisputeReversalResult reverseInboundForDispute(InboundDisputeContext ctx);
+
+    /** 异议冲销事务体（内部用）：仅由 {@link #reverseInboundForDispute} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    DisputeReversalResult doReverseInboundForDisputeInTx(InboundDisputeContext ctx);
+
+    /**
+     * 仲裁通过恢复：锁内 {@code qty += ctx.qty(=reversedQty)}，写 DISPUTE_RESTORE 流水
+     * （biz_time=原入库时间戳 G10；reversal_of_id 回指配对 DISPUTE_REVERSAL；冲销托盘一并还原）。
+     * ctx.qty<=0（售罄 0 冲销的 APPROVED）时为无操作，不写流水。
+     * @return 恢复后最新库存
+     */
+    InventoryVo restoreInboundAfterArbitration(DisputeRestoreContext ctx);
+
+    /** 仲裁恢复事务体（内部用）：仅由 {@link #restoreInboundAfterArbitration} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    InventoryVo doRestoreInboundInTx(DisputeRestoreContext ctx);
 
     /**
      * 断言库存足够；不足抛 STOCK_NOT_ENOUGH，库存行不存在抛 INVENTORY_NOT_FOUND。

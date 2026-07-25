@@ -127,7 +127,7 @@ class InboundScenarioTest {
     // ======================================================================
 
     @Test
-    @DisplayName("INB-S1-01 WK 登记 → 单据 REGISTERED + 库存增加 + INBOUND 流水")
+    @DisplayName("INB-S1-01 WK 登记 → 单据 PENDING_WA_CONFIRM(P3 §8.1) + 库存增加 + INBOUND 流水")
     void s1_registerByWk() {
         long tenantId = 700_000_100_001L + (snowflakeIdUtil.nextId() & 0xFFFF);
         long wid = seedWholesaler(tenantId);
@@ -138,7 +138,10 @@ class InboundScenarioTest {
 
         InboundRequestVo vo = inboundRequestService.registerByWk(dto(wid, sku, 30, 2), wk);
 
-        assertThat(vo.getStatus()).isEqualTo(InboundRequest.STATUS_REGISTERED);
+        // P3 BE-W1（12 §8.1 适配）：登记产 PENDING_WA_CONFIRM + 72h deadline 非空 + 来源 WK_CREATED
+        assertThat(vo.getStatus()).isEqualTo(InboundRequest.STATUS_PENDING_WA_CONFIRM);
+        assertThat(vo.getWaConfirmDeadline()).isNotNull();
+        assertThat(vo.getSource()).isEqualTo(InboundRequest.SOURCE_WK_CREATED);
         assertThat(vo.getDocNo()).startsWith("WK-");
         assertThat(vo.getQty()).isEqualTo(30);
         assertThat(vo.getCurrentStock()).isEqualTo(30);

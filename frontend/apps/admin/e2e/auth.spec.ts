@@ -112,7 +112,7 @@ test.describe('happy', () => {
     const { phone, pwd } = await seedTa()
     await loginUi(page, phone, pwd)
 
-    await page.locator('.ta-topbar__user').click()
+    await page.locator('.cc-topbar__user').click()
     await page.getByText('退出登录').click()
     // 确认弹窗（ElMessageBox confirmButtonText='退出'）
     await page.getByRole('button', { name: '退出' }).click()

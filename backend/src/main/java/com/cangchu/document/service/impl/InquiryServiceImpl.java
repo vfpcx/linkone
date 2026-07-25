@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -78,6 +79,8 @@ public class InquiryServiceImpl implements InquiryService {
     private final InventoryService inventoryService;
     // P2 定价 Wave 3a：议价沉淀经 PricingService（document 域不直连 CustomerPriceMapper）
     private final PricingService pricingService;
+    // P3 BE-W2（12 §3.2）：R8 作废联动站内信
+    private final com.cangchu.notify.service.NotificationService notificationService;
     private final SnowflakeIdUtil snowflakeIdUtil;
 
     // ==================== RT 提交询价 ====================
@@ -250,7 +253,12 @@ public class InquiryServiceImpl implements InquiryService {
             out.setWholesalerId(wholesalerId);
             out.setSkuId(item.getSkuId());
             out.setQty(item.getQty());
-            out.setStatus(OutboundRequest.STATUS_COMPLETED);
+            // P3 BE-W2（12 §1.4 唯一触 P1 主链的改动）：出库单起点 PENDING_ACCEPT（扣库存时点不动），
+            // 后续 WK 打印→登记出库走 DocStateMachine；来源标记 INQUIRY_AUTO。
+            out.setStatus(OutboundRequest.STATUS_PENDING_ACCEPT);
+            out.setSource(OutboundRequest.SOURCE_INQUIRY_AUTO);
+            out.setPrintCount(0);
+            out.setWithdrawRequested(0);
             out.setWkUserId(waUserId);
             try {
                 outboundRequestMapper.insert(out);
@@ -279,16 +287,92 @@ public class InquiryServiceImpl implements InquiryService {
             }
         }
 
-        // 全部成功 → CONFIRMED → COMPLETED
-        InquiryRequest done = new InquiryRequest();
-        done.setId(inquiry.getId());
-        done.setStatus(InquiryRequest.STATUS_COMPLETED);
-        inquiryRequestMapper.updateById(done);
-
-        log.info("[C2] WA {} 确认询价 doc={} wholesaler={} 生成出库 {} 条 → COMPLETED",
+        // P3 BE-W2（12 §1.4）：确认后停在 CONFIRMED；该询价名下全部出库单登记出库（COMPLETED）时
+        // 由出库链在登记同事务内联动迁 COMPLETED（OutboundRequestServiceImpl.recomputeInquiryState）。
+        log.info("[C2] WA {} 确认询价 doc={} wholesaler={} 生成出库 {} 条（PENDING_ACCEPT）→ CONFIRMED",
                 waUserId, inquiry.getDocNo(), wholesalerId, items.size());
 
         return loadVo(inquiry.getId());
+    }
+
+    // ==================== R8 作废联动（P3 BE-W2，12 §3.2） ====================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public InquiryVo voidByWa(Long inquiryId, Long waUserId) {
+        if (inquiryId == null) {
+            throw new BizException(ErrorCode.INQUIRY_NOT_FOUND);
+        }
+        InquiryRequest inquiry = inquiryRequestMapper.selectById(inquiryId);
+        if (inquiry == null) {
+            throw new BizException(ErrorCode.INQUIRY_NOT_FOUND);
+        }
+        requireWaRole(inquiry.getWholesalerId(), waUserId);
+
+        // 前置：仅 CONFIRMED 可作废；名下存在已出库/客诉中单据 → 50337
+        if (!InquiryRequest.STATUS_CONFIRMED.equals(inquiry.getStatus())) {
+            throw new BizException(ErrorCode.INQUIRY_NOT_VOIDABLE, "意向单当前状态不可作废");
+        }
+        List<OutboundRequest> outbounds = outboundRequestMapper.selectList(
+                new LambdaQueryWrapper<OutboundRequest>().eq(OutboundRequest::getInquiryId, inquiryId));
+        boolean anyCompleted = outbounds.stream().anyMatch(o ->
+                OutboundRequest.STATUS_COMPLETED.equals(o.getStatus())
+                        || OutboundRequest.STATUS_COMPLAINED.equals(o.getStatus()));
+        if (anyCompleted) {
+            throw new BizException(ErrorCode.INQUIRY_NOT_VOIDABLE);
+        }
+
+        // 询价 CAS：CONFIRMED → VOIDED（并发唯一赢家；与登记出库联动/R4 回滚竞态由 CAS 决出）
+        LocalDateTime now = LocalDateTime.now();
+        int cas = inquiryRequestMapper.update(null, new LambdaUpdateWrapper<InquiryRequest>()
+                .eq(InquiryRequest::getId, inquiryId)
+                .eq(InquiryRequest::getStatus, InquiryRequest.STATUS_CONFIRMED)
+                .set(InquiryRequest::getStatus, InquiryRequest.STATUS_VOIDED)
+                .set(InquiryRequest::getVoidedAt, now));
+        if (cas != 1) {
+            throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
+        }
+
+        // 名下 PENDING_ACCEPT / PRINTED 逐张 CAS→CANCELLED + 回补（每张一条 OUTBOUND_REVERSAL 配对，12 §3.2）。
+        // 已打印单在 R8 下不需 WK 二次确认（作废是整单意思表示），但通知 WK 收回纸单。
+        int cancelled = 0;
+        boolean anyPrinted = false;
+        for (OutboundRequest out : outbounds) {
+            String from = out.getStatus();
+            if (!OutboundRequest.STATUS_PENDING_ACCEPT.equals(from)
+                    && !OutboundRequest.STATUS_PRINTED.equals(from)) {
+                continue; // WITHDRAWN/CANCELLED 已回补，跳过
+            }
+            anyPrinted |= OutboundRequest.STATUS_PRINTED.equals(from);
+            boolean moved = com.cangchu.document.statemachine.DocStateMachine.casTransition(
+                    outboundRequestMapper, com.cangchu.document.statemachine.DocStateMachine.DocKind.OUTBOUND,
+                    out.getId(), OutboundRequest::getId, OutboundRequest::getStatus,
+                    from, OutboundRequest.STATUS_CANCELLED, null);
+            if (!moved) {
+                // 并发被抢占（如同刻登记出库）→ 整单作废失败回滚，让用户刷新重试
+                throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
+            }
+            inventoryService.reverseOutbound(com.cangchu.inventory.dto.OutboundReversalContext.builder()
+                    .wholesalerId(out.getWholesalerId())
+                    .tenantId(out.getTenantId())
+                    .skuId(out.getSkuId())
+                    .qty(out.getQty())
+                    .refDocNo(out.getDocNo())
+                    .operatorUserId(waUserId)
+                    .remark("R8 意向单作废回补")
+                    .build());
+            cancelled++;
+        }
+
+        // 通知 WK（仓库侧=租户联系人，含收回纸单提示）；RT 免登录无 user_id，站内信降级跳过（据实现备注）
+        notificationService.send(inquiry.getTenantId(), tenantService.getContactUserId(inquiry.getTenantId()),
+                com.cangchu.notify.entity.Notification.TYPE_INQUIRY_VOIDED, "意向单已作废",
+                "意向单 " + inquiry.getDocNo() + " 已由商户作废，名下 " + cancelled + " 张出库单已撤销、库存已回补。"
+                        + (anyPrinted ? "其中含已打印单，请收回现场纸质单。" : ""),
+                com.cangchu.notify.entity.Notification.REF_INQUIRY, inquiry.getId());
+
+        log.info("[P3][R8] WA {} 作废意向单 doc={} 联动撤销出库 {} 张", waUserId, inquiry.getDocNo(), cancelled);
+        return loadVo(inquiryId);
     }
 
     // ==================== 列表 ====================
@@ -317,16 +401,20 @@ public class InquiryServiceImpl implements InquiryService {
 
     @Override
     public long countOpenDocsForWholesaler(Long wholesalerId) {
-        // 非终态询价：PENDING（待确认）/ CONFIRMED（确认中间态，正常同事务即转 COMPLETED，
-        // 若存在说明流程未走完）；COMPLETED 为终态不计。
+        // 非终态询价：PENDING（待确认）/ CONFIRMED（P3 起为常驻中间态：名下出库单未全部登记）。
+        // COMPLETED / VOIDED 为终态不计（12 §8.2）。
         long openInquiries = inquiryRequestMapper.selectCount(new LambdaQueryWrapper<InquiryRequest>()
                 .eq(InquiryRequest::getWholesalerId, wholesalerId)
                 .in(InquiryRequest::getStatus,
                         InquiryRequest.STATUS_PENDING, InquiryRequest.STATUS_CONFIRMED));
-        // 非终态出库单（phase-1 出库单生成即 COMPLETED，此计数当前恒 0，防御性保留口径）
+        // 非终态出库单（12 §8.2）：PENDING_ACCEPT/PRINTED/COMPLAINED 未结；
+        // COMPLETED/WITHDRAWN/CANCELLED 视为已结（撤回/撤销已回补，不阻退驻）。
         long openOutbounds = outboundRequestMapper.selectCount(new LambdaQueryWrapper<OutboundRequest>()
                 .eq(OutboundRequest::getWholesalerId, wholesalerId)
-                .ne(OutboundRequest::getStatus, OutboundRequest.STATUS_COMPLETED));
+                .in(OutboundRequest::getStatus,
+                        OutboundRequest.STATUS_PENDING_ACCEPT,
+                        OutboundRequest.STATUS_PRINTED,
+                        OutboundRequest.STATUS_COMPLAINED));
         return openInquiries + openOutbounds;
     }
 
@@ -381,6 +469,7 @@ public class InquiryServiceImpl implements InquiryService {
         vo.setRtPhone(r.getRtPhone());
         vo.setCreatedAt(r.getCreatedAt());
         vo.setConfirmedAt(r.getConfirmedAt());
+        vo.setVoidedAt(r.getVoidedAt());
         vo.setItems(items.stream().map(it -> {
             InquiryVo.InquiryItemVo iv = new InquiryVo.InquiryItemVo();
             iv.setId(it.getId());
