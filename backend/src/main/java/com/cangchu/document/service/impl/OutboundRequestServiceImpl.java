@@ -376,7 +376,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         }
         reverseForDoc(out, wkUserId, "R4 仓库确认撤回回补");
         recomputeInquiryState(out.getInquiryId());
-        notificationService.send(out.getTenantId(), waOwner(out.getWholesalerId()),
+        notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_WITHDRAWN, "撤回申请已确认",
                 "出库单 " + out.getDocNo() + " 的撤回申请已由仓库确认，单据已撤销，库存已回补。",
                 Notification.REF_OUTBOUND, out.getId());
@@ -399,7 +399,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         if (affected != 1) {
             throw new BizException(ErrorCode.OUTBOUND_NO_WITHDRAW_REQUEST);
         }
-        notificationService.send(out.getTenantId(), waOwner(out.getWholesalerId()),
+        notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED, "撤回申请被拒绝",
                 "出库单 " + out.getDocNo() + " 的撤回申请被仓库拒绝（纸质单已在作业），单据继续履约。",
                 Notification.REF_OUTBOUND, out.getId());
@@ -480,7 +480,8 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                 .build());
 
         // 通知归属 WA（「已确认（代建）」队列=WA 出库列表 source=WK_CREATED 过滤）
-        notificationService.send(tenantId, wholesaler.getOwnerUserId(),
+        // P3 缺陷修复：user_roles 推导收件人（owner_user_id 在 SELF_OPERATED 上是 TA），多账号全发
+        notificationService.sendToAll(tenantId, waRecipients(dto.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_PROXY_CREATED, "代建出库已登记",
                 "出库单 " + docNo + "：仓库代您登记出库 " + dto.getQty() + " 件（已确认·代建）。"
                         + "如有异议可在出库后 30 天内发起客诉。",
@@ -559,9 +560,12 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         return tenantService.getContactUserId(out.getTenantId());
     }
 
-    private Long waOwner(Long wholesalerId) {
-        WholesalerVo w = wholesalerService.getById(wholesalerId);
-        return w != null ? w.getOwnerUserId() : null;
+    /**
+     * 「归属 WA」通知收件人（P3 缺陷修复）：以 user_roles 推导（listForWa 同源先例），多账号全发。
+     * 不可用 wholesalers.owner_user_id——SELF_OPERATED 商户该列是 TA 操作人，会漏发真实 WA。
+     */
+    private List<Long> waRecipients(Long wholesalerId) {
+        return authService.listActiveWaUserIdsOfWholesaler(wholesalerId);
     }
 
     /** 锁外预读在库（大额校验用；真正扣减以 deductStock 锁内校验为准）。 */

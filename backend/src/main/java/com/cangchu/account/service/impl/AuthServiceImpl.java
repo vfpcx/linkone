@@ -96,6 +96,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public List<Long> listActiveWaUserIdsOfWholesaler(Long wholesalerId) {
+        // P3 缺陷修复：「归属 WA」通知收件人推导——仅取 role=WA（owner_user_id 在
+        // SELF_OPERATED 商户上是 TA 操作人，不可作为 WA 收件人来源）
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                        .eq(UserRole::getWholesalerId, wholesalerId)
+                        .eq(UserRole::getRole, "WA")
+                        .eq(UserRole::getStatus, "ACTIVE")).stream()
+                .map(UserRole::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    @Override
     public boolean hasWholesalerPermission(Long userId, Long wholesalerId, String permission) {
         UserRole we = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, userId)
