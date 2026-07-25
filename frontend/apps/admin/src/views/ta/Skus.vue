@@ -12,7 +12,7 @@
  * 范围：仅 SKU 管理（选商户 → 列表 → 上架 → 上下架），不碰入库/询价/RT。
  */
 
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
@@ -28,7 +28,13 @@ import {
   Plus,
   Stamp,
 } from '@element-plus/icons-vue'
-import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
+import {
+  AppTopbar,
+  EntityPickerDialog,
+  StatusBadge,
+  makeClientPickerFetch,
+  type EntityPickerColumn,
+} from '@cangchu/ui-shared'
 import type { Wholesaler, Sku, CreateSkuRequest } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
@@ -134,6 +140,24 @@ const fetchWholesalers = async () => {
 const onWholesalerChange = () => {
   void fetchSkus()
 }
+
+/** 商户 id → 名称（弹窗选择器回显） */
+const selectedWholesalerName = computed(() => {
+  const w = wholesalers.value.find((x) => String(x.id) === selectedWholesalerId.value)
+  return w?.name ?? ''
+})
+
+// 弹窗选择器：商户（开放实体集，UX 规范 2026-07-25）
+const wholesalerPickerColumns: EntityPickerColumn<Wholesaler>[] = [
+  { label: '商户名称', prop: 'name', minWidth: 160 },
+  { label: '简介', formatter: (w) => w.intro || '—', minWidth: 160 },
+  { label: '创建时间', formatter: (w) => String(w.createdAt ?? '').slice(0, 10), width: 110 },
+]
+
+const fetchWholesalerPage = makeClientPickerFetch<Wholesaler>(
+  () => wholesalers.value,
+  (w, kw) => w.name.toLowerCase().includes(kw) || (w.intro ?? '').toLowerCase().includes(kw),
+)
 
 // ============ SKU 列表 ============
 const loading = ref(false)
@@ -306,21 +330,16 @@ onMounted(fetchWholesalers)
           <!-- 商户选择器 -->
           <div class="toolbar">
             <span class="toolbar__label">商户</span>
-            <el-select
+            <EntityPickerDialog
               v-model="selectedWholesalerId"
-              placeholder="请选择商户"
-              :loading="wholesalerLoading"
+              title="选择商户"
+              placeholder="点击选择商户"
+              :columns="wholesalerPickerColumns"
+              :fetch="fetchWholesalerPage"
+              :selected-label="selectedWholesalerName"
               class="toolbar__select"
-              filterable
               @change="onWholesalerChange"
-            >
-              <el-option
-                v-for="w in wholesalers"
-                :key="String(w.id)"
-                :label="w.name"
-                :value="String(w.id)"
-              />
-            </el-select>
+            />
             <span v-if="!wholesalerLoading && wholesalers.length === 0" class="toolbar__empty">
               当前店铺暂无商户，请先在「入驻商户」创建
             </span>

@@ -28,7 +28,12 @@ import {
   Box,
   Stamp,
 } from '@element-plus/icons-vue'
-import { AppTopbar } from '@cangchu/ui-shared'
+import {
+  AppTopbar,
+  EntityPickerDialog,
+  makeClientPickerFetch,
+  type EntityPickerColumn,
+} from '@cangchu/ui-shared'
 import type { Wholesaler, Sku, InboundRequest, InboundRegisterRequest } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
@@ -144,6 +149,18 @@ const onWholesalerChange = async () => {
   await Promise.all([fetchSkus(), fetchRecords()])
 }
 
+// 弹窗选择器：商户（开放实体集，UX 规范 2026-07-25）
+const wholesalerPickerColumns: EntityPickerColumn<Wholesaler>[] = [
+  { label: '商户名称', prop: 'name', minWidth: 160 },
+  { label: '简介', formatter: (w) => w.intro || '—', minWidth: 160 },
+  { label: '创建时间', formatter: (w) => String(w.createdAt ?? '').slice(0, 10), width: 110 },
+]
+
+const fetchWholesalerPage = makeClientPickerFetch<Wholesaler>(
+  () => wholesalers.value,
+  (w, kw) => w.name.toLowerCase().includes(kw) || (w.intro ?? '').toLowerCase().includes(kw),
+)
+
 // ============ SKU 选择器（选定商户后拉其在售/全部 SKU） ============
 const skuLoading = ref(false)
 const skus = ref<Sku[]>([])
@@ -169,6 +186,26 @@ const fetchSkus = async () => {
     skuLoading.value = false
   }
 }
+
+// 弹窗选择器：商品 SKU（开放实体集）
+const skuPickerColumns: EntityPickerColumn<Sku>[] = [
+  { label: '商品名称', prop: 'name', minWidth: 160 },
+  { label: '规格', formatter: (s) => s.spec || '—', minWidth: 100 },
+  { label: '单价', formatter: (s) => `¥${Number(s.unitPrice).toFixed(2)}`, width: 100, align: 'right' },
+  { label: '状态', formatter: (s) => (s.listed ? '在售' : '已下架'), width: 90 },
+]
+
+const fetchSkuPage = makeClientPickerFetch<Sku>(
+  () => skus.value,
+  (s, kw) => s.name.toLowerCase().includes(kw) || (s.spec ?? '').toLowerCase().includes(kw),
+)
+
+/** 已选 SKU 回显（含规格，与原下拉 label 一致） */
+const selectedSkuLabel = computed(() => {
+  const s = skus.value.find((x) => String(x.id) === form.skuId)
+  if (!s) return ''
+  return s.spec ? `${s.name}（${s.spec}）` : s.name
+})
 
 // ============ 入库记录表 ============
 const recordsLoading = ref(false)
@@ -317,21 +354,16 @@ onMounted(fetchWholesalers)
         <section class="card">
           <div class="toolbar">
             <span class="toolbar__label">商户</span>
-            <el-select
+            <EntityPickerDialog
               v-model="selectedWholesalerId"
-              placeholder="请选择商户"
-              :loading="wholesalerLoading"
+              title="选择商户"
+              placeholder="点击选择商户"
+              :columns="wholesalerPickerColumns"
+              :fetch="fetchWholesalerPage"
+              :selected-label="wholesalerNameMap[selectedWholesalerId] || ''"
               class="toolbar__select"
-              filterable
               @change="onWholesalerChange"
-            >
-              <el-option
-                v-for="w in wholesalers"
-                :key="String(w.id)"
-                :label="w.name"
-                :value="String(w.id)"
-              />
-            </el-select>
+            />
             <span v-if="!wholesalerLoading && wholesalers.length === 0" class="toolbar__empty">
               当前店铺暂无商户，请先在「入驻商户」创建
             </span>
@@ -348,21 +380,16 @@ onMounted(fetchWholesalers)
           >
             <div class="inbound-form__row">
               <el-form-item label="商品 SKU" prop="skuId" class="inbound-form__item">
-                <el-select
+                <EntityPickerDialog
                   v-model="form.skuId"
-                  placeholder="请选择商品"
-                  :loading="skuLoading"
+                  title="选择商品"
+                  placeholder="点击选择商品"
+                  :columns="skuPickerColumns"
+                  :fetch="fetchSkuPage"
+                  :selected-label="selectedSkuLabel"
                   :disabled="!selectedWholesalerId"
-                  filterable
                   class="full-width"
-                >
-                  <el-option
-                    v-for="s in skus"
-                    :key="String(s.id)"
-                    :label="s.spec ? `${s.name}（${s.spec}）` : s.name"
-                    :value="String(s.id)"
-                  />
-                </el-select>
+                />
               </el-form-item>
 
               <el-form-item label="入库数量" prop="qty" class="inbound-form__item">
