@@ -22,8 +22,8 @@
 ## 阶段（Waves，依赖图见 12 §7）
 
 - [完成] **W0 设计定稿（2026-07-24）**：产品 09-p3-arbitration-prd v1.1 + 架构 12-p3-design v2；并行漂移 3 处已对账收口（liability 列+50342、doc_no YY-/KS-、PRD 命名 9 处对齐；盘点/清库前缀按产品 PD-/QK- 统一）
-- [进行中] **BE-W1 入库异常链+基建**〔branch feat/p3-inbound-chain〕：V15-V17；流水扩展+InventoryService 三新方法；registerByWk 改造；confirm/dispute；72h Job；TA 仲裁 decide；notifications+files；WePermissions 扩 INBOUND_CONFIRM。闸门：JUnit 封顶 4 边界/Job 幂等竞态/biz_time 断言/liability 三态/公式不变量 + mvn 全量绿
-- [待办] **BE-W2 出库状态机+异常链**〔依赖 BE-W1 合并〕：V18；confirmByWa 产 PENDING_ACCEPT；print/revert/register；R4/R8；客诉+OPS decide；R13 assertNoOpenDocs 扩展。闸门：迁移矩阵逐格断言/配对回补流水/30 天窗口边界/P1 卖货 E2E 更新
+- [完成] **BE-W1 入库异常链+基建（2026-07-24 合并 main=acefaaf）**〔branch feat/p3-inbound-chain〕：V15-V17；流水扩展+InventoryService 三新方法；registerByWk 改造；confirm/dispute；72h Job；TA 仲裁 decide；notifications+files；WePermissions 扩 INBOUND_CONFIRM。闸门：JUnit 封顶 4 边界/Job 幂等竞态/biz_time 断言/liability 三态/公式不变量 + mvn 全量绿
+- [完成·待复验] **BE-W2 出库状态机+异常链（2026-07-25）**〔branch feat/p3-outbound-chain，未合并待 Team Lead 复验〕：V18；DocStateMachine CAS 引擎落地；confirmByWa 产 PENDING_ACCEPT（询价停 CONFIRMED，登记出库联动终态）；print/revert/register；R4 两路+R8 作废联动（回补配对）；WA 手动出库+代建大额 50%；30 天客诉+OPS 四选 decide；R13 未结扩展（出库/入库/仲裁）。闸门已过：矩阵 6×6 逐格断言/每张撤销单配对 OUTBOUND_REVERSAL/29d23h·30d1h 窗口边界/大额边界/虚拟线程 CAS 竞态×2/公式不变量对账；据实现备注（含 10 处偏差记录）见 12-p3-design.md
 - [待办] **FE-W1 入库链前端**〔依赖 BE-W1 合并，与 BE-W2 并行〕：WA 待确认队列+异议弹窗；TA 仲裁弹窗（复用审批中心）；站内信铃铛。闸门：E2E 双路+截图目检（§3.5/§3.6）
 - [待办] **FE-W2 出库链前端**〔依赖 BE-W2+FE-W1〕：WK 作业流（打印/登记/撤回确认）；WA 出库列表（撤回/客诉）；OPS 仲裁列表。闸门：E2E 主链+R4/R8/客诉+截图目检
 - [待办] **W5 测试审查合并**：全量回归+E2E+视觉验收报告；code-review
