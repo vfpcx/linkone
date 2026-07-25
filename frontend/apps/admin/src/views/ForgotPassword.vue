@@ -14,6 +14,7 @@ import { ref, reactive, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { z } from 'zod'
+import { AuthShell } from '@cangchu/ui-shared'
 import { accountApi } from '@/api/account'
 import { ApiError } from '@/api/http'
 
@@ -157,17 +158,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="auth-page">
-    <aside class="auth-brand">
-      <div class="auth-brand__content">
-        <h1 class="auth-brand__logo">仓储云</h1>
-        <p class="auth-brand__slogan">让仓储更智能</p>
-      </div>
-      <footer class="auth-brand__footer">© 2026 仓储云</footer>
-    </aside>
-
-    <main class="auth-form">
-      <div class="auth-card">
+  <AuthShell>
         <div class="auth-card__back">
           <router-link to="/login">← 返回登录</router-link>
         </div>
@@ -259,9 +250,7 @@ onBeforeUnmount(() => {
             </el-button>
           </div>
         </el-form>
-      </div>
-    </main>
-  </div>
+  </AuthShell>
 </template>
 
 <style scoped>

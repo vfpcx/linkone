@@ -20,6 +20,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { z } from 'zod'
+import { AuthShell } from '@cangchu/ui-shared'
 import { accountApi } from '@/api/account'
 import { ApiError } from '@/api/http'
 import { ErrorCode } from '@cangchu/error-codes'
@@ -245,24 +246,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="auth-page">
-    <!-- 左侧品牌色压底 -->
-    <aside class="auth-brand">
-      <div class="auth-brand__content">
-        <h1 class="auth-brand__logo">仓储云</h1>
-        <p class="auth-brand__slogan">通用仓储 SaaS 平台 · 让仓储更智能</p>
-        <ul class="auth-brand__bullets">
-          <li>多端协同：PC / H5 / 微信小程序一体化</li>
-          <li>全链路：入驻 · 入库 · 出库 · 询价 · 账单</li>
-          <li>多角色：平台运维 / 租户管理员 / 库管员 / 结算员 / 批发商管理员 / 批发商员工 / 终端买家</li>
-        </ul>
-      </div>
-      <footer class="auth-brand__footer">© 2026 仓储云</footer>
-    </aside>
+  <AuthShell slogan="通用仓储 SaaS 平台 · 让仓储更智能">
+    <template #bullets>
+      <ul class="auth-bullets">
+        <li>多端协同：PC / H5 / 微信小程序一体化</li>
+        <li>全链路：入驻 · 入库 · 出库 · 询价 · 账单</li>
+        <li>多角色：平台运维 / 租户管理员 / 库管员 / 结算员 / 批发商管理员 / 批发商员工 / 终端买家</li>
+      </ul>
+    </template>
 
-    <!-- 右侧表单 -->
-    <main class="auth-form">
-      <div class="auth-card">
         <h2 class="auth-card__title">欢迎登录</h2>
 
         <el-tabs v-model="mode" class="auth-tabs">
@@ -351,60 +343,14 @@ onBeforeUnmount(() => {
             <router-link to="/register?role=ta">注册</router-link>
           </p>
         </el-form>
-      </div>
-    </main>
-  </div>
+  </AuthShell>
 </template>
 
 <style scoped>
-.auth-page {
-  display: flex;
-  min-height: 100vh;
-  background: var(--color-bg-2);
-}
+@import './auth-shared.scss';
 
-/* 左：品牌色压底 50% */
-.auth-brand {
-  flex: 1;
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-on);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 64px 80px;
-  position: relative;
-  overflow: hidden;
-}
-
-.auth-brand::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 0% 100%, rgba(3, 105, 161, 0.35), transparent 60%),
-    radial-gradient(ellipse at 100% 0%, rgba(5, 150, 105, 0.18), transparent 50%);
-  pointer-events: none;
-}
-
-.auth-brand__content {
-  position: relative;
-  z-index: 1;
-}
-
-.auth-brand__logo {
-  font-size: 48px;
-  font-weight: var(--font-weight-bold);
-  margin: 0 0 var(--space-4);
-  letter-spacing: -1px;
-}
-
-.auth-brand__slogan {
-  font-size: 18px;
-  opacity: 0.85;
-  margin: 0 0 var(--space-12);
-}
-
-.auth-brand__bullets {
+/* hero 卖点列表（AuthShell #bullets 插槽内容，窄屏由壳层隐藏） */
+.auth-bullets {
   list-style: none;
   padding: 0;
   margin: 0;
@@ -413,14 +359,14 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
 }
 
-.auth-brand__bullets li {
+.auth-bullets li {
   font-size: 16px;
   opacity: 0.78;
   padding-left: 24px;
   position: relative;
 }
 
-.auth-brand__bullets li::before {
+.auth-bullets li::before {
   content: '✓';
   position: absolute;
   left: 0;
@@ -428,35 +374,9 @@ onBeforeUnmount(() => {
   font-weight: var(--font-weight-bold);
 }
 
-.auth-brand__footer {
-  position: relative;
-  z-index: 1;
-  font-size: var(--font-size-caption);
-  opacity: 0.5;
-}
-
-/* 右：表单 50% */
-.auth-form {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6);
-}
-
-.auth-card {
-  width: 480px;
-  background: var(--color-bg-1);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  padding: 32px;
-}
-
+/* 登录页标题与 tabs 间距覆写（共享默认 space-3） */
 .auth-card__title {
-  font-size: 32px; /* 覆写：MASTER h1=22px，auth 页 32px */
-  font-weight: var(--font-weight-bold);
-  margin: 0 0 var(--space-6);
-  color: var(--color-fg-1);
+  margin-bottom: var(--space-6);
 }
 
 .auth-tabs {
@@ -494,66 +414,7 @@ onBeforeUnmount(() => {
   color: var(--color-brand-accent);
 }
 
-.submit-btn {
-  width: 100%;
-  height: 48px;
-  font-size: 16px;
-  font-weight: var(--font-weight-semibold);
-}
-
-.auth-footer {
-  text-align: center;
-  margin: var(--space-4) 0 0;
-  color: var(--color-fg-3);
-}
-
-.auth-footer a {
-  color: var(--color-brand-accent);
-  margin-left: 4px;
-}
-
-/* H5 兜底：< 768px */
-@media (max-width: 768px) {
-  .auth-page {
-    flex-direction: column;
-  }
-  .auth-brand {
-    flex: 0 0 30vh;
-    padding: 40px 24px 80px;
-  }
-  .auth-brand__logo {
-    font-size: 32px;
-  }
-  .auth-brand__slogan {
-    font-size: 14px;
-    margin-bottom: var(--space-4);
-  }
-  .auth-brand__bullets {
-    display: none;
-  }
-  .auth-form {
-    flex: 1;
-    align-items: flex-start;
-    margin-top: -40px;
-    padding: 0 16px;
-  }
-  .auth-card {
-    width: 100%;
-    border-radius: 24px 24px var(--radius-lg) var(--radius-lg);
-    padding: var(--space-6);
-  }
-  .auth-card__title {
-    font-size: 24px;
-  }
-}
-
-:deep(.el-input__wrapper),
-:deep(.el-input--large .el-input__wrapper) {
+:deep(.el-input__wrapper) {
   border-radius: var(--radius-base);
-}
-
-:deep(.el-input--large .el-input__inner) {
-  height: 48px;
-  font-size: 16px;
 }
 </style>
