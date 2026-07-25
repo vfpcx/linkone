@@ -46,7 +46,7 @@ const role = computed<Role>(() => {
 
 const roleLabel = computed(() => {
   const map: Record<Role, string> = {
-    OPS: '运维',
+    OPS: '平台运维',
     TA: '仓库入驻（租户管理员）',
     WA: '批发商入驻',
     WK: '库管员（受邀注册）',

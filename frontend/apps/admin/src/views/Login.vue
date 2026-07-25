@@ -254,7 +254,7 @@ onBeforeUnmount(() => {
         <ul class="auth-brand__bullets">
           <li>多端协同：PC / H5 / 微信小程序一体化</li>
           <li>全链路：入驻 · 入库 · 出库 · 询价 · 账单</li>
-          <li>多角色：OPS / TA / WK / ST / WA / WE / RT</li>
+          <li>多角色：平台运维 / 租户管理员 / 库管员 / 结算员 / 批发商管理员 / 批发商员工 / 终端买家</li>
         </ul>
       </div>
       <footer class="auth-brand__footer">© 2026 仓储云</footer>

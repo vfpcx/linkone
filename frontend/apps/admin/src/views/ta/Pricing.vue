@@ -290,7 +290,7 @@ const cpForm = reactive({
 const cpRules: FormRules = {
   skuId: [{ required: true, message: '请选择 SKU', trigger: 'change' }],
   rtPhone: [
-    { required: true, message: '请输入 RT 手机号', trigger: 'blur' },
+    { required: true, message: '请输入终端买家手机号', trigger: 'blur' },
     { pattern: /^1\d{10}$/, message: '请输入 11 位手机号', trigger: 'blur' },
   ],
   unitPrice: [
@@ -600,7 +600,7 @@ onMounted(fetchWholesalers)
             <!-- (a) 客户专属价 -->
             <el-tab-pane label="客户专属价">
               <div class="tab-head">
-                <span class="tab-head__hint">为指定 RT 手机号设置某 SKU 的专属单价</span>
+                <span class="tab-head__hint">为指定终端买家手机号设置某 SKU 的专属单价</span>
                 <el-button
                   type="primary"
                   :icon="Plus"
@@ -618,7 +618,7 @@ onMounted(fetchWholesalers)
                 class="pricing-table"
                 empty-text="该商户暂无客户专属价，点击「设置专属价」开始"
               >
-                <el-table-column label="RT 手机号" min-width="140">
+                <el-table-column label="终端买家手机号" min-width="140">
                   <template #default="{ row }">
                     <span class="cell-name">{{ row.rtPhone }}</span>
                   </template>
@@ -878,7 +878,7 @@ onMounted(fetchWholesalers)
           />
         </el-form-item>
 
-        <el-form-item label="RT 手机号" prop="rtPhone">
+        <el-form-item label="终端买家手机号" prop="rtPhone">
           <el-input
             v-model="cpForm.rtPhone"
             placeholder="11 位手机号"

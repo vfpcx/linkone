@@ -272,7 +272,7 @@ onMounted(async () => {
           <div>
             <h2 class="page-head__title">租户审核</h2>
             <p class="page-head__sub">
-              审核 TA 自助注册的仓库：通过后转为营业中（ACTIVE），驳回需填写理由
+              审核租户管理员自助注册的仓库：通过后转为营业中（ACTIVE），驳回需填写理由
             </p>
           </div>
           <el-button :icon="Refresh" :loading="loading" @click="fetchList">刷新</el-button>
@@ -303,7 +303,7 @@ onMounted(async () => {
           >
             <template #default>
               <p class="audit-error__text">
-                可能是网络异常，或后端「OPS 租户列表」接口（GET /api/v1/admin/tenants）尚未上线。
+                可能是网络异常，或后端「平台租户列表」接口（GET /api/v1/admin/tenants）尚未上线。
                 审核端点（POST /api/v1/admin/tenant/{id}/audit）已就绪，列表接口就绪后本页即可用。
               </p>
               <el-button size="small" :loading="loading" @click="fetchList">重试</el-button>

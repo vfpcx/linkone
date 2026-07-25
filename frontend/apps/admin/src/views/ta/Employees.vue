@@ -28,7 +28,7 @@ import {
   CopyDocument,
   Stamp,
 } from '@element-plus/icons-vue'
-import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
+import { AppTopbar, StatusBadge, roleLabel } from '@cangchu/ui-shared'
 import type {
   EmployeeInvite,
   EmployeeInviteRole,
@@ -127,13 +127,7 @@ const fetchList = async () => {
 }
 
 // ============ 角色 / 状态徽章 ============
-const roleLabel = (role: string): string => {
-  const map: Record<string, string> = {
-    WK: '库管员',
-    ST: '结算员',
-  }
-  return map[role] ?? role ?? '—'
-}
+// 角色中文名统一走 ui-shared roleLabel（用户可见文案禁角色码，CLAUDE.md 第 8 条）
 
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'default'
 const statusMeta = (status: string): { variant: BadgeVariant; text: string } => {
@@ -405,8 +399,8 @@ onMounted(fetchList)
       >
         <el-form-item label="角色" prop="role">
           <el-radio-group v-model="form.role">
-            <el-radio-button label="WK">库管员（WK）</el-radio-button>
-            <el-radio-button label="ST">结算员（ST）</el-radio-button>
+            <el-radio-button label="WK">库管员</el-radio-button>
+            <el-radio-button label="ST">结算员</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
