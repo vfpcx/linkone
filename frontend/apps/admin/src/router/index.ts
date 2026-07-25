@@ -93,6 +93,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ta/WholesalerApplications.vue'),
     meta: { role: 'TA', title: '入驻审批' },
   },
+  {
+    path: '/ta/approvals',
+    name: 'ta-approvals',
+    component: () => import('@/views/ta/Approvals.vue'),
+    meta: { role: 'TA', title: '审批中心' },
+  },
 
   // WA 工作台（批发商）
   {
@@ -106,6 +112,12 @@ const routes: RouteRecordRaw[] = [
     name: 'wa-inquiry',
     component: () => import('@/views/wa/Inquiry.vue'),
     meta: { role: 'WA', title: '询价确认' },
+  },
+  {
+    path: '/wa/inbound',
+    name: 'wa-inbound',
+    component: () => import('@/views/wa/Inbound.vue'),
+    meta: { role: 'WA', title: '入库确认' },
   },
   {
     path: '/wa/apply',

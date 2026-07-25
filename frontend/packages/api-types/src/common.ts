@@ -48,6 +48,20 @@ export interface PageRecords<T> {
   size: number
 }
 
+/**
+ * 分页响应 · MyBatis-Plus Page 原样序列化（P3 BE-W1 端点：
+ * /wholesaler/inbound-requests、/tenant/arbitrations、/notifications）
+ * 注意页码字段名为 current（非 page）；total/size/current 经雪花防丢精度
+ * 处理后可能为 string，消费侧一律 Number() 后使用。
+ */
+export interface MpPage<T> {
+  records: T[]
+  total: number | string
+  size: number | string
+  current: number | string
+  pages?: number | string
+}
+
 /** 角色枚举（与 PRD §1 一致） */
 export type Role = 'OPS' | 'TA' | 'WK' | 'ST' | 'WA' | 'WE' | 'RT'
 

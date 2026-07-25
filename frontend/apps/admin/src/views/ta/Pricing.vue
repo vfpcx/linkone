@@ -104,7 +104,7 @@ const menus: MenuItem[] = [
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
-  { key: '/ta/approvals', label: '单据审批', icon: Document },
+  { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
   { key: '/ta/messages', label: '站内信', icon: ChatLineSquare },
 ]
@@ -120,7 +120,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
     key === '/ta/skus' ||
-    key === '/ta/wholesaler-applications'
+    key === '/ta/wholesaler-applications' ||
+    key === '/ta/approvals'
   ) {
     router.push(key)
     return

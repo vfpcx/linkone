@@ -1,6 +1,7 @@
 export * from './common'
 export * from './account'
 export * from './tenant'
+export * from './document'
 export * from './wholesaler'
 export * from './sku'
 export * from './pricing'

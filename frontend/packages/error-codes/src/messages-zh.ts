@@ -110,6 +110,22 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_EMPLOYEE_NOT_FOUND]: '员工不存在或不属于本商户',
   [ErrorCode.STATE_EMPLOYEE_STATUS_INVALID]: '员工当前状态不允许此操作，请刷新后重试',
   [ErrorCode.STATE_EMPLOYEE_RESTORE_EXPIRED]: '已超过 30 天恢复期，员工已永久移除',
+
+  // P3 单据异常链（50330-50349 · 05-error-codes.md userMessage 对齐）
+  [ErrorCode.STATE_DOC_TRANSITION_INVALID]: '当前状态不允许此操作',
+  [ErrorCode.STATE_DOC_CAS_CONFLICT]: '单据状态已变更，请刷新后重试',
+  [ErrorCode.STATE_INBOUND_CONFIRM_WINDOW_CLOSED]: '72 小时确认期已过，单据已自动确认',
+  [ErrorCode.STATE_ARBITRATION_CONCLUSION_INVALID]: '结论选项与仲裁类型不符',
+  [ErrorCode.STATE_ARBITRATION_NOT_PENDING]: '该仲裁已有结论',
+  [ErrorCode.STATE_OUTBOUND_NOT_WITHDRAWABLE]: '当前状态不可撤回（已出库请走退货）',
+  [ErrorCode.STATE_OUTBOUND_NO_WITHDRAW_REQUEST]: '该单无待确认的撤回申请',
+  [ErrorCode.STATE_INQUIRY_NOT_VOIDABLE]: '意向单当前不可作废（存在已出库单据）',
+  [ErrorCode.STATE_OUTBOUND_LARGE_CONFIRM_REQUIRED]: '大额出库需复述件数确认',
+  [ErrorCode.STATE_OUTBOUND_COMPLAINT_WINDOW_CLOSED]: '客诉期已过（出库后 30 天内可提）',
+  [ErrorCode.STATE_FILE_UPLOAD_INVALID]: '文件格式或大小不符合要求',
+  [ErrorCode.STATE_NOTIFICATION_NOT_FOUND]: '消息不存在',
+  [ErrorCode.STATE_ARBITRATION_LIABILITY_INVALID]: '差额定责选项缺失或不适用',
+
   [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
   [ErrorCode.STATE_BILL_DISPATCHED]: '账单已下发，不能直接调整',
   [ErrorCode.STATE_BILL_PAID]: '账单已结清，无法继续操作',

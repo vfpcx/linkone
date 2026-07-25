@@ -40,6 +40,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // P3 附件静态映射（GET /files/** 免登录，SaTokenConfig 放行）：dev 下代理到后端本地盘
+      '/files': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   build: {
