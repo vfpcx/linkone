@@ -24,7 +24,7 @@
 - [完成] **W0 设计定稿（2026-07-24）**：产品 09-p3-arbitration-prd v1.1 + 架构 12-p3-design v2；并行漂移 3 处已对账收口（liability 列+50342、doc_no YY-/KS-、PRD 命名 9 处对齐；盘点/清库前缀按产品 PD-/QK- 统一）
 - [进行中] **BE-W1 入库异常链+基建**〔branch feat/p3-inbound-chain〕：V15-V17；流水扩展+InventoryService 三新方法；registerByWk 改造；confirm/dispute；72h Job；TA 仲裁 decide；notifications+files；WePermissions 扩 INBOUND_CONFIRM。闸门：JUnit 封顶 4 边界/Job 幂等竞态/biz_time 断言/liability 三态/公式不变量 + mvn 全量绿
 - [待办] **BE-W2 出库状态机+异常链**〔依赖 BE-W1 合并〕：V18；confirmByWa 产 PENDING_ACCEPT；print/revert/register；R4/R8；客诉+OPS decide；R13 assertNoOpenDocs 扩展。闸门：迁移矩阵逐格断言/配对回补流水/30 天窗口边界/P1 卖货 E2E 更新
-- [待办] **FE-W1 入库链前端**〔依赖 BE-W1 合并，与 BE-W2 并行〕：WA 待确认队列+异议弹窗；TA 仲裁弹窗（复用审批中心）；站内信铃铛。闸门：E2E 双路+截图目检（§3.5/§3.6）
+- [完成·待复验] **FE-W1 入库链前端**〔branch feat/p3-inbound-fe，2026-07-25〕：WA 入库确认页（72h 倒计时/来源/autoAccepted）+ 异议弹窗（预设理由+附件≤5）+ 冲销结果回显；TA 审批中心 /ta/approvals（仲裁列表+decide 弹窗，09 §4.1 线框）；站内信铃铛+抽屉；附件上传组件。闸门已过：typecheck 绿 + Playwright 3/3 绿 + 截图 6 张目检无缺陷。契约偏差 2 项（见 progress 2026-07-25 条目：SELF_OPERATED 商户 WA 通知收件人错位；/files GET 静态映射启动序缺陷）
 - [待办] **FE-W2 出库链前端**〔依赖 BE-W2+FE-W1〕：WK 作业流（打印/登记/撤回确认）；WA 出库列表（撤回/客诉）；OPS 仲裁列表。闸门：E2E 主链+R4/R8/客诉+截图目检
 - [待办] **W5 测试审查合并**：全量回归+E2E+视觉验收报告；code-review
 

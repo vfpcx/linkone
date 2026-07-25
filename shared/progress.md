@@ -2,6 +2,13 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-07-25
+- **FE-W1 入库链前端 ✅（feat/p3-inbound-fe，4 commits 31f5f6f→f5ec4db，待 Team Lead 复验合并）**：
+  - 交付：WA `/wa/inbound` 入库确认页（待确认/全部页签、72h 秒级倒计时 deadline 升序、来源映射 仓库代建/我方提交、autoAccepted 标记、确认二次弹窗、异议弹窗〔预设四选+补充说明合成 reason≤512+附件≤5〕、冲销结果回显 登记/已冲销/差额/YY-单号）；TA `/ta/approvals` 审批中心（待仲裁角标=PENDING total、⏰超72h提醒、decide 弹窗按 09 §4.1：通过·恢复流水/驳回·保留冲销、差额>0 驳回时定责四选必填、备注必填、已裁决只读详情）；NotificationBell（unread-count 60s 轮询+抽屉+标记已读）；AttachmentUpload（≤5MB jpg/png/webp 预检）；api-types/error-codes 50330-50342/四组 API 封装；TA 各页菜单接通「审批中心」、WA 四页菜单增「入库确认」；用户可见文案零角色码（liability 中文四选）。
+  - 闸门：typecheck 绿；Playwright `inbound-dispute.spec.ts` 3/3 绿（INB-01 确认链/INB-02 异议链含真实附件上传/INB-03 TA decide + TA 侧铃铛角标-条目-已读全链断言）；截图 6 张逐张目检无对齐/溢出/错位（动画入镜的 3 张已加静置重拍）。
+  - **契约偏差 →BE 待修**：① `registerByWk`/72h Job 的「通知归属 WA」发给 `wholesalers.owner_user_id`，SELF_OPERATED 商户该列= TA 操作人，绑定 WA 账号收不到通知（listForWa 用 user_roles 推导无此问题；E2E 改在 TA 侧断言铃铛全链）。② `/files/**` GET 静态映射在启动时 `Path.toUri()`，若 upload-dir 尚不存在则 URI 缺尾斜杠 → 上传成功但 GET 500，重启后自愈（建议 addResourceHandlers 先 createDirectories 或手工拼尾斜杠）。③ PRD 09 §6.2 要求异议弹窗展示实时在库 M/差额 N−M，后端无异议前在库查询端点，已降级为口径文案+提交后回显（如需严格达标需 BE 补端点）。
+  - 环境插曲：8080 曾跑 BE-W1 合并前旧实例（新端点 404→90001、V15-V17 未迁移），Team Lead 重启后解决；又因 ② 再重启一次使 /files GET 生效。axios 实例默认 application/json 覆盖 FormData 检测的坑已修（file.ts 摘除 Content-Type）。
+
 ## 2026-07-24
 - **P3 W0 设计定稿 ✅**：并行两 Agent 产出——产品 09-p3-arbitration-prd.md v1.1（双仲裁最小 PRD，Q-D04/Q-D10 收口，04 §1.2 确认即扣转正，05 §7.1 新前缀 RTN-/PD-/QK-/YY-/KS-，决策日志 D57-D60）+ 架构 12-p3-design.md v2（V15-V18 迁移、状态机 String+CAS、封顶冲销口径、72h Job 复用 SchedulingConfig、错误码 50330-50342、四波次拆分）。**Team Lead 契约对账拦下 3 处并行漂移**（liability 列缺失→补+50342、仲裁 doc_no 缺失→补 YY-/KS-、PRD 命名 9 处漂移→对齐落库定稿；另架构自查出盘点/清库前缀冲突按产品 PD-/QK- 统一）——W1 教训的对账机制第二次见效。
 - **headroom 生效确认 ✅**：会话重启后 BASE_URL=127.0.0.1:8787，stats 显示 262 请求被压缩、累计省 25.6 万 token。
