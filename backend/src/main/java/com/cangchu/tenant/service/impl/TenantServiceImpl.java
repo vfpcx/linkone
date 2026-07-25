@@ -3,8 +3,6 @@ package com.cangchu.tenant.service.impl;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.cangchu.account.entity.User;
-import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
@@ -24,7 +22,6 @@ import com.cangchu.tenant.vo.WarehouseVo;
 import cn.hutool.crypto.digest.DigestUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,7 +47,6 @@ public class TenantServiceImpl implements TenantService {
     private final CapacityPublishMapper capacityPublishMapper;
     private final TenantApplicationMapper tenantApplicationMapper;
     private final WholesalerMapper wholesalerMapper;
-    private final UserMapper userMapper;
     // user_roles 归 account 域，跨域鉴权/角色绑定经 AuthService（G-S1/G-S2）
     private final AuthService authService;
     // users 表归 account 域，幂等查/建与显示名批量查询经 UserService（G-S1/G-S2 还债出口）
@@ -60,7 +56,6 @@ public class TenantServiceImpl implements TenantService {
     // DEF-1：公开目录端点 IP 限流（沿用短信基建的 Redisson 原子计数+TTL，G-6.1）
     private final org.redisson.api.RedissonClient redissonClient;
 
-    private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
 
     @Override
     @Transactional
@@ -578,16 +573,14 @@ public class TenantServiceImpl implements TenantService {
                         .orderByDesc(Tenant::getCreatedAt));
 
         List<Tenant> tenants = p.getRecords();
-        // 批量取申请人（contact_user_id → 实名/昵称）与地址快照（tenant_applications），避免 N+1
-        Map<Long, User> users = Map.of();
+        // 批量取申请人显示名（contact_user_id → 实名优先/昵称回落）与地址快照（tenant_applications），避免 N+1；
+        // users 表归 account 域，批量显示名经 UserService.getDisplayNames（G-S1/G-S2 还债，语义等价原直连）
+        Map<Long, String> displayNames = Map.of();
         Map<Long, String> addresses = new LinkedHashMap<>();
         if (!tenants.isEmpty()) {
             List<Long> userIds = tenants.stream().map(Tenant::getContactUserId)
                     .filter(java.util.Objects::nonNull).distinct().toList();
-            if (!userIds.isEmpty()) {
-                users = userMapper.selectBatchIds(userIds).stream()
-                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
-            }
+            displayNames = userService.getDisplayNames(userIds);
             List<Long> tenantIds = tenants.stream().map(Tenant::getId).toList();
             // 同租户多条申请取最新一条的地址（apply 复用壳时会更新申请单）
             for (TenantApplication app : tenantApplicationMapper.selectList(new LambdaQueryWrapper<TenantApplication>()
@@ -599,12 +592,9 @@ public class TenantServiceImpl implements TenantService {
             }
         }
 
-        final Map<Long, User> userMap = users;
+        final Map<Long, String> nameMap = displayNames;
         List<AdminTenantItemVo> list = tenants.stream().map(t -> {
-            User applicant = t.getContactUserId() != null ? userMap.get(t.getContactUserId()) : null;
-            String applicantName = applicant == null ? null
-                    : (applicant.getRealName() != null && !applicant.getRealName().isBlank()
-                            ? applicant.getRealName() : applicant.getNickname());
+            String applicantName = t.getContactUserId() != null ? nameMap.get(t.getContactUserId()) : null;
             return AdminTenantItemVo.builder()
                     .tenantId(t.getId())
                     .name(t.getName())
