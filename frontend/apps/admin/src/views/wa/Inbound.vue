@@ -464,7 +464,7 @@ onBeforeUnmount(() => {
           </el-descriptions-item>
         </el-descriptions>
         <p class="result-note">
-          已生成仲裁单并通知店主（TA）裁决；差额部分将作为线下定责依据，平台不接资金。
+          已生成仲裁单并通知店长裁决；差额部分将作为线下定责依据，平台不接资金。
         </p>
       </template>
       <template #footer>

@@ -132,12 +132,20 @@ const CONCLUSION_LABEL: Record<string, string> = {
   APPROVED: '通过 · 恢复流水',
   REJECTED: '驳回 · 保留冲销',
 }
+/**
+ * 差额责任方文案（用户可见文案禁角色码，01 §3 中文对照：WK=库管员、WA=批发商管理员；
+ * ui-shared 统一 roleLabel 就绪后可切换复用）
+ */
 const LIABILITY_LABEL: Record<ArbitrationLiability, string> = {
-  WK_LIABLE: 'WK 责任',
-  WA_LIABLE: 'WA 责任',
+  WK_LIABLE: '库管员责任',
+  WA_LIABLE: '批发商责任',
   NEGOTIATED: '双方协商',
   NO_LIABILITY: '无责',
 }
+/** 定责单选项（与 LIABILITY_LABEL 同源，避免模板散落硬编码） */
+const LIABILITY_OPTIONS = (
+  ['WK_LIABLE', 'WA_LIABLE', 'NEGOTIATED', 'NO_LIABILITY'] as ArbitrationLiability[]
+).map((v) => ({ value: v, label: LIABILITY_LABEL[v] }))
 const liabilityLabel = (v: string | null) =>
   v ? (LIABILITY_LABEL[v as ArbitrationLiability] ?? v) : '—'
 
@@ -507,10 +515,9 @@ onMounted(() => {
             required
           >
             <el-radio-group v-model="liability" data-test="liability-radio">
-              <el-radio value="WK_LIABLE">WK 责任</el-radio>
-              <el-radio value="WA_LIABLE">WA 责任</el-radio>
-              <el-radio value="NEGOTIATED">双方协商</el-radio>
-              <el-radio value="NO_LIABILITY">无责</el-radio>
+              <el-radio v-for="opt in LIABILITY_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </el-radio>
             </el-radio-group>
           </el-form-item>
 

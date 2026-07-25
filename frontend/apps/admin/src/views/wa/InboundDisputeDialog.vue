@@ -102,6 +102,7 @@ const onSubmit = () => {
     v-model="visible"
     :title="`异议 · 代建入库 ${row?.docNo ?? ''}`"
     width="560px"
+    top="6vh"
     :close-on-click-modal="false"
     class="dispute-dialog"
     data-test="dispute-dialog"

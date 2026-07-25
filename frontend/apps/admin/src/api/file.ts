@@ -6,8 +6,9 @@
  *  - 限制：≤5MB，jpg/png/webp（后端魔数校验，扩展名不可信）→ 违规 50340
  *  - 返回 url 形如 /files/xxx.png；GET /files/** 为静态映射免登录（SaTokenConfig 放行）
  *
- * Content-Type 说明：axios v1 检测到 FormData 会自动移除实例默认的
- * application/json 头，交由浏览器补 multipart boundary，无需手工设置。
+ * Content-Type 说明：http.ts 实例默认头为 application/json，实测会覆盖 axios 的
+ * FormData 自动检测（E2E 抓包 REQ-CT=application/json → 后端 500）。因此本请求
+ * 显式置 null 摘除该头，交由浏览器补 multipart boundary。
  */
 
 import { request } from './http'
@@ -26,6 +27,8 @@ export const fileApi = {
       method: 'POST',
       url: '/files',
       data: form,
+      // null = 摘除实例默认 application/json，浏览器自动带 multipart boundary
+      headers: { 'Content-Type': null as unknown as string },
     })
   },
 }
