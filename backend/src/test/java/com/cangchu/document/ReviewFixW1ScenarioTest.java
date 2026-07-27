@@ -276,6 +276,28 @@ class ReviewFixW1ScenarioTest {
     }
 
     // ======================================================================
+    // N5 · 仲裁恢复配对冲销流水缺失 → 防御性拒绝（不凭空造量）
+    // ======================================================================
+
+    @Test
+    @DisplayName("N5-01 无配对 DISPUTE_REVERSAL 的恢复请求 → 拒绝且库存不变")
+    void restoreWithoutPairedReversalRejected() {
+        Ctx c = seedAll();
+        seedStock(c, 30);
+
+        BizException ex = Assertions.assertThrows(BizException.class, () ->
+                inventoryService.restoreInboundAfterArbitration(
+                        com.cangchu.inventory.dto.DisputeRestoreContext.builder()
+                                .wholesalerId(c.wholesalerId()).tenantId(c.tenantId()).skuId(c.skuId())
+                                .qty(10).refDocNo("WK-GHOST-" + snowflakeIdUtil.nextId())
+                                .originalInboundAt(java.time.LocalDateTime.now().minusDays(1))
+                                .operatorUserId(c.taUserId()).build()));
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INVENTORY_NOT_FOUND);
+        // 库存未被凭空抬高
+        assertThat(inventoryService.queryInventory(c.wholesalerId(), c.skuId()).get(0).getQty()).isEqualTo(30);
+    }
+
+    // ======================================================================
     // N1 · confirmWithdrawByWk CAS 补 withdraw_requested=1 条件
     // ======================================================================
 

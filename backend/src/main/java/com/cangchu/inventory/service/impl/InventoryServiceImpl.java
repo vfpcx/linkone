@@ -334,6 +334,12 @@ public class InventoryServiceImpl implements InventoryService {
                 .eq(StockMovement::getType, StockMovement.TYPE_DISPUTE_REVERSAL)
                 .eq(StockMovement::getRefDocNo, ctx.getRefDocNo())
                 .last("LIMIT 1"));
+        if (reversal == null) {
+            // N5（08-p3-review）：恢复必须能配对冲销流水（不变量：DISPUTE_RESTORE.reversal_of_id
+            // 非空回指，P4 配对抵消依赖）——与 doReverseOutboundInTx 找不到原流水即拒对称。
+            // 正常流程不可达（reversedQty>0 必有冲销流水），属防御缺口收口，防凭空造量。
+            throw new BizException(ErrorCode.INVENTORY_NOT_FOUND, "原冲销流水不存在，无法恢复库存");
+        }
         int palletRestore = parsePalletReversed(reversal);
 
         Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
@@ -348,7 +354,7 @@ public class InventoryServiceImpl implements InventoryService {
         StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
                 StockMovement.TYPE_DISPUTE_RESTORE, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
         mv.setBizTime(ctx.getOriginalInboundAt());
-        mv.setReversalOfId(reversal != null ? reversal.getId() : null);
+        mv.setReversalOfId(reversal.getId());
         mv.setRemark("palletRestored=" + palletRestore);
         stockMovementMapper.insert(mv);
 
