@@ -93,10 +93,114 @@ export interface ArbitrationDecideRequest {
   liability?: ArbitrationLiability
 }
 
+// ============ 库存（inventories · 出库作业辅助展示） ============
+
+/** 库存行视图（InventoryVo；GET /tenant/inventories?wholesalerId=&skuId=） */
+export interface InventoryItem {
+  id: SnowflakeId
+  wholesalerId: SnowflakeId
+  tenantId: SnowflakeId
+  skuId: SnowflakeId
+  qty: number
+  palletQty: number | null
+  updatedAt: string | null
+}
+
+// ============ 出库单（outbound-requests · P3 BE-W2） ============
+
+/**
+ * 出库单状态（OutboundRequestVo.status）：
+ * PENDING_ACCEPT 待受理 / PRINTED 已打印 / COMPLETED 已出库 /
+ * WITHDRAWN 已撤回（待受理直撤）/ CANCELLED 已取消（已打印撤回经 WK 确认）/
+ * COMPLAINED 客诉处理中（裁决后回 COMPLETED）
+ */
+export type OutboundStatus =
+  | 'PENDING_ACCEPT'
+  | 'PRINTED'
+  | 'COMPLETED'
+  | 'WITHDRAWN'
+  | 'CANCELLED'
+  | 'COMPLAINED'
+
+/** 出库单来源：询价确认自动 / 商户手动提交 / 仓库代建（「已确认（代建）」队列=WK_CREATED 过滤） */
+export type OutboundSource = 'INQUIRY_AUTO' | 'WA_SUBMIT' | 'WK_CREATED'
+
+/**
+ * 出库单视图（OutboundRequestVo；WA 列表 / WK 作业列表共用）。
+ * 权威来源：TenantOutboundController / WholesalerOutboundController（据实查证）。
+ */
+export interface OutboundRequest {
+  id: SnowflakeId
+  /** 出库单号（CK-） */
+  docNo: string
+  inquiryId: SnowflakeId | null
+  tenantId: SnowflakeId
+  wholesalerId: SnowflakeId
+  /** 商户名（列表展示，页内缓存填充） */
+  wholesalerName: string | null
+  skuId: SnowflakeId
+  qty: number
+  palletQty: number | null
+  status: OutboundStatus
+  source: OutboundSource
+  /** 代建单登记 WK（source=WK_CREATED 时非空） */
+  wkUserId: SnowflakeId | null
+  /** 首打时间 */
+  printedAt: string | null
+  printCount: number | null
+  /** 实际出库时间（30 天客诉窗口锚点） */
+  completedAt: string | null
+  /** 1=已申请撤回待 WK 二次确认（仅 PRINTED 态有意义） */
+  withdrawRequested: number | null
+  withdrawRequestedAt: string | null
+  createdAt: string
+}
+
+/** WA 手动出库申请（OutboundSubmitDto）：提交即扣，不足 50251 整体回滚 */
+export interface OutboundSubmitRequest {
+  wholesalerId: SnowflakeId
+  skuId: SnowflakeId
+  qty: number
+  /** 托盘数（可空，默认 0） */
+  palletQty?: number
+}
+
+/**
+ * WK 代建出库（WkOutboundCreateDto）：直达 COMPLETED。
+ * confirmed 必须显式 true（前端显著二次确认弹窗的后端凭据）；
+ * qty > 在库×50% 时 restatedQty 必填且须等于 qty，否则 50338。
+ */
+export interface WkOutboundCreateRequest {
+  wholesalerId: SnowflakeId
+  skuId: SnowflakeId
+  qty: number
+  palletQty?: number
+  confirmed: boolean
+  restatedQty?: number
+}
+
+/** 30 天客诉发起（OutboundComplainDto）：仅 source=WK_CREATED 且已出库；超窗 50339 */
+export interface OutboundComplainRequest {
+  reason: string
+  attachments?: string[]
+}
+
+/**
+ * 出库客诉结论四选（OPS decide；conclusion 即判责，取值域与差额定责枚举一致）。
+ * 仅判责不动库存/账单（D43）；remark 必填（结论备注是线下赔偿唯一依据）。
+ */
+export type OutboundComplaintConclusion = ArbitrationLiability
+
+/** OPS 客诉裁决入参（ArbitrationDecideDto · OUTBOUND_COMPLAINT 分支）：liability 必空（50342） */
+export interface OpsArbitrationDecideRequest {
+  conclusion: OutboundComplaintConclusion
+  remark: string
+}
+
 // ============ 站内信（notifications） ============
 
 /**
- * 站内信类型（Notification 实体常量；OUTBOUND_* / COMPLAINT_* 为 BE-W2 预留）
+ * 站内信类型（Notification 实体常量；OUTBOUND_* / COMPLAINT_* 已随 BE-W2 落地）
  */
 export type NotificationType =
   | 'INBOUND_PENDING_CONFIRM'
@@ -104,6 +208,8 @@ export type NotificationType =
   | 'DISPUTE_CREATED'
   | 'ARBITRATION_DECIDED'
   | 'OUTBOUND_WITHDRAW_REQUESTED'
+  | 'OUTBOUND_WITHDRAWN'
+  | 'OUTBOUND_WITHDRAW_REJECTED'
   | 'OUTBOUND_PROXY_CREATED'
   | 'COMPLAINT_CREATED'
 

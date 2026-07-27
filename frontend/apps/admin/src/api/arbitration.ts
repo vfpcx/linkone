@@ -14,6 +14,7 @@ import { request } from './http'
 import type {
   Arbitration,
   ArbitrationDecideRequest,
+  OpsArbitrationDecideRequest,
   MpPage,
 } from '@cangchu/api-types'
 
@@ -38,6 +39,41 @@ export const arbitrationApi = {
     request<Arbitration>({
       method: 'POST',
       url: `/tenant/arbitrations/${id}/decide`,
+      data,
+    }),
+}
+
+/**
+ * OPS 客诉仲裁（P3 FE-W2）
+ *
+ * 权威来源：backend/.../document/controller/OpsArbitrationController.java
+ *  - GET  /api/v1/ops/arbitrations?bizType=&status=&page=&size=
+ *      跨租户客诉仲裁列表（bizType 仅 OUTBOUND_COMPLAINT；角标 = PENDING total）
+ *  - POST /api/v1/ops/arbitrations/{id}/decide
+ *      裁决（结论四选 WK_LIABLE/WA_LIABLE/NEGOTIATED/NO_LIABILITY，remark 必填 50333；
+ *      liability 必空 50342；并发双裁被抢占 50334）；仅判责不动库存/账单（D43）。
+ */
+export const opsArbitrationApi = {
+  /** 客诉仲裁列表（status 可选过滤） */
+  list: (
+    params: { bizType?: string; status?: string; page?: number; size?: number } = {},
+  ) =>
+    request<MpPage<Arbitration>>({
+      method: 'GET',
+      url: '/ops/arbitrations',
+      params: {
+        ...(params.bizType ? { bizType: params.bizType } : {}),
+        ...(params.status ? { status: params.status } : {}),
+        page: params.page ?? 1,
+        size: params.size ?? 20,
+      },
+    }),
+
+  /** 裁决（四选结论 + 备注必填） */
+  decide: (id: string, data: OpsArbitrationDecideRequest) =>
+    request<Arbitration>({
+      method: 'POST',
+      url: `/ops/arbitrations/${id}/decide`,
       data,
     }),
 }
