@@ -41,8 +41,11 @@ import java.util.concurrent.TimeUnit;
  *   <li>租户隔离（G-2.2）：inventories/stock_movements 已纳入 TenantLine 白名单兜底。</li>
  * </ul>
  *
- * <p>事务/锁顺序：<b>先获取分布式锁、再开启事务</b>（事务体经 self 代理调用，保证 @Transactional 生效），
- * 事务提交后才释放锁，确保锁覆盖整个 commit 窗口，避免读到未提交库存导致超卖。
+ * <p>事务/锁顺序（B1 修复后实况）：<b>先获取分布式锁、再调事务体</b>（经 self 代理保证
+ * @Transactional 生效）。注意：当调用方自带 @Transactional（P3 业务链皆是），内层事务体
+ * REQUIRED 并入外层事务，<b>锁会先于外层事务提交而释放</b>——Redisson 锁只保证粗粒度串行化
+ * 与首次入库 insert 防撞，「读最新值 + 覆盖提交窗口」由 {@code lockRowForUpdate} 的
+ * SELECT ... FOR UPDATE 行锁保证（见该方法注释，勿再以"锁覆盖提交窗口"为前提写代码）。
  */
 @Slf4j
 @Service
@@ -407,11 +410,25 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     /**
-     * 读取库存行用于变更。串行化由外层 Redisson 锁（出库）/单事务（入库 upsert）保证；
-     * 单 sku 维度下同一 (wholesaler, sku) 的写已被锁互斥，故此处无需 DB 行级 FOR UPDATE。
+     * 锁行读（B1 修复：真正的 {@code SELECT ... FOR UPDATE}）。
+     *
+     * <p>为什么 Redisson 锁不够（08-p3-review B1，两并发窗口）：
+     * <ol>
+     *   <li><b>窗口 A（旧快照读）</b>：业务方法自带 @Transactional 时（P3 全部链路），内层事务体
+     *       REQUIRED 并入外层事务——普通 SELECT 在 MySQL RR 下读的是<b>外层事务开始时</b>的旧快照，
+     *       即便此刻已持有 Redisson 锁，读到的 qty 也可能是陈旧值（读-算-写把错值固化）。</li>
+     *   <li><b>窗口 B（锁先于提交释放）</b>：锁在内层方法返回即释放，而外层事务还要继续建单/
+     *       发通知才提交——下一个抢到锁的线程读不到未提交的库存变更。</li>
+     * </ol>
+     * InnoDB 锁定读（FOR UPDATE）永远读<b>最新已提交</b>版本并阻塞在未提交行锁上，一处改动同关
+     * 两窗口：窗口 A 的快照读消失；窗口 B 中后进事务会等到前事务提交。Redisson 锁保留作
+     * 跨进程粗粒度串行化与 insert 防撞（首次入库无行可锁，FOR UPDATE 空集不阻塞）。
      */
     private Inventory lockRowForUpdate(Long wholesalerId, Long skuId) {
-        return findRow(wholesalerId, skuId);
+        return inventoryMapper.selectOne(new LambdaQueryWrapper<Inventory>()
+                .eq(Inventory::getWholesalerId, wholesalerId)
+                .eq(Inventory::getSkuId, skuId)
+                .last("FOR UPDATE"));
     }
 
     private void writeMovement(Long skuId, Long wholesalerId, Long tenantId,
