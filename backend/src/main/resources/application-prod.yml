@@ -1,0 +1,35 @@
+# X硬化 H2（11-hardening-design §2）：生产 profile —— Redis 认证路径打通。
+# 启动方式：--spring.profiles.active=prod，并由部署脚本注入 MYSQL_* / REDIS_* 环境变量。
+# 注意：MYSQL_PASSWORD / REDIS_PASSWORD 故意【无默认值】——缺失即启动失败（fail-fast），
+#       杜绝生产静默裸奔；亦不能写 ${REDIS_PASSWORD:}（空串会让 Redisson 发 AUTH 空密码，
+#       在未启用认证的 Redis 上报 "ERR AUTH called without any password configured"）。
+spring:
+  datasource:
+    url: ${MYSQL_URL}
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      connection-timeout: 20000
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DB:0}
+      # H2 目标态：Memurai/Redis 侧 requirepass + ACL 应用账户（user default off；
+      # user cangchu_app on >密码 ~* &* +@all -@admin -@dangerous），配置见 11 §2.2。
+      # Redisson starter 从 spring.data.redis 继承认证信息；redissonCustomizer 稳态参数（Bug A）不受影响。
+      password: ${REDIS_PASSWORD}
+      # 启用 ACL 应用账户后放开下一行（仅 requirepass 阶段不要设 username，否则 AUTH user 失败）：
+      # username: ${REDIS_USERNAME}
+      timeout: 3000ms
+
+# X硬化 H5 §5.3(3)：prod Actuator 暴露面显式收敛为 health（防升级后默认面漂移）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
