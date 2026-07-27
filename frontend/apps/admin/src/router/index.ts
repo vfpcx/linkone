@@ -126,6 +126,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'WA', title: '入库确认' },
   },
   {
+    path: '/wa/outbound',
+    name: 'wa-outbound',
+    component: () => import('@/views/wa/Outbound.vue'),
+    meta: { role: 'WA', title: '出库单' },
+  },
+  {
     path: '/wa/apply',
     name: 'wa-apply',
     component: () => import('@/views/wa/Apply.vue'),

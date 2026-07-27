@@ -24,6 +24,7 @@ import {
   User,
   Warning as WarningIcon,
   Box,
+  Van,
 } from '@element-plus/icons-vue'
 import { AppTopbar } from '@cangchu/ui-shared'
 import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api-types'
@@ -72,6 +73,7 @@ const activeMenu = ref('/wa/inquiry')
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
   { key: '/wa/inbound', label: '入库确认', icon: Box },
+  { key: '/wa/outbound', label: '出库单', icon: Van },
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
   { key: '/wa/staff', label: '员工管理', icon: User },
   { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },

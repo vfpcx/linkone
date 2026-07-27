@@ -1,31 +1,28 @@
 <script setup lang="ts">
 /**
- * WA 入库异议弹窗（P3 FE-W1 · 09 PRD §1.1 reason 口径 + §6 文案规则）
+ * WA 出库客诉弹窗（P3 FE-W2 · 09 PRD §3 30 天客诉，复用 FE-W1 异议弹窗模式）
  *
  * 表单：
- *  - 理由：预设单选（未到货/数量不符/质量问题/其他，09 §1.1 收口口径）+ 补充说明，
- *    合成 reason 提交，必填 ≤512（对齐 InboundDisputeDto）；
+ *  - 理由：预设单选（数量不符/货品损坏/未同意此次出库/其他）+ 补充说明，
+ *    合成 reason 提交，必填 ≤512（对齐 OutboundComplainDto）；
  *  - 附件：≤5 张（AttachmentUpload → POST /files 取回 URL）。
  *
- * 口径提示（09 §6.1/§6.2）：
- *  - 异议仅覆盖仍在库部分，已售出部分进入差额定责；
- *  - 后端未提供异议前的实时在库查询端点，精确「在库 M/差额 N−M」以提交后
- *    冲销结果回显为准（InboundDisputeResultVo），提交前以口径文案+登记数警示。
- *    TODO(FE-W1 契约偏差③)：fix/p3-be-defects 补出实时在库端点后，把下方
- *    「将冲销」两格换成实时「在库 M / 差额 N−M」数字（复查于 2026-07-27，端点尚未落地）。
+ * 口径提示（09 PRD §3 / D43）：
+ *  - 仅仓库代建且已出库的单可诉，窗口为实际出库后 30 天（超窗 50339）；
+ *  - 客诉由平台运维仲裁，结论仅判责（不动库存与账单），作为线下赔偿依据。
  *
- * 提交由父页面执行（emit submit），50331/50332 等错误由父页面/全局拦截器处理。
+ * 提交由父页面执行（emit submit），50331/50339 等错误由父页面/全局拦截器处理。
  */
 
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import type { InboundRequest, InboundDisputeRequest } from '@cangchu/api-types'
+import type { OutboundRequest, OutboundComplainRequest } from '@cangchu/api-types'
 import AttachmentUpload from '@/components/AttachmentUpload.vue'
 
 interface Props {
   modelValue: boolean
-  /** 目标入库单（PENDING_WA_CONFIRM） */
-  row: InboundRequest | null
+  /** 目标出库单（COMPLETED ∧ source=WK_CREATED ∧ 30 天窗口内） */
+  row: OutboundRequest | null
   submitting?: boolean
 }
 
@@ -35,7 +32,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
-  (e: 'submit', payload: InboundDisputeRequest): void
+  (e: 'submit', payload: OutboundComplainRequest): void
 }>()
 
 const visible = computed({
@@ -43,8 +40,8 @@ const visible = computed({
   set: (v: boolean) => emit('update:modelValue', v),
 })
 
-/** 预设快捷理由（09 PRD §1.1：预设单选 + 其他） */
-const PRESETS = ['未到货', '数量不符', '质量问题', '其他'] as const
+/** 预设快捷理由（对齐 09 PRD §3 客诉场景） */
+const PRESETS = ['数量不符', '货品损坏', '未同意此次出库', '其他'] as const
 
 const preset = ref<string>('')
 const detail = ref('')
@@ -62,6 +59,16 @@ watch(
   },
 )
 
+/** 剩余客诉天数（completedAt + 30 天窗口；仅展示，超窗由后端 50339 兜底） */
+const remainDays = computed(() => {
+  const anchor = props.row?.completedAt ?? props.row?.createdAt
+  if (!anchor) return null
+  const t = new Date(String(anchor)).getTime()
+  if (!Number.isFinite(t)) return null
+  const remain = t + 30 * 24 * 3600 * 1000 - Date.now()
+  return Math.max(0, Math.ceil(remain / (24 * 3600 * 1000)))
+})
+
 /** 合成 reason：`[预设] 补充说明`；「其他」必须有补充说明 */
 const composedReason = computed(() => {
   const d = detail.value.trim()
@@ -77,7 +84,7 @@ const detailMax = computed(() =>
 const onSubmit = () => {
   const reason = composedReason.value
   if (!preset.value && !detail.value.trim()) {
-    ElMessage.warning('请选择异议理由或填写说明')
+    ElMessage.warning('请选择客诉理由或填写说明')
     return
   }
   if (preset.value === '其他' && !detail.value.trim()) {
@@ -85,11 +92,11 @@ const onSubmit = () => {
     return
   }
   if (!reason) {
-    ElMessage.warning('异议理由不能为空')
+    ElMessage.warning('客诉理由不能为空')
     return
   }
   if (reason.length > 512) {
-    ElMessage.warning('异议理由最长 512 字')
+    ElMessage.warning('客诉理由最长 512 字')
     return
   }
   emit('submit', {
@@ -102,38 +109,47 @@ const onSubmit = () => {
 <template>
   <el-dialog
     v-model="visible"
-    :title="`异议 · 代建入库 ${row?.docNo ?? ''}`"
+    :title="`客诉 · 代建出库 ${row?.docNo ?? ''}`"
     width="560px"
     top="6vh"
     :close-on-click-modal="false"
-    class="dispute-dialog"
-    data-test="dispute-dialog"
+    class="complain-dialog"
+    data-test="complain-dialog"
   >
     <template v-if="row">
-      <!-- 全局口径文案（09 §6.1，弹窗必须展示） -->
-      <el-alert type="warning" :closable="false" class="dispute-dialog__policy">
-        代建入库即视为可售，72 小时内可提异议，异议仅覆盖仍在库部分；已售出部分将进入差额定责。
+      <!-- 全局口径文案（09 PRD §3 / D43） -->
+      <el-alert type="warning" :closable="false" class="complain-dialog__policy">
+        仓库代建的出库单可在实际出库后 30 天内发起客诉，由平台运维仲裁；
+        结论仅作判责与线下赔偿依据，不改库存与账单。同一出库单仅可发起一次客诉。
       </el-alert>
 
-      <!-- 冲销数字口径（09 §6.2；实时在库量后端未提供查询端点，以提交后冲销结果为准） -->
-      <div class="dispute-dialog__facts" data-test="dispute-facts">
+      <div class="complain-dialog__facts" data-test="complain-facts">
         <div class="fact">
-          <span class="fact__label">登记件数</span>
+          <span class="fact__label">出库件数</span>
           <span class="fact__value">{{ row.qty }} 件</span>
         </div>
         <div class="fact">
-          <span class="fact__label">将冲销</span>
-          <span class="fact__value">仍在库部分（按在库封顶，提交后回显实际件数）</span>
+          <span class="fact__label">出库时间</span>
+          <span class="fact__value">
+            {{ String(row.completedAt ?? '').replace('T', ' ').slice(0, 19) || '—' }}
+          </span>
         </div>
         <div class="fact">
-          <span class="fact__label">已售部分</span>
-          <span class="fact__value fact__value--warn">不可冲销，将进入差额定责</span>
+          <span class="fact__label">客诉窗口</span>
+          <span
+            class="fact__value"
+            :class="{ 'fact__value--warn': remainDays !== null && remainDays <= 3 }"
+            data-test="complain-remain-days"
+          >
+            <template v-if="remainDays !== null">剩余约 {{ remainDays }} 天</template>
+            <template v-else>—</template>
+          </span>
         </div>
       </div>
 
       <el-form label-position="top" @submit.prevent>
-        <el-form-item label="异议理由（必选）" required>
-          <el-radio-group v-model="preset" data-test="dispute-preset">
+        <el-form-item label="客诉理由（必选）" required>
+          <el-radio-group v-model="preset" data-test="complain-preset">
             <el-radio v-for="p in PRESETS" :key="p" :value="p">{{ p }}</el-radio>
           </el-radio-group>
         </el-form-item>
@@ -145,8 +161,8 @@ const onSubmit = () => {
             :rows="3"
             :maxlength="detailMax"
             show-word-limit
-            placeholder="补充异议细节，将与预设理由一并提交（合计 ≤512 字）"
-            data-test="dispute-detail"
+            placeholder="补充客诉细节，将与预设理由一并提交（合计 ≤512 字）"
+            data-test="complain-detail"
           />
         </el-form-item>
 
@@ -161,21 +177,21 @@ const onSubmit = () => {
       <el-button
         type="danger"
         :loading="submitting"
-        data-test="dispute-submit"
+        data-test="complain-submit"
         @click="onSubmit"
       >
-        提交异议
+        提交客诉
       </el-button>
     </template>
   </el-dialog>
 </template>
 
 <style scoped>
-.dispute-dialog__policy {
+.complain-dialog__policy {
   margin-bottom: var(--space-4);
 }
 
-.dispute-dialog__facts {
+.complain-dialog__facts {
   background: var(--color-bg-2);
   border: 1px solid var(--color-border-1);
   border-radius: var(--radius-md);
@@ -201,5 +217,6 @@ const onSubmit = () => {
 }
 .fact__value--warn {
   color: var(--color-warning);
+  font-weight: var(--font-weight-semibold);
 }
 </style>
