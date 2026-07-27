@@ -36,7 +36,9 @@ mybatis-plus:
       logic-not-delete-value: "null"
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # X硬化 H4（11 §4）：主配=生产安全默认——显式 NoLogging（杜绝默认值漂移），杜绝 SQL+参数
+    # （含手机号/密码哈希）明文进 stdout。dev 的 StdOutImpl 已移入 application-dev.yml。
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   mapper-locations: classpath*:/mapper/**/*.xml
 
 sa-token:
@@ -46,13 +48,16 @@ sa-token:
   is-concurrent: true
   is-share: true
   token-style: tik
-  is-log: true
+  # X硬化 H4：主配=生产安全默认，dev 在 application-dev.yml 放开 is-log
+  is-log: false
   is-print: false
 
+# X硬化 H4：主配日志级别按 prod 收紧（com.cangchu INFO / mybatis-plus WARN），dev 覆盖回 DEBUG。
+# 生产排查 SQL 的通道 = 临时调对应 mapper 包 DEBUG（MyBatis 原生 slf4j 日志），不回开 StdOutImpl。
 logging:
   level:
-    com.cangchu: DEBUG
-    com.baomidou.mybatisplus: DEBUG
+    com.cangchu: INFO
+    com.baomidou.mybatisplus: WARN
 
 cangchu:
   tenant:

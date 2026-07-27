@@ -20,6 +20,19 @@ spring:
       # D-15: lettuce.pool 已失效——连接池由 Redisson 接管（见 RedisConfig.redissonCustomizer），
       # Sa-Token / RAtomicLong 等均走 Redisson 客户端，此处 lettuce 池配置不再生效，已移除。
 
+# X硬化 H4（11 §4）：主配已收紧为生产安全默认，dev 显式放开——SQL stdout + DEBUG + sa-token 日志。
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+sa-token:
+  is-log: true
+
+logging:
+  level:
+    com.cangchu: DEBUG
+    com.baomidou.mybatisplus: DEBUG
+
 cangchu:
   tenant:
     leak-detection: true
