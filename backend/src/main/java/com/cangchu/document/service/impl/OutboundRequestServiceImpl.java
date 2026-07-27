@@ -368,10 +368,19 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         if (out.getWithdrawRequested() == null || out.getWithdrawRequested() != 1) {
             throw new BizException(ErrorCode.OUTBOUND_NO_WITHDRAW_REQUEST);
         }
-        // CAS：PRINTED→CANCELLED（flag 保留作审计留痕）
+        // CAS：PRINTED→CANCELLED（flag 保留作审计留痕）。
+        // N1 修复（08-p3-review）：CAS 条件补 withdraw_requested=1——上方 flag 检查是锁外预读，
+        // 并发「一拒一确认」时拒绝方先清 flag，确认方旧 CAS 仍会成功，与刚做出的拒绝决定相悖；
+        // 条件化后确认方 affected=0 → 50336（申请已不在）。
         if (!DocStateMachine.casTransition(outboundRequestMapper, DocKind.OUTBOUND, out.getId(),
                 OutboundRequest::getId, OutboundRequest::getStatus,
-                OutboundRequest.STATUS_PRINTED, OutboundRequest.STATUS_CANCELLED, null)) {
+                OutboundRequest.STATUS_PRINTED, OutboundRequest.STATUS_CANCELLED,
+                uw -> uw.eq(OutboundRequest::getWithdrawRequested, 1))) {
+            // 语义化：仍是 PRINTED → 必是 flag 被并发拒绝清掉（50336）；否则状态漂移（50331）
+            OutboundRequest cur = reload(out.getId());
+            if (cur != null && OutboundRequest.STATUS_PRINTED.equals(cur.getStatus())) {
+                throw new BizException(ErrorCode.OUTBOUND_NO_WITHDRAW_REQUEST);
+            }
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
         reverseForDoc(out, wkUserId, "R4 仓库确认撤回回补");
