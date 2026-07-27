@@ -3,9 +3,8 @@ package com.cangchu.tenant.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.cangchu.account.entity.User;
-import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.AuthService;
+import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -56,7 +55,8 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
     private final WholesalerApplicationMapper applicationMapper;
     private final WholesalerMapper wholesalerMapper;
     private final TenantMapper tenantMapper;
-    private final UserMapper userMapper;
+    // users 表归 account 域，跨域取数经 UserService（G-S1/G-S2，2026-07-23 还债）
+    private final UserService userService;
     private final AuthService authService;
     private final BlacklistService blacklistService;
     private final WholesalerService wholesalerService;
@@ -69,8 +69,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         requireTenantExists(tenantId);
 
         // 黑名单全检：申请账号手机号 + 表单联系电话 + 执照号（任一命中即拒，R-04）
-        User applicant = userMapper.selectById(userId);
-        String accountPhone = applicant != null ? applicant.getPhone() : null;
+        String accountPhone = userService.getPhone(userId);
         String contactPhone = dto.getContactPhone() != null && !dto.getContactPhone().isBlank()
                 ? dto.getContactPhone().trim() : accountPhone;
         if (blacklistService.isBlacklisted(accountPhone, dto.getLicense())
