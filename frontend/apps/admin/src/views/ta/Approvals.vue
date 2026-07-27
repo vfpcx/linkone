@@ -33,6 +33,7 @@ import {
   Stamp,
   Refresh,
   PriceTag,
+  Van,
 } from '@element-plus/icons-vue'
 import { AppTopbar, NavCountBadge } from '@cangchu/ui-shared'
 import type {
@@ -96,6 +97,7 @@ const menus: MenuItem[] = [
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
   { key: '/ta/inbound', label: '入库', icon: Box },
+  { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -111,6 +113,7 @@ const IMPLEMENTED = new Set([
   '/ta/skus',
   '/ta/pricing',
   '/ta/inbound',
+  '/ta/outbound',
 ])
 
 const activeMenu = ref('/ta/approvals')

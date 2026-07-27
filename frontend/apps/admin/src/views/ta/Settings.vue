@@ -26,6 +26,7 @@ import {
   Setting,
   TrendCharts,
   Stamp,
+  Van,
 } from '@element-plus/icons-vue'
 import { AppTopbar } from '@cangchu/ui-shared'
 import type {
@@ -87,6 +88,7 @@ const menus: MenuItem[] = [
   { key: '/ta/employees', label: '员工', icon: User },
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
   { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
+  { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -103,7 +105,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/wholesalers' ||
     key === '/ta/employees' ||
     key === '/ta/wholesaler-applications' ||
-    key === '/ta/approvals'
+    key === '/ta/approvals' ||
+    key === '/ta/outbound'
   ) {
     router.push(key)
     return

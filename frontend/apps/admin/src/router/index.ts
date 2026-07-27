@@ -88,6 +88,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '入库登记' },
   },
   {
+    path: '/ta/outbound',
+    name: 'ta-outbound',
+    component: () => import('@/views/ta/Outbound.vue'),
+    meta: { role: 'TA', title: '出库作业' },
+  },
+  {
     path: '/ta/wholesaler-applications',
     name: 'ta-wholesaler-applications',
     component: () => import('@/views/ta/WholesalerApplications.vue'),
