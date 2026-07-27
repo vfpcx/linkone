@@ -45,9 +45,9 @@ public enum ErrorCode {
 
     // ==================== PERMISSION (42000-42999) ====================
     PERMISSION_ROLE_001(42001, "您没有此操作的权限"),
-    PERMISSION_ROLE_002(42002, "OPS平台操作仅限OPS角色"),
+    PERMISSION_ROLE_002(42002, "平台操作仅限平台运维角色"),
     // 42004 落地 05-error-codes.md 既有预留（WE 授权位不足，P2 入驻 Wave3）
-    PERMISSION_ROLE_004(42004, "WE 角色无此权限，请联系 WA"),
+    PERMISSION_ROLE_004(42004, "批发商员工无此权限，请联系批发商管理员"),
     PERMISSION_TENANT_001(42101, "您没有访问此租户数据的权限"),
     PERMISSION_TENANT_002(42102, "数据隔离异常，请联系管理员"),
 
@@ -97,7 +97,7 @@ public enum ErrorCode {
     INBOUND_QTY_INVALID(50270, "入库数量非法（必须>0）"),
     INBOUND_WHOLESALER_REQUIRED(50271, "缺少批发商商户"),
     INBOUND_NOT_FOUND(50272, "入库单不存在"),
-    INBOUND_OPERATOR_NOT_WK(50273, "仅本租户仓管(WK)可登记入库"),
+    INBOUND_OPERATOR_NOT_WK(50273, "仅本租户库管员可登记入库"),
     DOC_NO_GENERATE_FAILED(50274, "单据号生成失败，请稍后重试"),
 
     // ==================== INQUIRY / OUTBOUND (phase-1 C2) ====================
@@ -107,12 +107,12 @@ public enum ErrorCode {
     INQUIRY_SKU_NOT_BELONG(50283, "商品不属于该批发商"),
     INQUIRY_NOT_FOUND(50284, "询价单不存在"),
     INQUIRY_STATUS_INVALID(50285, "询价单状态不允许此操作"),
-    INQUIRY_OPERATOR_NOT_WA(50286, "仅该批发商(WA)可确认询价"),
+    INQUIRY_OPERATOR_NOT_WA(50286, "仅该批发商管理员可确认询价"),
     OUTBOUND_GENERATE_FAILED(50287, "出库单生成失败，请稍后重试"),
 
     // ==================== EMPLOYEE INVITE (phase-1 员工注册码：解锁 WK 入库) ====================
     // 凭码注册时的码校验复用 AUTH_INVITE_001..004（41301-41304）；以下为 TA 生码/管理侧补充错误码。
-    INVITE_ROLE_NOT_ALLOWED(50290, "员工注册码角色仅允许 WK 或 ST"),
+    INVITE_ROLE_NOT_ALLOWED(50290, "员工注册码角色仅允许库管员或结算员"),
     INVITE_CODE_NOT_FOUND(50291, "员工注册码不存在"),
     INVITE_CODE_REVOKED(50292, "员工注册码已作废"),
 

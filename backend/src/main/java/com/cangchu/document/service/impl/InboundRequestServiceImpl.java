@@ -373,7 +373,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             }
             return "WE";
         }
-        throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅该批发商(WA)或被授权员工可操作此入库单");
+        throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅该批发商管理员或被授权员工可操作此入库单");
     }
 
     /**
