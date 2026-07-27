@@ -44,7 +44,9 @@ mybatis-plus:
 sa-token:
   token-name: Authorization
   timeout: 28800
-  active-timeout: -1
+  # X硬化 H3（11 §3）：主配=生产安全默认——30 分钟闲置冻结（TOKEN_FREEZE→统一 401）。
+  # dev/test profile 显式覆盖回 -1（调试断点/含 sleep 的存量测试不受影响）。
+  active-timeout: 1800
   is-concurrent: true
   is-share: true
   token-style: tik

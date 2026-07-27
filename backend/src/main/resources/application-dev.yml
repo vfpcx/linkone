@@ -27,6 +27,8 @@ mybatis-plus:
 
 sa-token:
   is-log: true
+  # X硬化 H3：dev 放松闲置冻结（主配 1800s），避免调试/断点期间掉线
+  active-timeout: -1
 
 logging:
   level:
