@@ -169,6 +169,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ops/Blacklist.vue'),
     meta: { role: 'OPS', title: '黑名单管理' },
   },
+  {
+    path: '/ops/arbitrations',
+    name: 'ops-arbitrations',
+    component: () => import('@/views/ops/Arbitrations.vue'),
+    meta: { role: 'OPS', title: '客诉仲裁' },
+  },
 
   // ST 工作台占位（后续 Agent 实现）
   {
