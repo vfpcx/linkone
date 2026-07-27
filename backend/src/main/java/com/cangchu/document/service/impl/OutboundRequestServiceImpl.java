@@ -334,6 +334,14 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                         .set(OutboundRequest::getWithdrawRequestedAt, null))) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
+        // N3（08-p3-review）：回退清 flag 隐式失效撤回申请 → 补发回执（回到待受理后 WA 可直撤）
+        if (out.getWithdrawRequested() != null && out.getWithdrawRequested() == 1) {
+            notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
+                    Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED, "撤回申请已失效",
+                    "出库单 " + out.getDocNo() + " 已由仓库回退至待受理，您此前的撤回申请已失效；"
+                            + "如仍需撤回，现可直接撤回该单。",
+                    Notification.REF_OUTBOUND, out.getId());
+        }
         return toVo(reload(out.getId()), null);
     }
 
@@ -354,6 +362,13 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         }
         // 询价终态联动（12 §1.4：登记出库同事务内检查）
         recomputeInquiryState(out.getInquiryId());
+        // N3（08-p3-review）：撤回申请在途被登记出库隐式否决 → 补发回执（对齐 rejectWithdrawByWk 有通知的对称性）
+        if (out.getWithdrawRequested() != null && out.getWithdrawRequested() == 1) {
+            notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
+                    Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED, "撤回申请未获受理",
+                    "出库单 " + out.getDocNo() + " 的撤回申请未获受理，仓库已登记出库，单据已完成。",
+                    Notification.REF_OUTBOUND, out.getId());
+        }
         log.info("[P3] WK {} 登记出库 doc={}", wkUserId, out.getDocNo());
         return toVo(reload(out.getId()), null);
     }

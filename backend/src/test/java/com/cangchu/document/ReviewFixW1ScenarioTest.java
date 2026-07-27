@@ -189,6 +189,58 @@ class ReviewFixW1ScenarioTest {
     }
 
     // ======================================================================
+    // N3 · 登记出库/回退隐式否决撤回申请 → 补发 WA 回执
+    // ======================================================================
+
+    @Test
+    @DisplayName("N3-01 撤回在途被登记出库：WA 收到「未获受理」回执，单据 COMPLETED")
+    void registerNotifiesInflightWithdraw() {
+        Ctx c = seedAll();
+        seedStock(c, 30);
+        OutboundRequestVo vo = printedWithWithdrawRequested(c, 10);
+        assertThat(countNotifications(c.waUserId(), Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED)).isZero();
+
+        asWk(c);
+        OutboundRequestVo done = outboundRequestService.registerByWk(vo.getId(), c.wkUserId());
+        assertThat(done.getStatus()).isEqualTo(OutboundRequest.STATUS_COMPLETED);
+        assertThat(done.getWithdrawRequested()).isZero();
+        assertThat(countNotifications(c.waUserId(), Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("N3-02 撤回在途被回退清 flag：WA 收到失效回执；回到待受理后可直撤")
+    void revertNotifiesInflightWithdraw() {
+        Ctx c = seedAll();
+        seedStock(c, 30);
+        OutboundRequestVo vo = printedWithWithdrawRequested(c, 10);
+
+        asWk(c);
+        OutboundRequestVo reverted = outboundRequestService.revertToPendingByWk(vo.getId(), c.wkUserId());
+        assertThat(reverted.getStatus()).isEqualTo(OutboundRequest.STATUS_PENDING_ACCEPT);
+        assertThat(reverted.getWithdrawRequested()).isZero();
+        assertThat(countNotifications(c.waUserId(), Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED)).isEqualTo(1);
+
+        // 回执兑现：待受理可直撤
+        asWa(c);
+        OutboundRequestVo withdrawn = outboundRequestService.withdrawByWa(vo.getId(), c.waUserId());
+        assertThat(withdrawn.getStatus()).isEqualTo(OutboundRequest.STATUS_WITHDRAWN);
+    }
+
+    @Test
+    @DisplayName("N3-03 无撤回在途的登记/回退：不发多余回执（不扰民）")
+    void noInflightNoNotification() {
+        Ctx c = seedAll();
+        seedStock(c, 30);
+        OutboundRequestVo vo = submit(c, 10);
+        asWk(c);
+        outboundRequestService.printByWk(vo.getId(), c.wkUserId());
+        outboundRequestService.revertToPendingByWk(vo.getId(), c.wkUserId());
+        outboundRequestService.printByWk(vo.getId(), c.wkUserId());
+        outboundRequestService.registerByWk(vo.getId(), c.wkUserId());
+        assertThat(countNotifications(c.waUserId(), Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED)).isZero();
+    }
+
+    // ======================================================================
     // N2 · 仲裁附件 URL 白名单（仅本站 /files/yyyyMM/UUID.ext）
     // ======================================================================
 
