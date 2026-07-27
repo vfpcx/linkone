@@ -426,9 +426,23 @@ public class ArbitrationServiceImpl implements ArbitrationService {
         return t.isEmpty() ? null : t;
     }
 
+    /**
+     * N2（08-p3-review）：附件 URL 白名单——必须是本站上传返回的形态
+     * {@code /files/yyyyMM/UUID.(jpg|png|webp)}（与 FileStorageServiceImpl.store 返回值同构）。
+     * 拒任意外链：防仲裁人浏览器向发起方指定外站发请求（IP/UA 泄露、跟踪像素），
+     * 且外链「证据」可在裁决后被替换，破坏留痕语义。
+     */
+    private static final java.util.regex.Pattern ATTACHMENT_URL_PATTERN = java.util.regex.Pattern.compile(
+            "^/files/\\d{6}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(jpg|png|webp)$");
+
     private String encodeAttachments(List<String> attachments) {
         if (attachments == null || attachments.isEmpty()) {
             return null;
+        }
+        for (String url : attachments) {
+            if (url == null || !ATTACHMENT_URL_PATTERN.matcher(url).matches()) {
+                throw new BizException(ErrorCode.FILE_UPLOAD_INVALID, "附件必须为本站上传返回的地址");
+            }
         }
         try {
             String json = objectMapper.writeValueAsString(attachments);

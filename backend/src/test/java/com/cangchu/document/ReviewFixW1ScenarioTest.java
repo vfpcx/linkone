@@ -189,6 +189,41 @@ class ReviewFixW1ScenarioTest {
     }
 
     // ======================================================================
+    // N2 · 仲裁附件 URL 白名单（仅本站 /files/yyyyMM/UUID.ext）
+    // ======================================================================
+
+    @Test
+    @DisplayName("N2-01 异议附件外链/畸形 URL → 50340 拒绝；合法本站 URL 通过")
+    void attachmentUrlWhitelist() {
+        Ctx c = seedAll();
+        InboundRequestVo in1 = registerInbound(c, 10);
+        asWa(c);
+
+        for (String bad : new String[]{
+                "https://evil.example.com/pixel.png",           // 外站
+                "/files/202607/not-a-uuid.jpg",                  // 非 UUID
+                "/files/202607/" + java.util.UUID.randomUUID() + ".svg", // 非白名单扩展
+                "//evil.example.com/files/202607/x.jpg",         // 协议相对外链
+                "/files/../etc/passwd"}) {                       // 穿越形态
+            InboundDisputeDto d = new InboundDisputeDto();
+            d.setReason("附件校验");
+            d.setAttachments(java.util.List.of(bad));
+            BizException ex = Assertions.assertThrows(BizException.class,
+                    () -> inboundRequestService.disputeByWa(in1.getId(), c.waUserId(), d),
+                    "应拒绝: " + bad);
+            assertThat(ex.getErrorCode()).as(bad).isEqualTo(ErrorCode.FILE_UPLOAD_INVALID);
+        }
+        // 被拒时单据仍停在待确认（同事务回滚，未被置为 DISPUTED）
+        InboundDisputeDto ok = new InboundDisputeDto();
+        ok.setReason("合法附件");
+        ok.setAttachments(java.util.List.of(
+                "/files/202607/" + java.util.UUID.randomUUID() + ".jpg",
+                "/files/202607/" + java.util.UUID.randomUUID() + ".webp"));
+        var result = inboundRequestService.disputeByWa(in1.getId(), c.waUserId(), ok);
+        assertThat(result.getArbitrationDocNo()).startsWith("YY-");
+    }
+
+    // ======================================================================
     // N1 · confirmWithdrawByWk CAS 补 withdraw_requested=1 条件
     // ======================================================================
 
