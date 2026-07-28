@@ -276,6 +276,49 @@ class ReviewFixW1ScenarioTest {
     }
 
     // ======================================================================
+    // M3 · 异议前在库预览端点（PRD 09 §6.2 后端补口）
+    // ======================================================================
+
+    @Test
+    @DisplayName("M3-01 在库预览：全在库 30/30/0；售出 20 后 10/10/20；越权（他商户 WA）拒绝")
+    void stockPreviewNumbers() {
+        Ctx c = seedAll();
+        InboundRequestVo in1 = registerInbound(c, 30);
+
+        asWa(c);
+        var p1 = inboundRequestService.stockPreview(in1.getId(), c.waUserId());
+        assertThat(p1.getOnhand()).isEqualTo(30);
+        assertThat(p1.getExpectedReversal()).isEqualTo(30);
+        assertThat(p1.getExpectedShortfall()).isZero();
+
+        // 售出 20（WA 手动出库，提交即扣）
+        submit(c, 20);
+        var p2 = inboundRequestService.stockPreview(in1.getId(), c.waUserId());
+        assertThat(p2.getOnhand()).isEqualTo(10);
+        assertThat(p2.getExpectedReversal()).isEqualTo(10);
+        assertThat(p2.getExpectedShortfall()).isEqualTo(20);
+
+        // 预览数字与实际冲销口径一致（12 §2.4 封顶公式同源）
+        var r = inboundRequestService.disputeByWa(in1.getId(), c.waUserId(), disputeDto("对账"));
+        assertThat(r.getReversedQty()).isEqualTo(p2.getExpectedReversal());
+        assertThat(r.getShortfallQty()).isEqualTo(p2.getExpectedShortfall());
+
+        // 越权：他商户 WA 查询 → 拒绝（S4 与 dispute 同切点）
+        Ctx other = seedAll();
+        TenantContext.set(TenantContext.TenantInfo.of(other.tenantId(), other.waUserId(), "WA"));
+        BizException ex = Assertions.assertThrows(BizException.class,
+                () -> inboundRequestService.stockPreview(in1.getId(), other.waUserId()));
+        assertThat(ex.getErrorCode())
+                .isIn(ErrorCode.PERMISSION_ROLE_001, ErrorCode.INBOUND_NOT_FOUND);
+    }
+
+    private InboundDisputeDto disputeDto(String reason) {
+        InboundDisputeDto d = new InboundDisputeDto();
+        d.setReason(reason);
+        return d;
+    }
+
+    // ======================================================================
     // N5 · 仲裁恢复配对冲销流水缺失 → 防御性拒绝（不凭空造量）
     // ======================================================================
 

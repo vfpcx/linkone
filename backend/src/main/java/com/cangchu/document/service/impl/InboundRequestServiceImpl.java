@@ -18,6 +18,7 @@ import com.cangchu.document.service.DocumentNumberService;
 import com.cangchu.document.service.InboundRequestService;
 import com.cangchu.document.vo.InboundDisputeResultVo;
 import com.cangchu.document.vo.InboundRequestVo;
+import com.cangchu.document.vo.InboundStockPreviewVo;
 import com.cangchu.common.util.WePermissions;
 import com.cangchu.inventory.dto.InboundContext;
 import com.cangchu.inventory.dto.DisputeReversalResult;
@@ -324,6 +325,22 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         return inboundRequestMapper.selectList(qw).stream()
                 .map(r -> toVo(r, null))
                 .toList();
+    }
+
+    @Override
+    public InboundStockPreviewVo stockPreview(Long inboundId, Long userId) {
+        InboundRequest req = loadInbound(inboundId);
+        requireWaOrAuthorizedWe(req.getWholesalerId(), userId);
+        // 轻量只读快照（无锁，允许轻微过期；实际冲销以 disputeByWa 锁内计算为准）
+        List<InventoryVo> list = inventoryService.queryInventory(req.getWholesalerId(), req.getSkuId());
+        int onhand = list.isEmpty() || list.get(0).getQty() == null ? 0 : Math.max(list.get(0).getQty(), 0);
+        int expectedReversal = Math.min(req.getQty(), onhand);
+        int expectedShortfall = req.getQty() - expectedReversal;
+        return InboundStockPreviewVo.builder()
+                .onhand(onhand)
+                .expectedReversal(expectedReversal)
+                .expectedShortfall(expectedShortfall)
+                .build();
     }
 
     @Override
