@@ -25,10 +25,30 @@
         </encoder>
     </appender>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="FILE"/>
-    </root>
+    <!-- X硬化 H4（11 §4）：logback 按 profile 拆分——dev 保留 CONSOLE(DEBUG)+FILE；
+         非 dev（prod/test）默认安全：FILE(INFO) 为主，CONSOLE 仅 WARN+（Windows 服务方式
+         运行时 stdout 无人看，降噪且防明文参数外溢）。滚动保留 30 天不变。 -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+        <logger name="com.cangchu" level="DEBUG"/>
+    </springProfile>
 
-    <logger name="com.cangchu" level="DEBUG"/>
+    <springProfile name="!dev">
+        <appender name="CONSOLE_WARN" class="ch.qos.logback.core.ConsoleAppender">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>WARN</level>
+            </filter>
+            <encoder>
+                <pattern>${LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_WARN"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
 </configuration>

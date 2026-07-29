@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.pricing.dto.BatchCustomerPriceDto;
 import com.cangchu.pricing.dto.BatchPublicPriceDto;
@@ -151,8 +152,9 @@ public class PricingServiceImpl implements PricingService {
         }
 
         invalidateAfterCommit(dto.getWholesalerId(), dto.getRtPhone(), dto.getSkuId());
+        // X硬化 H4：日志严禁明文手机号（F7 规约，统一走 SmsUtil.maskPhone）
         log.info("[P2] operator {} 设置专属价 wholesaler={} phone={} sku={} price={}",
-                operatorUserId, dto.getWholesalerId(), dto.getRtPhone(), dto.getSkuId(), dto.getUnitPrice());
+                operatorUserId, dto.getWholesalerId(), SmsUtil.maskPhone(dto.getRtPhone()), dto.getSkuId(), dto.getUnitPrice());
         return toVo(result);
     }
 
@@ -201,8 +203,9 @@ public class PricingServiceImpl implements PricingService {
         }
 
         invalidateAfterCommit(wholesalerId, rtPhone, skuId);
+        // X硬化 H4：日志严禁明文手机号（F7 规约，统一走 SmsUtil.maskPhone）
         log.info("[P2] operator {} 议价沉淀 wholesaler={} phone={} sku={} price={} src={}",
-                operatorUserId, wholesalerId, rtPhone, skuId, dealPrice, sourceDocNo);
+                operatorUserId, wholesalerId, SmsUtil.maskPhone(rtPhone), skuId, dealPrice, sourceDocNo);
     }
 
     @Override

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
@@ -161,8 +162,9 @@ public class InquiryServiceImpl implements InquiryService {
             inquiryItemMapper.insert(item);
         }
 
+        // X硬化 H4：日志严禁明文手机号（F7 规约，统一走 SmsUtil.maskPhone）
         log.info("[C2] RT {} 提交询价 doc={} store={} wholesaler={} items={}",
-                dto.getRtPhone(), docNo, storeId, dto.getWholesalerId(), dto.getItems().size());
+                SmsUtil.maskPhone(dto.getRtPhone()), docNo, storeId, dto.getWholesalerId(), dto.getItems().size());
 
         return loadVo(req.getId());
     }
