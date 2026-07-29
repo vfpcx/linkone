@@ -53,6 +53,14 @@ public interface AuthService {
     java.util.List<Long> listActiveWholesalerIds(Long userId, String role);
 
     /**
+     * 上下文查询（批发商维度反查，P3 缺陷修复）：列出绑定到该批发商的全部 ACTIVE <b>WA</b> 用户 id（去重）。
+     * 与 {@link #listActiveUserIdsOfWholesaler} 同构但仅取 role=WA——「归属 WA」通知收件人
+     * 以 user_roles 绑定为唯一可信来源：SELF_OPERATED 商户的 {@code wholesalers.owner_user_id}
+     * 是 TA 操作人，按 owner 发通知会漏发真实 WA（listForWa 同源推导先例）。
+     */
+    java.util.List<Long> listActiveWaUserIdsOfWholesaler(Long wholesalerId);
+
+    /**
      * 角色-租户绑定（幂等）：确保用户拥有一条 (role, tenantId, ACTIVE) 的角色记录。
      *
      * <p>行为与原 tenant 域直连逐一等价：优先复用一条 status=ACTIVE 且 tenant_id 为空的

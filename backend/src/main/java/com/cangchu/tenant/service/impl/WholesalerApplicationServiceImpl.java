@@ -244,7 +244,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         }
         // authBasis 必填（DTO @NotBlank 已拦，此处防御性兜底）
         if (dto.getAuthBasis() == null || dto.getAuthBasis().isBlank()) {
-            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "代建必须提供 TA 授权凭据或客诉单号");
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "代建必须提供租户管理员授权凭据或客诉单号");
         }
 
         Long tenantId = parseTenantId(dto.getTenantId());
@@ -289,7 +289,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
                 .set(WholesalerApplication::getPendingFlag, null)
                 .set(WholesalerApplication::getAuditUserId, opsUserId)
                 .set(WholesalerApplication::getAuditedAt, LocalDateTime.now())
-                .set(WholesalerApplication::getAuditRemark, "OPS 代建入驻生效，存量待审申请自动关闭"));
+                .set(WholesalerApplication::getAuditRemark, "平台运维代建入驻生效，存量待审申请自动关闭"));
         if (closed > 0) {
             log.info("[入驻][OPS代建] 自动关闭 WA 用户 {} 的存量 PENDING 申请 {} 条", waUserId, closed);
         }

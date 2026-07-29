@@ -20,7 +20,7 @@ public class OpsWholesalerCreateDto {
     private String name;
 
     /** WA 负责人手机号（开通/绑定 WA 账号） */
-    @NotBlank(message = "WA 负责人手机号不能为空")
+    @NotBlank(message = "批发商管理员手机号不能为空")
     @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
     private String waPhone;
 
@@ -31,7 +31,7 @@ public class OpsWholesalerCreateDto {
     private String license;
 
     /** 授权依据：TA 授权凭据文本或客诉单号（必填，缺失拒绝） */
-    @NotBlank(message = "代建必须提供 TA 授权凭据或客诉单号")
+    @NotBlank(message = "代建必须提供租户管理员授权凭据或客诉单号")
     @Size(max = 512, message = "授权依据最多 512 字")
     private String authBasis;
 }

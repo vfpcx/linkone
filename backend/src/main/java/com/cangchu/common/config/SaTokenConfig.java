@@ -10,6 +10,8 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -78,7 +80,25 @@ public class SaTokenConfig implements WebMvcConfigurer {
      */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        String location = Path.of(uploadDir).toAbsolutePath().normalize().toUri().toString();
-        registry.addResourceHandler("/files/**").addResourceLocations(location);
+        registry.addResourceHandler("/files/**").addResourceLocations(resolveUploadLocation(uploadDir));
+    }
+
+    /**
+     * P3 缺陷修复（FE-W1 契约偏差②）：启动序缺陷——目录尚不存在时 {@code Path.toUri()}
+     * 生成的 URI 缺尾斜杠，静态映射把它当"文件"处理 → 上传成功但 GET 500，重启后才自愈。
+     * 双保险：启动时先建目录（与 FileStorageServiceImpl 同源语义）+ 手工保证尾斜杠
+     * （即使建目录失败，映射也按目录语义注册，目录随首次上传补建后 GET 即可用）。
+     */
+    static String resolveUploadLocation(String uploadDir) {
+        Path dir = Path.of(uploadDir).toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            // 不阻断启动：目录由 FileStorageServiceImpl 在首次上传时兜底创建
+            org.slf4j.LoggerFactory.getLogger(SaTokenConfig.class)
+                    .warn("[FILE] 启动创建附件目录失败 dir={}，将由首次上传兜底创建", dir, e);
+        }
+        String location = dir.toUri().toString();
+        return location.endsWith("/") ? location : location + "/";
     }
 }
