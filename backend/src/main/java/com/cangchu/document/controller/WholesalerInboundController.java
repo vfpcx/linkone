@@ -7,6 +7,7 @@ import com.cangchu.document.dto.InboundDisputeDto;
 import com.cangchu.document.service.InboundRequestService;
 import com.cangchu.document.vo.InboundDisputeResultVo;
 import com.cangchu.document.vo.InboundRequestVo;
+import com.cangchu.document.vo.InboundStockPreviewVo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,6 +42,12 @@ public class WholesalerInboundController {
     @PostMapping("/{id}/confirm")
     public R<InboundRequestVo> confirm(@PathVariable Long id) {
         return R.ok(inboundRequestService.confirmByWa(id, StpUtil.getLoginIdAsLong()));
+    }
+
+    /** 异议前在库预览（M3，PRD 09 §6.2）：实时在库/预计冲销/预计差额三数字，供 WA 提交异议前展示。 */
+    @GetMapping("/{id}/stock-preview")
+    public R<InboundStockPreviewVo> stockPreview(@PathVariable Long id) {
+        return R.ok(inboundRequestService.stockPreview(id, StpUtil.getLoginIdAsLong()));
     }
 
     /** 异议（单事务：CAS→封顶冲销→建 YY- 仲裁单→通知 TA/WK）。 */

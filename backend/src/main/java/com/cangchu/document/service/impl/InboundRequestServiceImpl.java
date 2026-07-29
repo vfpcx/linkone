@@ -18,6 +18,7 @@ import com.cangchu.document.service.DocumentNumberService;
 import com.cangchu.document.service.InboundRequestService;
 import com.cangchu.document.vo.InboundDisputeResultVo;
 import com.cangchu.document.vo.InboundRequestVo;
+import com.cangchu.document.vo.InboundStockPreviewVo;
 import com.cangchu.common.util.WePermissions;
 import com.cangchu.inventory.dto.InboundContext;
 import com.cangchu.inventory.dto.DisputeReversalResult;
@@ -29,7 +30,6 @@ import com.cangchu.notify.service.NotificationService;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.tenant.service.TenantService;
-import com.cangchu.tenant.service.WholesalerService;
 import com.cangchu.tenant.vo.WholesalerVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,7 +64,6 @@ public class InboundRequestServiceImpl implements InboundRequestService {
 
     private final InboundRequestMapper inboundRequestMapper;
     // G-S1/G-S2 还债：他域数据只走对方 Service（不再直连 WholesalerMapper/SkuMapper/TenantMapper）
-    private final WholesalerService wholesalerService;
     private final SkuService skuService;
     private final TenantService tenantService;
     // G-S1/G-S2 还债：user_roles 归 account 域，requireWkRole 经 AuthService 鉴权。
@@ -153,7 +152,9 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                 .build());
 
         // 同事务通知归属 WA（12 §2.2；产品口径文案：可售 + 72h 异议 + 差额定责，PRD 09 §6.1）
-        notificationService.send(tenantId, wholesaler.getOwnerUserId(),
+        // P3 缺陷修复：收件人以 user_roles 推导（SELF_OPERATED 的 owner_user_id 是 TA 操作人，
+        // 按 owner 发会漏发真实 WA；listForWa 同源先例），多 WA 账号全发
+        notificationService.sendToAll(tenantId, authService.listActiveWaUserIdsOfWholesaler(dto.getWholesalerId()),
                 Notification.TYPE_INBOUND_PENDING_CONFIRM,
                 "代建入库待确认",
                 "入库单 " + docNo + "：登记 " + dto.getQty() + " 件，请在 72 小时内确认或提出异议，逾期自动确认。"
@@ -300,8 +301,9 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                     .setSql("wa_confirm_at = NOW()")
                     .set(InboundRequest::getUpdatedAt, LocalDateTime.now()));
             if (affected == 1) {
-                WholesalerVo w = wholesalerService.getById(req.getWholesalerId());
-                notificationService.send(req.getTenantId(), w != null ? w.getOwnerUserId() : null,
+                // P3 缺陷修复：同 registerByWk——「归属 WA」收件人以 user_roles 推导，多账号全发
+                notificationService.sendToAll(req.getTenantId(),
+                        authService.listActiveWaUserIdsOfWholesaler(req.getWholesalerId()),
                         Notification.TYPE_INBOUND_AUTO_CONFIRMED, "入库单已自动确认",
                         "入库单 " + req.getDocNo() + " 超过 72 小时未处理，已自动确认。",
                         Notification.REF_INBOUND, req.getId());
@@ -323,6 +325,22 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         return inboundRequestMapper.selectList(qw).stream()
                 .map(r -> toVo(r, null))
                 .toList();
+    }
+
+    @Override
+    public InboundStockPreviewVo stockPreview(Long inboundId, Long userId) {
+        InboundRequest req = loadInbound(inboundId);
+        requireWaOrAuthorizedWe(req.getWholesalerId(), userId);
+        // 轻量只读快照（无锁，允许轻微过期；实际冲销以 disputeByWa 锁内计算为准）
+        List<InventoryVo> list = inventoryService.queryInventory(req.getWholesalerId(), req.getSkuId());
+        int onhand = list.isEmpty() || list.get(0).getQty() == null ? 0 : Math.max(list.get(0).getQty(), 0);
+        int expectedReversal = Math.min(req.getQty(), onhand);
+        int expectedShortfall = req.getQty() - expectedReversal;
+        return InboundStockPreviewVo.builder()
+                .onhand(onhand)
+                .expectedReversal(expectedReversal)
+                .expectedShortfall(expectedShortfall)
+                .build();
     }
 
     @Override
@@ -372,7 +390,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             }
             return "WE";
         }
-        throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅该批发商(WA)或被授权员工可操作此入库单");
+        throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅该批发商管理员或被授权员工可操作此入库单");
     }
 
     /**

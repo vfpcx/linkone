@@ -3,9 +3,8 @@ package com.cangchu.tenant.service.impl;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.cangchu.account.entity.User;
-import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.AuthService;
+import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
@@ -23,7 +22,6 @@ import com.cangchu.tenant.vo.WarehouseVo;
 import cn.hutool.crypto.digest.DigestUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,15 +47,15 @@ public class TenantServiceImpl implements TenantService {
     private final CapacityPublishMapper capacityPublishMapper;
     private final TenantApplicationMapper tenantApplicationMapper;
     private final WholesalerMapper wholesalerMapper;
-    private final UserMapper userMapper;
     // user_roles 归 account 域，跨域鉴权/角色绑定经 AuthService（G-S1/G-S2）
     private final AuthService authService;
+    // users 表归 account 域，幂等查/建与显示名批量查询经 UserService（G-S1/G-S2 还债出口）
+    private final UserService userService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final SmsUtil smsUtil;
     // DEF-1：公开目录端点 IP 限流（沿用短信基建的 Redisson 原子计数+TTL，G-6.1）
     private final org.redisson.api.RedissonClient redissonClient;
 
-    private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
 
     @Override
     @Transactional
@@ -170,28 +168,12 @@ public class TenantServiceImpl implements TenantService {
         // D-02(c) 角色鉴权：代建租户仅限 OPS
         requireOpsRole(opsUserId);
 
-        // 检查手机号是否已注册用户
-        String phoneHash = DigestUtil.sha256Hex(dto.getContactPhone());
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhoneHash, phoneHash));
-
-        boolean isNewUser = false;
-        if (user == null) {
-            // 创建 TA 用户
-            user = new User();
-            user.setId(snowflakeIdUtil.nextId());
-            user.setPhone(dto.getContactPhone());
-            user.setPhoneHash(phoneHash);
-            // 生成临时密码
-            String tempPwd = RandomUtil.randomString(8);
-            user.setPasswordHash(PASSWORD_ENCODER.encode(tempPwd));
-            user.setNickname(dto.getContactPhone().substring(dto.getContactPhone().length() - 4));
-            user.setStatus("ACTIVE");
-            user.setRegisterSource("OPS_PROXY");
-            user.setCreatedAt(LocalDateTime.now());
-            user.setUpdatedAt(LocalDateTime.now());
-            userMapper.insert(user);
-            isNewUser = true;
-
+        // 检查手机号是否已注册用户；未注册则代建 TA 账号（临时密码）——
+        // users 表归 account 域，幂等查/建经 UserService（G-S1/G-S2，2026-07-23 还债，语义等价原直连）
+        UserService.EnsuredUser ensured = userService.ensureUserByPhone(dto.getContactPhone(), "OPS_PROXY");
+        Long taUserId = ensured.userId();
+        boolean isNewUser = ensured.isNew();
+        if (isNewUser) {
             // TODO: 发送短信临时密码给 TA
             // F7：日志严禁明文密码与完整手机号
             log.info("[OPS PROXY] 代建租户 TA 手机号={}（临时密码已生成，待短信通道下发）",
@@ -200,14 +182,14 @@ public class TenantServiceImpl implements TenantService {
 
         // 创建租户（直接通过）
         Tenant tenant = createTenant(dto.getName(), dto.getLegalName(), dto.getLicenseNo(),
-                dto.getLicenseUrl(), user.getId(), dto.getContactPhone(), true);
+                dto.getLicenseUrl(), taUserId, dto.getContactPhone(), true);
 
         // 绑定 TA 角色（存在即跳过；user_roles 归 account 域，经 AuthService）
-        authService.ensureTenantRole(user.getId(), "TA", tenant.getId(), opsUserId);
+        authService.ensureTenantRole(taUserId, "TA", tenant.getId(), opsUserId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("tenantId", tenant.getId().toString());
-        result.put("taUserId", user.getId().toString());
+        result.put("taUserId", taUserId.toString());
         result.put("isNewUser", isNewUser);
         result.put("status", "ACTIVE");
         return result;
@@ -591,16 +573,14 @@ public class TenantServiceImpl implements TenantService {
                         .orderByDesc(Tenant::getCreatedAt));
 
         List<Tenant> tenants = p.getRecords();
-        // 批量取申请人（contact_user_id → 实名/昵称）与地址快照（tenant_applications），避免 N+1
-        Map<Long, User> users = Map.of();
+        // 批量取申请人显示名（contact_user_id → 实名优先/昵称回落）与地址快照（tenant_applications），避免 N+1；
+        // users 表归 account 域，批量显示名经 UserService.getDisplayNames（G-S1/G-S2 还债，语义等价原直连）
+        Map<Long, String> displayNames = Map.of();
         Map<Long, String> addresses = new LinkedHashMap<>();
         if (!tenants.isEmpty()) {
             List<Long> userIds = tenants.stream().map(Tenant::getContactUserId)
                     .filter(java.util.Objects::nonNull).distinct().toList();
-            if (!userIds.isEmpty()) {
-                users = userMapper.selectBatchIds(userIds).stream()
-                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
-            }
+            displayNames = userService.getDisplayNames(userIds);
             List<Long> tenantIds = tenants.stream().map(Tenant::getId).toList();
             // 同租户多条申请取最新一条的地址（apply 复用壳时会更新申请单）
             for (TenantApplication app : tenantApplicationMapper.selectList(new LambdaQueryWrapper<TenantApplication>()
@@ -612,12 +592,9 @@ public class TenantServiceImpl implements TenantService {
             }
         }
 
-        final Map<Long, User> userMap = users;
+        final Map<Long, String> nameMap = displayNames;
         List<AdminTenantItemVo> list = tenants.stream().map(t -> {
-            User applicant = t.getContactUserId() != null ? userMap.get(t.getContactUserId()) : null;
-            String applicantName = applicant == null ? null
-                    : (applicant.getRealName() != null && !applicant.getRealName().isBlank()
-                            ? applicant.getRealName() : applicant.getNickname());
+            String applicantName = t.getContactUserId() != null ? nameMap.get(t.getContactUserId()) : null;
             return AdminTenantItemVo.builder()
                     .tenantId(t.getId())
                     .name(t.getName())

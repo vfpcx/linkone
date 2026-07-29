@@ -324,19 +324,14 @@ public class InquiryServiceImpl implements InquiryService {
             throw new BizException(ErrorCode.INQUIRY_NOT_VOIDABLE);
         }
 
-        // 询价 CAS：CONFIRMED → VOIDED（并发唯一赢家；与登记出库联动/R4 回滚竞态由 CAS 决出）
-        LocalDateTime now = LocalDateTime.now();
-        int cas = inquiryRequestMapper.update(null, new LambdaUpdateWrapper<InquiryRequest>()
-                .eq(InquiryRequest::getId, inquiryId)
-                .eq(InquiryRequest::getStatus, InquiryRequest.STATUS_CONFIRMED)
-                .set(InquiryRequest::getStatus, InquiryRequest.STATUS_VOIDED)
-                .set(InquiryRequest::getVoidedAt, now));
-        if (cas != 1) {
-            throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
-        }
-
+        // N4（08-p3-review）：加锁次序统一为「出库行 → 询价行」——R4 撤回/登记出库是
+        // 出库 CAS 后经 recomputeInquiryState 更新询价（outbound→inquiry），此处原先反向
+        // （inquiry→outbound）与之构成 AB-BA 死锁窗口（InnoDB 检测后牺牲一方透出 90001 而非
+        // 50331 语义码）。故先逐张撤销出库单，最后 CAS 询价；询价 CAS 失败整体回滚，
+        // 出库撤销与回补一并回退，语义不变。
         // 名下 PENDING_ACCEPT / PRINTED 逐张 CAS→CANCELLED + 回补（每张一条 OUTBOUND_REVERSAL 配对，12 §3.2）。
         // 已打印单在 R8 下不需 WK 二次确认（作废是整单意思表示），但通知 WK 收回纸单。
+        LocalDateTime now = LocalDateTime.now();
         int cancelled = 0;
         boolean anyPrinted = false;
         for (OutboundRequest out : outbounds) {
@@ -364,6 +359,16 @@ public class InquiryServiceImpl implements InquiryService {
                     .remark("R8 意向单作废回补")
                     .build());
             cancelled++;
+        }
+
+        // 询价 CAS：CONFIRMED → VOIDED（并发唯一赢家；与登记出库联动/R4 回滚竞态由 CAS 决出）
+        int cas = inquiryRequestMapper.update(null, new LambdaUpdateWrapper<InquiryRequest>()
+                .eq(InquiryRequest::getId, inquiryId)
+                .eq(InquiryRequest::getStatus, InquiryRequest.STATUS_CONFIRMED)
+                .set(InquiryRequest::getStatus, InquiryRequest.STATUS_VOIDED)
+                .set(InquiryRequest::getVoidedAt, now));
+        if (cas != 1) {
+            throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
 
         // 通知 WK（仓库侧=租户联系人，含收回纸单提示）；RT 免登录无 user_id，站内信降级跳过（据实现备注）
