@@ -334,6 +334,14 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                         .set(OutboundRequest::getWithdrawRequestedAt, null))) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
+        // N3（08-p3-review）：回退清 flag 隐式失效撤回申请 → 补发回执（回到待受理后 WA 可直撤）
+        if (out.getWithdrawRequested() != null && out.getWithdrawRequested() == 1) {
+            notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
+                    Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED, "撤回申请已失效",
+                    "出库单 " + out.getDocNo() + " 已由仓库回退至待受理，您此前的撤回申请已失效；"
+                            + "如仍需撤回，现可直接撤回该单。",
+                    Notification.REF_OUTBOUND, out.getId());
+        }
         return toVo(reload(out.getId()), null);
     }
 
@@ -354,6 +362,13 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         }
         // 询价终态联动（12 §1.4：登记出库同事务内检查）
         recomputeInquiryState(out.getInquiryId());
+        // N3（08-p3-review）：撤回申请在途被登记出库隐式否决 → 补发回执（对齐 rejectWithdrawByWk 有通知的对称性）
+        if (out.getWithdrawRequested() != null && out.getWithdrawRequested() == 1) {
+            notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
+                    Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED, "撤回申请未获受理",
+                    "出库单 " + out.getDocNo() + " 的撤回申请未获受理，仓库已登记出库，单据已完成。",
+                    Notification.REF_OUTBOUND, out.getId());
+        }
         log.info("[P3] WK {} 登记出库 doc={}", wkUserId, out.getDocNo());
         return toVo(reload(out.getId()), null);
     }
@@ -368,15 +383,24 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         if (out.getWithdrawRequested() == null || out.getWithdrawRequested() != 1) {
             throw new BizException(ErrorCode.OUTBOUND_NO_WITHDRAW_REQUEST);
         }
-        // CAS：PRINTED→CANCELLED（flag 保留作审计留痕）
+        // CAS：PRINTED→CANCELLED（flag 保留作审计留痕）。
+        // N1 修复（08-p3-review）：CAS 条件补 withdraw_requested=1——上方 flag 检查是锁外预读，
+        // 并发「一拒一确认」时拒绝方先清 flag，确认方旧 CAS 仍会成功，与刚做出的拒绝决定相悖；
+        // 条件化后确认方 affected=0 → 50336（申请已不在）。
         if (!DocStateMachine.casTransition(outboundRequestMapper, DocKind.OUTBOUND, out.getId(),
                 OutboundRequest::getId, OutboundRequest::getStatus,
-                OutboundRequest.STATUS_PRINTED, OutboundRequest.STATUS_CANCELLED, null)) {
+                OutboundRequest.STATUS_PRINTED, OutboundRequest.STATUS_CANCELLED,
+                uw -> uw.eq(OutboundRequest::getWithdrawRequested, 1))) {
+            // 语义化：仍是 PRINTED → 必是 flag 被并发拒绝清掉（50336）；否则状态漂移（50331）
+            OutboundRequest cur = reload(out.getId());
+            if (cur != null && OutboundRequest.STATUS_PRINTED.equals(cur.getStatus())) {
+                throw new BizException(ErrorCode.OUTBOUND_NO_WITHDRAW_REQUEST);
+            }
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
         reverseForDoc(out, wkUserId, "R4 仓库确认撤回回补");
         recomputeInquiryState(out.getInquiryId());
-        notificationService.send(out.getTenantId(), waOwner(out.getWholesalerId()),
+        notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_WITHDRAWN, "撤回申请已确认",
                 "出库单 " + out.getDocNo() + " 的撤回申请已由仓库确认，单据已撤销，库存已回补。",
                 Notification.REF_OUTBOUND, out.getId());
@@ -399,7 +423,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         if (affected != 1) {
             throw new BizException(ErrorCode.OUTBOUND_NO_WITHDRAW_REQUEST);
         }
-        notificationService.send(out.getTenantId(), waOwner(out.getWholesalerId()),
+        notificationService.sendToAll(out.getTenantId(), waRecipients(out.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_WITHDRAW_REJECTED, "撤回申请被拒绝",
                 "出库单 " + out.getDocNo() + " 的撤回申请被仓库拒绝（纸质单已在作业），单据继续履约。",
                 Notification.REF_OUTBOUND, out.getId());
@@ -480,7 +504,8 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                 .build());
 
         // 通知归属 WA（「已确认（代建）」队列=WA 出库列表 source=WK_CREATED 过滤）
-        notificationService.send(tenantId, wholesaler.getOwnerUserId(),
+        // P3 缺陷修复：user_roles 推导收件人（owner_user_id 在 SELF_OPERATED 上是 TA），多账号全发
+        notificationService.sendToAll(tenantId, waRecipients(dto.getWholesalerId()),
                 Notification.TYPE_OUTBOUND_PROXY_CREATED, "代建出库已登记",
                 "出库单 " + docNo + "：仓库代您登记出库 " + dto.getQty() + " 件（已确认·代建）。"
                         + "如有异议可在出库后 30 天内发起客诉。",
@@ -559,9 +584,12 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         return tenantService.getContactUserId(out.getTenantId());
     }
 
-    private Long waOwner(Long wholesalerId) {
-        WholesalerVo w = wholesalerService.getById(wholesalerId);
-        return w != null ? w.getOwnerUserId() : null;
+    /**
+     * 「归属 WA」通知收件人（P3 缺陷修复）：以 user_roles 推导（listForWa 同源先例），多账号全发。
+     * 不可用 wholesalers.owner_user_id——SELF_OPERATED 商户该列是 TA 操作人，会漏发真实 WA。
+     */
+    private List<Long> waRecipients(Long wholesalerId) {
+        return authService.listActiveWaUserIdsOfWholesaler(wholesalerId);
     }
 
     /** 锁外预读在库（大额校验用；真正扣减以 deductStock 锁内校验为准）。 */

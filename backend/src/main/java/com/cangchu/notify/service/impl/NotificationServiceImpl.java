@@ -54,6 +54,20 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public void sendToAll(Long tenantId, java.util.Collection<Long> recipientUserIds, String type,
+                          String title, String content, String refType, Long refId) {
+        if (recipientUserIds == null || recipientUserIds.isEmpty()) {
+            // 与单发 null 收件人同语义：降级跳过（脏数据/无绑定账号），不阻断业务主链
+            log.warn("[NTF] 收件人列表为空，跳过群发 type={} ref={}:{}", type, refType, refId);
+            return;
+        }
+        for (Long recipientUserId : recipientUserIds) {
+            send(tenantId, recipientUserId, type, title, content, refType, refId);
+        }
+    }
+
+    @Override
     public Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly) {
         Page<Notification> p = notificationMapper.selectPage(
                 new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),

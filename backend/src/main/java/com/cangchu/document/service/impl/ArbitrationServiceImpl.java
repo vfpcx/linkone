@@ -223,8 +223,9 @@ public class ArbitrationServiceImpl implements ArbitrationService {
         String content = "仲裁单 " + arb.getDocNo() + "（入库单 " + arb.getRefDocNo() + "）结论：" + conclusionText
                 + (remark != null ? "。备注：" + remark : "")
                 + (liability != null ? "。差额定责：" + liability + "（仅作线下定责依据，平台不接资金）" : "");
-        WholesalerVo w = wholesalerService.getById(arb.getWholesalerId());
-        notificationService.send(arb.getTenantId(), w != null ? w.getOwnerUserId() : null,
+        // P3 缺陷修复：「归属 WA」收件人以 user_roles 推导（owner_user_id 在 SELF_OPERATED 上是 TA），多账号全发
+        notificationService.sendToAll(arb.getTenantId(),
+                authService.listActiveWaUserIdsOfWholesaler(arb.getWholesalerId()),
                 Notification.TYPE_ARBITRATION_DECIDED, "入库异议仲裁已裁决", content,
                 Notification.REF_ARBITRATION, arb.getId());
         notificationService.send(arb.getTenantId(), inbound.getWkUserId(),
@@ -364,8 +365,9 @@ public class ArbitrationServiceImpl implements ArbitrationService {
         };
         String content = "客诉单 " + arb.getDocNo() + "（出库单 " + arb.getRefDocNo() + "）已裁决：" + conclusionText
                 + "。备注：" + remark + "。仅判责，不改库存与账单；结论作为双方线下赔偿依据（平台不接资金）。";
-        WholesalerVo w = wholesalerService.getById(arb.getWholesalerId());
-        notificationService.send(arb.getTenantId(), w != null ? w.getOwnerUserId() : null,
+        // P3 缺陷修复：同 decideByTa——收件人以 user_roles 推导，多 WA 账号全发
+        notificationService.sendToAll(arb.getTenantId(),
+                authService.listActiveWaUserIdsOfWholesaler(arb.getWholesalerId()),
                 Notification.TYPE_ARBITRATION_DECIDED, "出库客诉已裁决", content,
                 Notification.REF_ARBITRATION, arb.getId());
         notificationService.send(arb.getTenantId(), outbound.getWkUserId(),
@@ -424,9 +426,23 @@ public class ArbitrationServiceImpl implements ArbitrationService {
         return t.isEmpty() ? null : t;
     }
 
+    /**
+     * N2（08-p3-review）：附件 URL 白名单——必须是本站上传返回的形态
+     * {@code /files/yyyyMM/UUID.(jpg|png|webp)}（与 FileStorageServiceImpl.store 返回值同构）。
+     * 拒任意外链：防仲裁人浏览器向发起方指定外站发请求（IP/UA 泄露、跟踪像素），
+     * 且外链「证据」可在裁决后被替换，破坏留痕语义。
+     */
+    private static final java.util.regex.Pattern ATTACHMENT_URL_PATTERN = java.util.regex.Pattern.compile(
+            "^/files/\\d{6}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(jpg|png|webp)$");
+
     private String encodeAttachments(List<String> attachments) {
         if (attachments == null || attachments.isEmpty()) {
             return null;
+        }
+        for (String url : attachments) {
+            if (url == null || !ATTACHMENT_URL_PATTERN.matcher(url).matches()) {
+                throw new BizException(ErrorCode.FILE_UPLOAD_INVALID, "附件必须为本站上传返回的地址");
+            }
         }
         try {
             String json = objectMapper.writeValueAsString(attachments);

@@ -1,11 +1,8 @@
 package com.cangchu.tenant.service.impl;
 
-import cn.hutool.core.util.RandomUtil;
-import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.cangchu.account.entity.User;
-import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.AuthService;
+import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -20,7 +17,6 @@ import com.cangchu.tenant.vo.WholesalerVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,12 +44,11 @@ public class WholesalerServiceImpl implements WholesalerService {
     private final WholesalerMapper wholesalerMapper;
     private final WholesalerApplicationMapper wholesalerApplicationMapper;
     private final AuthService authService;
-    private final UserMapper userMapper;
+    // users 表归 account 域，查/建经 UserService（G-S1/G-S2，2026-07-23 还债）
+    private final UserService userService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     // BLK-S1-05：黑名单拦截 TA 自营路径（平台级检查，防绕过）
     private final com.cangchu.tenant.service.BlacklistService blacklistService;
-
-    private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
 
     @Override
     @Transactional
@@ -177,25 +172,16 @@ public class WholesalerServiceImpl implements WholesalerService {
     @Transactional
     public Long ensureWaUser(String waPhone) {
         String phone = waPhone.trim();
-        String phoneHash = DigestUtil.sha256Hex(phone);
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhoneHash, phoneHash));
-        if (user == null) {
-            user = new User();
-            user.setId(snowflakeIdUtil.nextId());
-            user.setPhone(phone);
-            user.setPhoneHash(phoneHash);
-            String tempPwd = RandomUtil.randomString(8);
-            user.setPasswordHash(PASSWORD_ENCODER.encode(tempPwd));
-            user.setNickname(phone.substring(phone.length() - 4));
-            user.setStatus("ACTIVE");
-            user.setRegisterSource("WA_PROVISION");
-            userMapper.insert(user);
+        // users 表归 account 域：幂等查/建（含临时密码生成）经 UserService（G-S1/G-S2，2026-07-23 还债），
+        // 语义与原直连逐一等价：命中 phone_hash 即返回；未命中新建 ACTIVE / WA_PROVISION。
+        UserService.EnsuredUser ensured = userService.ensureUserByPhone(phone, "WA_PROVISION");
+        if (ensured.isNew()) {
             // TODO（后续切片）：发送短信临时密码 + 首登强制改密。
             // F7：日志严禁明文密码与完整手机号（临时密码只存在于短信通道，日志仅留脱敏号码）
             log.info("[A1][WA开通] 新建 WA 用户 phone={}（临时密码已生成，待短信通道下发）",
                     com.cangchu.common.util.SmsUtil.maskPhone(phone));
         }
-        return user.getId();
+        return ensured.userId();
     }
 
     /**

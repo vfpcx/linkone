@@ -24,6 +24,17 @@ public interface NotificationService {
     void send(Long tenantId, Long recipientUserId, String type, String title, String content,
               String refType, Long refId);
 
+    /**
+     * 群发站内信（同事务写入，P3 缺陷修复：「归属 WA」通知多账号全发）。
+     *
+     * <p>逐收件人复用 {@link #send}；列表为 null/空时静默跳过（warn 留痕），
+     * 与单发收件人缺失的降级语义一致，不阻断业务主链。
+     *
+     * @param recipientUserIds 收件人集合（调用方负责去重，如 user_roles 推导已 distinct）
+     */
+    void sendToAll(Long tenantId, java.util.Collection<Long> recipientUserIds, String type,
+                   String title, String content, String refType, Long refId);
+
     /** 我的消息列表（recipient=当前用户，倒序；unreadOnly 只看未读）。 */
     Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly);
 

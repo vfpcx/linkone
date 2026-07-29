@@ -5,6 +5,7 @@ import com.cangchu.document.dto.InboundDisputeDto;
 import com.cangchu.document.dto.InboundRegisterDto;
 import com.cangchu.document.vo.InboundDisputeResultVo;
 import com.cangchu.document.vo.InboundRequestVo;
+import com.cangchu.document.vo.InboundStockPreviewVo;
 
 import java.util.List;
 
@@ -59,6 +60,15 @@ public interface InboundRequestService {
      * @param wholesalerId 可空；非空则只列该商户的入库单
      */
     List<InboundRequestVo> listByTenant(Long tenantId, Long wholesalerId);
+
+    /**
+     * M3（PRD 09 §6.2）：异议前在库预览——WA 提交异议前展示实时在库/预计冲销/预计差额三数字。
+     * 轻量只读，无锁语义要求（允许轻微过期）；实际冲销以 disputeByWa 锁内计算为准。
+     *
+     * @param inboundId 入库单 id（须属当前 WA 管辖商户，否则 50330/50334）
+     * @param userId    操作人（WA 或持 INBOUND_CONFIRM 的 WE）
+     */
+    InboundStockPreviewVo stockPreview(Long inboundId, Long userId);
 
     /**
      * R13 退驻前置出口（P3 BE-W2，12 §8.2）：该商户未结入库单数——
