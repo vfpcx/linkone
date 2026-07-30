@@ -150,6 +150,8 @@ export interface SellSeed {
   taLogin: LoginData
   /** WK 登录态 token（P3 FE-W1：追加代建入库单造数用） */
   wkToken: string
+  /** WK 完整登录态（P3 FE-W2：注入前端 auth 直达 /ta/outbound 出库作业页） */
+  wkLogin: LoginData
 }
 
 /**
@@ -277,6 +279,7 @@ export async function seedSellChain(stock = 50): Promise<SellSeed> {
     taToken,
     taLogin: ta,
     wkToken: wk.token,
+    wkLogin: wk,
   }
 }
 
