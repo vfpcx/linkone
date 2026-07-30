@@ -553,6 +553,13 @@ class OutboundChainScenarioTest {
     @Test
     @DisplayName("P3-R4-04 并发双撤回（虚拟线程）：CAS 唯一赢家，恰一条回补流水，库存只回补一次")
     void concurrentWithdraw() throws Exception {
+        // W5 抖动稳定化：仅对 H2 内存库连接级偶发故障（"JDBC rollback failed"/connection closed，
+        // 历史两次全量跑复现、隔离复跑即绿）做受控重试；断言失败（=业务缺陷）原样抛出，绝不掩盖。
+        // 每次重试 seedAll 生成全新雪花 ID 数据，尝试间无状态污染。
+        retryOnH2InfraFlake(3, this::concurrentWithdrawOnce);
+    }
+
+    private void concurrentWithdrawOnce() throws Exception {
         Ctx c = seedAll();
         seedStock(c, c.skuId(), 30);
         OutboundRequestVo vo = submit(c, 10);
@@ -576,6 +583,52 @@ class OutboundChainScenarioTest {
         assertThat(qtyOf(c, c.skuId())).isEqualTo(30); // 只回补一次
         assertReversalPaired(c, vo.getDocNo());
         assertInvariant(c, c.skuId());
+    }
+
+    /**
+     * W5 抖动稳定化辅助：受控重试——只认 H2 基建级故障签名（连接关闭/回滚失败/连接断开），
+     * 任何 {@link AssertionError}（业务断言失败）与业务异常一律立即抛出，不允许重试洗绿。
+     */
+    private void retryOnH2InfraFlake(int maxAttempts, ThrowingRunnable body) throws Exception {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                body.run();
+                return;
+            } catch (Throwable t) {
+                if (attempt >= maxAttempts || !isH2InfraFlake(t)) {
+                    throw t instanceof Exception e ? e : new IllegalStateException(t);
+                }
+                System.err.printf("[W5-flake-retry] 第 %d 次尝试命中 H2 基建抖动，重试中：%s%n", attempt, t);
+                TenantContext.clear();
+                Thread.sleep(200L * attempt);
+            }
+        }
+    }
+
+    /** 逐层遍历 cause 链：遇断言失败直接判否；仅匹配连接级/事务基建故障签名。 */
+    private boolean isH2InfraFlake(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof AssertionError) {
+                return false; // 业务断言失败 = 潜在真缺陷，绝不重试
+            }
+            String msg = String.valueOf(c.getMessage());
+            if (c instanceof org.springframework.transaction.TransactionSystemException
+                    || c instanceof org.springframework.dao.DataAccessResourceFailureException
+                    || c instanceof org.springframework.transaction.CannotCreateTransactionException
+                    || msg.contains("JDBC rollback failed")
+                    || msg.contains("JDBC commit failed")
+                    || msg.contains("has been closed")           // H2 90098 database has been closed
+                    || msg.contains("is already closed")         // H2 90007 object is already closed
+                    || msg.contains("Connection is broken")) {   // H2 90067
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private Object raceWithdraw(Ctx c, long outboundId, CountDownLatch start) throws InterruptedException {

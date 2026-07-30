@@ -2,10 +2,17 @@ spring:
   profiles:
     active: test
   datasource:
-    url: jdbc:h2:mem:cangchu_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    # W5 抖动稳定化：LOCK_TIMEOUT=10000（H2 默认行锁等待过短，并发 FOR UPDATE 用例在慢机上
+    # 偶发锁超时→连接级故障，表现为 "JDBC rollback failed"/connection closed）
+    url: jdbc:h2:mem:cangchu_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=10000
     username: sa
     password:
     driver-class-name: org.h2.Driver
+    hikari:
+      # W5 抖动稳定化：加大测试池 + 显式等待上限（多 Spring 上下文缓存共享同一内存库，
+      # 虚拟线程并发用例高峰时避免借连接饥饿）
+      maximum-pool-size: 20
+      connection-timeout: 30000
   flyway:
     enabled: true
     locations: classpath:db/migration
