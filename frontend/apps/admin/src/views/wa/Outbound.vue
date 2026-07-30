@@ -467,6 +467,7 @@ onMounted(() => {
             <el-select
               v-model="statusFilter"
               class="toolbar__select"
+              placeholder="全部状态"
               data-test="status-filter"
               @change="onFilterChange"
             >
@@ -480,6 +481,7 @@ onMounted(() => {
             <el-select
               v-model="sourceFilter"
               class="toolbar__select"
+              placeholder="全部来源"
               data-test="source-filter"
               @change="onFilterChange"
             >

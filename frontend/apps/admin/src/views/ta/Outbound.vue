@@ -52,7 +52,7 @@ import type {
   OutboundStatus,
   OutboundSource,
   Wholesaler,
-  Sku,
+  InventoryItem,
   WkOutboundCreateRequest,
 } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
@@ -63,7 +63,6 @@ import NotificationBell from '@/components/NotificationBell.vue'
 import { tenantOutboundApi } from '@/api/outbound'
 import { inventoryApi } from '@/api/inventory'
 import { wholesalerApi } from '@/api/wholesaler'
-import { skuApi } from '@/api/sku'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -445,42 +444,44 @@ const fetchWholesalerPage = makeClientPickerFetch<Wholesaler>(
   (w, kw) => w.name.toLowerCase().includes(kw) || (w.intro ?? '').toLowerCase().includes(kw),
 )
 
-// SKU 选择器（依赖已选商户）
-const skus = ref<Sku[]>([])
+/**
+ * SKU 选择器（依赖已选商户）——数据源为库存行（GET /tenant/inventories）。
+ * ⚠️ 契约缺口（已登记偏差）：/tenant/skus 列表仅放行 WA/TA（requireWaOrTa），
+ * 纯 WK 账号 42xxx 拿不到 SKU 名称；库存查询无角色闸门（TenantLine 隔离），
+ * 故代建选货降级为「在库 SKU 编号 + 在库件数」，BE 放行 WK 后可换回名称展示。
+ */
+const invRows = ref<InventoryItem[]>([])
 
-const fetchSkus = async () => {
+const fetchInvRows = async () => {
   if (!proxyForm.wholesalerId) {
-    skus.value = []
+    invRows.value = []
     return
   }
   try {
-    skus.value = await skuApi.list(proxyForm.wholesalerId)
+    invRows.value = await inventoryApi.query({ wholesalerId: proxyForm.wholesalerId })
   } catch {
     // 全局 toast 已提示
   }
 }
 
-const skuPickerColumns: EntityPickerColumn<Sku>[] = [
-  { label: '商品名称', prop: 'name', minWidth: 160 },
-  { label: '规格', formatter: (s) => s.spec || '—', minWidth: 100 },
-  { label: '状态', formatter: (s) => (s.listed ? '在售' : '已下架'), width: 90 },
+const skuPickerColumns: EntityPickerColumn<InventoryItem>[] = [
+  { label: 'SKU 编号', prop: 'skuId', minWidth: 200 },
+  { label: '在库件数', formatter: (r) => String(r.qty ?? 0), width: 100, align: 'right' },
+  { label: '托盘', formatter: (r) => String(r.palletQty ?? 0), width: 80, align: 'right' },
 ]
 
-const fetchSkuPage = makeClientPickerFetch<Sku>(
-  () => skus.value,
-  (s, kw) => s.name.toLowerCase().includes(kw) || (s.spec ?? '').toLowerCase().includes(kw),
+const fetchSkuPage = makeClientPickerFetch<InventoryItem>(
+  () => invRows.value,
+  (r, kw) => String(r.skuId).toLowerCase().includes(kw),
 )
 
-const selectedSkuLabel = computed(() => {
-  const s = skus.value.find((x) => String(x.id) === proxyForm.skuId)
-  if (!s) return ''
-  return s.spec ? `${s.name}（${s.spec}）` : s.name
-})
+/** 回显 SKU 编号（契约缺口降级，见上） */
+const selectedSkuLabel = computed(() => (proxyForm.skuId ? String(proxyForm.skuId) : ''))
 
 const onProxyWholesalerChange = async () => {
   proxyForm.skuId = ''
   onhand.value = null
-  await fetchSkus()
+  await fetchInvRows()
 }
 
 // 当前在库（大额预警辅助展示；真正校验以后端锁内为准）
@@ -518,7 +519,7 @@ const openProxyDialog = () => {
   proxyForm.qty = undefined
   proxyForm.palletQty = undefined
   onhand.value = null
-  skus.value = []
+  invRows.value = []
   proxyVisible.value = true
   proxyFormRef.value?.clearValidate()
   if (wholesalers.value.length === 0) void fetchWholesalers()
@@ -882,11 +883,13 @@ onMounted(() => {
             @change="onProxyWholesalerChange"
           />
         </el-form-item>
-        <el-form-item label="商品 SKU" prop="skuId">
+        <el-form-item label="商品 SKU（在库）" prop="skuId">
           <EntityPickerDialog
             v-model="proxyForm.skuId"
-            title="选择商品"
-            placeholder="点击选择商品"
+            title="选择在库 SKU"
+            placeholder="点击选择在库 SKU"
+            row-key="skuId"
+            label-key="skuId"
             :columns="skuPickerColumns"
             :fetch="fetchSkuPage"
             :selected-label="selectedSkuLabel"
