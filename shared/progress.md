@@ -2,6 +2,15 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-07-27
+- **缺陷批+refactor+硬化 三分支复验合并 ✅**（main 至 0b62e14 已推 origin）：
+  - fix/p3-be-defects（10 commits）：B1 BLOCKER 行锁改真 FOR UPDATE（Team Lead 亲验代码）、N1-N5、FE-W1 两缺陷（通知收件人 7 处同根因全修）、角色码清扫 9 处、stock-preview 端点。独立复验 236 绿（concurrentWithdraw H2 抖动第二次出现，隔离复跑绿，判定环境 flake → W5 稳定化项）
+  - refactor/account-user-service：实际已于前次会话尾段合入（aea514b，transcript 因进程重启丢失但 git 完整）；独立复验 231 绿；揭穿原 WIP 两处不实（不编译/死代码）并修正，account 域外 UserMapper 引用清零
+  - chore/hardening-boot-upgrade（6 commits）：Boot 3.2.5→3.5.16（四高危组件全达线，CVE-2025-24813/22228 根治，零业务代码改动）、日志 profile 化+手机号脱敏、active-timeout 1800s、prod fail-fast 配置。独立复验 250 绿。交付报告 09-hardening-w1-report.md，6 项遗留入上线检查单（含 Redis 0.0.0.0 需 bind 回环）
+  - **合并后 main 组合回归 248→250 全绿**
+- **执行准则落地**：用户 7/25 下发六条准则已固化 CLAUDE.md 规则 8；P3b 预研 14 项 DECISION 已按准则由 Team Lead 拍板落档（10-p3b-requirements v1.1，D-11=C/D-8=A），P3b 解除阻塞
+- **在途**：仅剩 FE-W2（出库链前端，4 commits 已落，收尾 E2E+stock-preview 接入；期间遭遇 codecmd 余额 401×3 + 网关 502/400 多次，均无损续跑）
+
 ## 2026-07-25
 - **FE-W1 入库链前端 ✅（feat/p3-inbound-fe，4 commits 31f5f6f→f5ec4db，已合并）**：
   - 交付：WA `/wa/inbound` 入库确认页（待确认/全部页签、72h 秒级倒计时 deadline 升序、来源映射 仓库代建/我方提交、autoAccepted 标记、确认二次弹窗、异议弹窗〔预设四选+补充说明合成 reason≤512+附件≤5〕、冲销结果回显 登记/已冲销/差额/YY-单号）；TA `/ta/approvals` 审批中心（待仲裁角标=PENDING total、⏰超72h提醒、decide 弹窗按 09 §4.1：通过·恢复流水/驳回·保留冲销、差额>0 驳回时定责四选必填、备注必填、已裁决只读详情）；NotificationBell（unread-count 60s 轮询+抽屉+标记已读）；AttachmentUpload（≤5MB jpg/png/webp 预检）；api-types/error-codes 50330-50342/四组 API 封装；TA 各页菜单接通「审批中心」、WA 四页菜单增「入库确认」；用户可见文案零角色码（liability 中文四选）。
