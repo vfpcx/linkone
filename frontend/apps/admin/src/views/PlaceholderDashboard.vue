@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { roleLabel } from '@cangchu/ui-shared'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -10,9 +11,9 @@ const auth = useAuthStore()
   <div class="placeholder">
     <h1 class="placeholder__title">{{ route.meta.title }}</h1>
     <p class="placeholder__hint">
-      该页面尚未实现，留给后续 Agent 开发。
+      该功能模块正在建设中，敬请期待。
     </p>
-    <p class="placeholder__role">当前主角色：{{ auth.primaryRole }}</p>
+    <p class="placeholder__role">当前身份：{{ auth.primaryRole ? roleLabel(auth.primaryRole) : '—' }}</p>
     <el-button @click="$router.push('/login')">返回登录</el-button>
   </div>
 </template>
