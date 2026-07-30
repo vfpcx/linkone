@@ -27,6 +27,7 @@ import {
   PriceTag,
   Plus,
   Stamp,
+  Van,
 } from '@element-plus/icons-vue'
 import {
   AppTopbar,
@@ -91,6 +92,7 @@ const menus: MenuItem[] = [
   { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
+  { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -109,7 +111,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/employees' ||
     key === '/ta/pricing' ||
     key === '/ta/wholesaler-applications' ||
-    key === '/ta/approvals'
+    key === '/ta/approvals' ||
+    key === '/ta/outbound'
   ) {
     router.push(key)
     return

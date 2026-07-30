@@ -19,6 +19,7 @@ import {
   CircleClose,
   Stamp,
   Refresh,
+  ScaleToOriginal,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import type { AdminTenantItem, AdminTenantStatus } from '@cangchu/api-types'
@@ -67,6 +68,7 @@ const menus = computed(() => [
   { key: '/ops/dashboard', label: '运营控制台', icon: Monitor, badge: 0 },
   { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp, badge: pendingTotal.value },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose, badge: 0 },
+  { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal, badge: 0 },
 ])
 
 const handleMenuSelect = (key: string) => {
@@ -74,7 +76,11 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ops/dashboard' || key === '/ops/blacklist') {
+  if (
+    key === '/ops/dashboard' ||
+    key === '/ops/blacklist' ||
+    key === '/ops/arbitrations'
+  ) {
     router.push(key)
     return
   }

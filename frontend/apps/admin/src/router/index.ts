@@ -88,6 +88,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '入库登记' },
   },
   {
+    path: '/ta/outbound',
+    name: 'ta-outbound',
+    component: () => import('@/views/ta/Outbound.vue'),
+    meta: { role: 'TA', title: '出库作业' },
+  },
+  {
     path: '/ta/wholesaler-applications',
     name: 'ta-wholesaler-applications',
     component: () => import('@/views/ta/WholesalerApplications.vue'),
@@ -118,6 +124,12 @@ const routes: RouteRecordRaw[] = [
     name: 'wa-inbound',
     component: () => import('@/views/wa/Inbound.vue'),
     meta: { role: 'WA', title: '入库确认' },
+  },
+  {
+    path: '/wa/outbound',
+    name: 'wa-outbound',
+    component: () => import('@/views/wa/Outbound.vue'),
+    meta: { role: 'WA', title: '出库单' },
   },
   {
     path: '/wa/apply',
@@ -156,6 +168,12 @@ const routes: RouteRecordRaw[] = [
     name: 'ops-blacklist',
     component: () => import('@/views/ops/Blacklist.vue'),
     meta: { role: 'OPS', title: '黑名单管理' },
+  },
+  {
+    path: '/ops/arbitrations',
+    name: 'ops-arbitrations',
+    component: () => import('@/views/ops/Arbitrations.vue'),
+    meta: { role: 'OPS', title: '客诉仲裁' },
   },
 
   // ST 工作台占位（后续 Agent 实现）

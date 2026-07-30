@@ -139,6 +139,12 @@ test.describe('P3 入库异常链', () => {
     // 弹窗内必须展示口径文案（09 §6.1）
     await expect(dialog).toContainText('异议仅覆盖仍在库部分')
     await expect(dialog.locator('[data-test="dispute-facts"]')).toContainText('30 件')
+    // M3 stock-preview 三数字（未售出：在库 30 / 预计冲销 30 / 差额 0）
+    await expect(dialog.locator('[data-test="preview-onhand"]')).toContainText('30 件', {
+      timeout: 15_000,
+    })
+    await expect(dialog.locator('[data-test="preview-reversal"]')).toContainText('30 件')
+    await expect(dialog.locator('[data-test="preview-shortfall"]')).toContainText('0 件')
 
     // 预设理由 + 补充说明
     await dialog.locator('[data-test="dispute-preset"] .el-radio', { hasText: '数量不符' }).click()

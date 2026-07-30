@@ -1,53 +1,35 @@
 <script setup lang="ts">
 /**
- * TA 审批中心 · 仲裁（P3 FE-W1 · 09 PRD §4.1 两页线框之 TA 页）
+ * OPS 客诉仲裁（P3 FE-W2 · 12 §3.4/§6.1，复用 FE-W1 TA decide 模式）
  *
- * 契约（权威：TenantArbitrationController，据实查证）：
- *  - GET  /tenant/arbitrations?bizType=&status=&page=&size=（MpPage<Arbitration>）
- *      审批中心角标 = status=PENDING 的 total
- *  - POST /tenant/arbitrations/{id}/decide
- *      入库仲裁：APPROVED=通过·恢复流水 / REJECTED=驳回·保留冲销；
- *      liability 仅 REJECTED∧shortfall>0 必填、其余必空（50342）；REJECTED 缺 remark → 50333
+ * 契约（权威：OpsArbitrationController，据实查证）：
+ *  - GET  /ops/arbitrations?bizType=&status=&page=&size=（MpPage<Arbitration>，跨租户；
+ *      bizType 仅 OUTBOUND_COMPLAINT，角标 = status=PENDING 的 total）
+ *  - POST /ops/arbitrations/{id}/decide
+ *      结论四选 WK_LIABLE/WA_LIABLE/NEGOTIATED/NO_LIABILITY（conclusion 即判责，50333）；
+ *      remark 必填（结论备注是线下赔偿唯一依据）；liability 必空（50342）；
+ *      并发双裁被抢占 50334；副作用：出库单 客诉处理中→已出库（仅判责不动库存/账单，D43）。
  *
- * 产品口径（09 §2.3/§2.5/§6.3）：
- *  - 结论按钮文案写全「通过·恢复流水」「驳回·保留冲销」防歧义；
- *  - PENDING 超 72h 未裁标「⏰ 超时」（纯展示提醒，不自动流转）；
- *  - 结论备注必填（结论是线下赔偿唯一依据，必须留痕）。
+ * 文案（规则 8）：结论四选中文经 ui-shared roleLabel 生成（库管员责任/批发商管理员责任/
+ * 双方协商/无责），用户可见文案零角色码。
  *
- * 视觉：沿用 ta/Inbound.vue 顶栏（AppTopbar + WarehouseSwitcher）+ 左侧菜单 shell。
+ * 视觉：沿用 ops/Blacklist.vue 顶栏 + 左侧菜单 shell + el-table/el-dialog 风格。
  */
 
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Shop,
-  User,
-  Goods,
-  Box,
-  Coin,
-  Setting,
-  TrendCharts,
-  Document,
-  ChatLineSquare,
-  Stamp,
-  Refresh,
-  PriceTag,
-  Van,
-} from '@element-plus/icons-vue'
-import { AppTopbar, NavCountBadge } from '@cangchu/ui-shared'
+import { Monitor, CircleClose, Stamp, Refresh, ScaleToOriginal } from '@element-plus/icons-vue'
+import { AppTopbar, NavCountBadge, roleLabel } from '@cangchu/ui-shared'
 import type {
   Arbitration,
-  ArbitrationDecideRequest,
-  ArbitrationLiability,
-  InboundArbitrationConclusion,
+  OutboundComplaintConclusion,
+  OpsArbitrationDecideRequest,
 } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
 import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
-import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
-import NotificationBell from '@/components/NotificationBell.vue'
-import { arbitrationApi } from '@/api/arbitration'
+import { opsArbitrationApi } from '@/api/arbitration'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -81,86 +63,56 @@ const handleProfileMenu = async (key: string) => {
   }
 }
 
-// ============ 菜单（TA 端，含本页角标） ============
-interface MenuItem {
-  key: string
-  label: string
-  icon: typeof Shop
-}
+// ============ 菜单（OPS 端） ============
+const activeMenu = ref('/ops/arbitrations')
 
-const menus: MenuItem[] = [
-  { key: '/ta/dashboard', label: '工作台', icon: TrendCharts },
-  { key: '/ta/settings', label: '店铺设置', icon: Setting },
-  { key: '/ta/employees', label: '员工', icon: User },
-  { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
-  { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
-  { key: '/ta/skus', label: '商品', icon: Goods },
-  { key: '/ta/pricing', label: '价格管理', icon: PriceTag },
-  { key: '/ta/inbound', label: '入库', icon: Box },
-  { key: '/ta/outbound', label: '出库作业', icon: Van },
-  { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
-  { key: '/ta/approvals', label: '审批中心', icon: Document },
-  { key: '/ta/bills', label: '账单总览', icon: Coin },
-  { key: '/ta/messages', label: '站内信', icon: ChatLineSquare },
+const menus = [
+  { key: '/ops/dashboard', label: '运营控制台', icon: Monitor },
+  { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp },
+  { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
+  { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal },
 ]
 
-const IMPLEMENTED = new Set([
-  '/ta/dashboard',
-  '/ta/settings',
-  '/ta/employees',
-  '/ta/wholesalers',
-  '/ta/wholesaler-applications',
-  '/ta/skus',
-  '/ta/pricing',
-  '/ta/inbound',
-  '/ta/outbound',
-])
-
-const activeMenu = ref('/ta/approvals')
-
 const handleMenuSelect = (key: string) => {
-  if (key === '/ta/approvals') {
+  if (key === '/ops/arbitrations') {
     activeMenu.value = key
     return
   }
-  if (IMPLEMENTED.has(key)) {
+  if (key === '/ops/dashboard' || key === '/ops/tenant-audit' || key === '/ops/blacklist') {
     router.push(key)
     return
   }
-  ElMessage.info(`「${menus.find((m) => m.key === key)?.label}」页面留给后续 Agent 实现`)
+  ElMessage.info('该页面留给后续 Agent 实现')
 }
 
-// ============ 映射 ============
-const CONCLUSION_LABEL: Record<string, string> = {
-  APPROVED: '通过 · 恢复流水',
-  REJECTED: '驳回 · 保留冲销',
-}
-/**
- * 差额责任方文案（用户可见文案禁角色码，01 §3 中文对照：WK=库管员、WA=批发商管理员；
- * ui-shared 统一 roleLabel 就绪后可切换复用）
- */
-const LIABILITY_LABEL: Record<ArbitrationLiability, string> = {
-  WK_LIABLE: '库管员责任',
-  WA_LIABLE: '批发商责任',
+// ============ 映射（规则 8：角色中文经 roleLabel，零角色码） ============
+const CONCLUSION_LABEL: Record<OutboundComplaintConclusion, string> = {
+  WK_LIABLE: `${roleLabel('WK')}责任`,
+  WA_LIABLE: `${roleLabel('WA')}责任`,
   NEGOTIATED: '双方协商',
   NO_LIABILITY: '无责',
 }
-/** 定责单选项（与 LIABILITY_LABEL 同源，避免模板散落硬编码） */
-const LIABILITY_OPTIONS = (
-  ['WK_LIABLE', 'WA_LIABLE', 'NEGOTIATED', 'NO_LIABILITY'] as ArbitrationLiability[]
-).map((v) => ({ value: v, label: LIABILITY_LABEL[v] }))
-const liabilityLabel = (v: string | null) =>
-  v ? (LIABILITY_LABEL[v as ArbitrationLiability] ?? v) : '—'
+const CONCLUSION_OPTIONS = (
+  ['WK_LIABLE', 'WA_LIABLE', 'NEGOTIATED', 'NO_LIABILITY'] as OutboundComplaintConclusion[]
+).map((v) => ({ value: v, label: CONCLUSION_LABEL[v] }))
+const conclusionLabel = (v: string | null) =>
+  v ? (CONCLUSION_LABEL[v as OutboundComplaintConclusion] ?? v) : '—'
+
+const conclusionTagType = (v: string | null): 'danger' | 'warning' | 'info' | 'success' => {
+  switch (v) {
+    case 'WK_LIABLE':
+      return 'danger'
+    case 'WA_LIABLE':
+      return 'warning'
+    case 'NEGOTIATED':
+      return 'info'
+    default:
+      return 'success'
+  }
+}
 
 const formatTime = (v: string | null): string =>
   v ? String(v).replace('T', ' ').slice(0, 19) : '—'
-
-/** PENDING 超 72h 未裁 → ⏰ 超时（09 §2.5 纯展示提醒） */
-const isOverdue = (row: Arbitration): boolean => {
-  if (row.status !== 'PENDING') return false
-  const t = new Date(String(row.createdAt)).getTime()
-  return Number.isFinite(t) && Date.now() - t > 72 * 3600 * 1000
-}
 
 // ============ 列表 ============
 const STATUS_PENDING = 'PENDING'
@@ -172,14 +124,14 @@ const rows = ref<Arbitration[]>([])
 const page = ref(1)
 const size = 20
 const total = ref(0)
-/** 审批中心角标 = PENDING total（契约） */
+/** 客诉仲裁角标 = PENDING total（契约） */
 const pendingCount = ref(0)
 
 const fetchList = async () => {
   loading.value = true
   try {
-    const data = await arbitrationApi.list({
-      bizType: 'INBOUND_DISPUTE',
+    const data = await opsArbitrationApi.list({
+      bizType: 'OUTBOUND_COMPLAINT',
       status: activeTab.value,
       page: page.value,
       size,
@@ -196,11 +148,11 @@ const fetchList = async () => {
   }
 }
 
-/** 角标独立拉取（当前 tab 非 PENDING 时也保持角标准确） */
+/** 角标独立拉取（当前 tab 非 PENDING 时保持角标准确） */
 const fetchPendingCount = async () => {
   try {
-    const data = await arbitrationApi.list({
-      bizType: 'INBOUND_DISPUTE',
+    const data = await opsArbitrationApi.list({
+      bizType: 'OUTBOUND_COMPLAINT',
       status: STATUS_PENDING,
       page: 1,
       size: 1,
@@ -221,29 +173,25 @@ const onPageChange = (p: number) => {
   void fetchList()
 }
 
-// ============ 裁决弹窗 ============
+// ============ 裁决弹窗（四选中文 + 备注必填） ============
 const decideVisible = ref(false)
 const decideTarget = ref<Arbitration | null>(null)
 const decideSubmitting = ref(false)
 
-const conclusion = ref<InboundArbitrationConclusion | ''>('')
-const liability = ref<ArbitrationLiability | ''>('')
+const conclusion = ref<OutboundComplaintConclusion | ''>('')
 const remark = ref('')
-
-/** 差额定责仅在「驳回 ∧ 差额>0」时显示并必填（09 §1.2 / 50342 三态） */
-const liabilityRequired = computed(
-  () =>
-    conclusion.value === 'REJECTED' &&
-    (decideTarget.value?.shortfallQty ?? 0) > 0,
-)
 
 const openDecide = (row: Arbitration) => {
   decideTarget.value = row
   conclusion.value = ''
-  liability.value = ''
   remark.value = ''
   decideVisible.value = true
 }
+
+const decideHint = computed(() => {
+  if (!conclusion.value) return '请选择结论查看说明；裁决后不可撤销、不可重开。'
+  return `裁决后：出库单回到「已出库」；结论「${CONCLUSION_LABEL[conclusion.value]}」仅作判责与线下赔偿依据，不改库存与账单（平台不接资金），双方将收到站内信。`
+})
 
 const onDecideSubmit = async () => {
   const row = decideTarget.value
@@ -252,27 +200,21 @@ const onDecideSubmit = async () => {
     ElMessage.warning('请选择结论')
     return
   }
-  if (liabilityRequired.value && !liability.value) {
-    ElMessage.warning('驳回且存在已售差额时，必须选择差额责任方')
-    return
-  }
-  // 结论备注必填（09 §1.1：结论是线下赔偿唯一依据，必须留痕）
+  // 结论备注必填（09 PRD §1.1：结论是线下赔偿唯一依据，必须留痕）
   if (!remark.value.trim()) {
     ElMessage.warning('请填写结论备注')
     return
   }
-  const payload: ArbitrationDecideRequest = {
+  const payload: OpsArbitrationDecideRequest = {
     conclusion: conclusion.value,
     remark: remark.value.trim(),
-    // liability 三态：仅必填场景传值，其余不传（后端 50342 双向校验）
-    ...(liabilityRequired.value && liability.value ? { liability: liability.value } : {}),
   }
   decideSubmitting.value = true
   try {
-    const updated = await arbitrationApi.decide(String(row.id), payload)
+    const updated = await opsArbitrationApi.decide(String(row.id), payload)
     decideVisible.value = false
     ElMessage.success(
-      `仲裁单 ${updated.docNo} 已裁决：${CONCLUSION_LABEL[updated.conclusion ?? ''] ?? updated.conclusion}`,
+      `客诉单 ${updated.docNo} 已裁决：${conclusionLabel(updated.conclusion)}`,
     )
     await Promise.all([fetchList(), fetchPendingCount()])
   } catch (e) {
@@ -302,26 +244,24 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="ta-shell">
+  <div class="ops-shell">
     <!-- 顶栏 -->
-    <AppTopbar @switch-role="handleSwitchRole" @profile-command="handleProfileMenu">
-      <template #store>
-        <WarehouseSwitcher />
-      </template>
-      <template #bell>
-        <NotificationBell />
-      </template>
-    </AppTopbar>
+    <AppTopbar
+      store-name="平台运营"
+      avatar-text="O"
+      @switch-role="handleSwitchRole"
+      @profile-command="handleProfileMenu"
+    />
 
-    <div class="ta-body">
+    <div class="ops-body">
       <!-- 左侧菜单 -->
-      <aside class="ta-side">
-        <el-menu :default-active="activeMenu" class="ta-side__menu" @select="handleMenuSelect">
+      <aside class="ops-side">
+        <el-menu :default-active="activeMenu" class="ops-side__menu" @select="handleMenuSelect">
           <el-menu-item v-for="m in menus" :key="m.key" :index="m.key">
             <el-icon><component :is="m.icon" /></el-icon>
             <span>{{ m.label }}</span>
             <NavCountBadge
-              v-if="m.key === '/ta/approvals'"
+              v-if="m.key === '/ops/arbitrations'"
               :count="pendingCount"
               class="menu-badge"
             />
@@ -330,19 +270,19 @@ onMounted(() => {
       </aside>
 
       <!-- 主区 -->
-      <main class="ta-main">
+      <main class="ops-main">
         <header class="page-head">
           <div>
-            <h2 class="page-head__title">审批中心 · 批发商代建入库异议</h2>
+            <h2 class="page-head__title">客诉仲裁</h2>
             <p class="page-head__sub">
-              商户异议的代建入库单在此仲裁：通过则恢复流水，驳回则保留冲销并对差额定责
+              商户对仓库代建出库的客诉在此裁决：结论仅判责与线下赔偿依据，不改库存与账单
             </p>
           </div>
           <el-button :icon="Refresh" :loading="loading" @click="fetchList">刷新</el-button>
         </header>
 
         <section class="card">
-          <el-tabs v-model="activeTab" data-test="arbitration-tabs" @tab-change="onTabChange">
+          <el-tabs v-model="activeTab" data-test="ops-arb-tabs" @tab-change="onTabChange">
             <el-tab-pane :name="STATUS_PENDING">
               <template #label>
                 <span class="tab-label">
@@ -359,25 +299,15 @@ onMounted(() => {
             :data="rows"
             row-key="id"
             class="arb-table"
-            data-test="arbitration-table"
-            :empty-text="activeTab === STATUS_PENDING ? '暂无待仲裁单据' : '暂无已裁决记录'"
+            data-test="ops-arb-table"
+            :empty-text="activeTab === STATUS_PENDING ? '暂无待仲裁客诉' : '暂无已裁决记录'"
           >
-            <el-table-column prop="docNo" label="仲裁单号" min-width="180">
+            <el-table-column prop="docNo" label="客诉单号" min-width="170">
               <template #default="{ row }">
                 <span class="cell-name">{{ row.docNo }}</span>
-                <el-tag
-                  v-if="isOverdue(row as Arbitration)"
-                  type="danger"
-                  size="small"
-                  effect="plain"
-                  class="overdue-tag"
-                  data-test="overdue-tag"
-                >
-                  ⏰ 超时
-                </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="关联入库单" min-width="170">
+            <el-table-column label="关联出库单" min-width="170">
               <template #default="{ row }">
                 <span class="cell-muted">{{ row.refDocNo }}</span>
               </template>
@@ -385,17 +315,9 @@ onMounted(() => {
             <el-table-column label="涉事商户" min-width="130">
               <template #default="{ row }">{{ row.wholesalerName || '—' }}</template>
             </el-table-column>
-            <el-table-column label="异议理由" min-width="180" show-overflow-tooltip>
+            <el-table-column label="客诉理由" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="cell-muted">{{ row.reason }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="已冲销 / 差额" width="130" align="right">
-              <template #default="{ row }">
-                {{ row.reversedQty ?? 0 }} /
-                <span :class="{ 'shortfall-warn': (row.shortfallQty ?? 0) > 0 }">
-                  {{ row.shortfallQty ?? 0 }}
-                </span>
               </template>
             </el-table-column>
             <el-table-column label="附件" width="80" align="center">
@@ -410,14 +332,10 @@ onMounted(() => {
                 <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
             </el-table-column>
-            <el-table-column v-if="activeTab === STATUS_DECIDED" label="结论" width="150">
+            <el-table-column v-if="activeTab === STATUS_DECIDED" label="结论" width="160">
               <template #default="{ row }">
-                <el-tag
-                  :type="row.conclusion === 'APPROVED' ? 'success' : 'danger'"
-                  effect="light"
-                  round
-                >
-                  {{ CONCLUSION_LABEL[row.conclusion ?? ''] ?? row.conclusion }}
+                <el-tag :type="conclusionTagType(row.conclusion)" effect="light" round>
+                  {{ conclusionLabel(row.conclusion) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -427,7 +345,7 @@ onMounted(() => {
                   v-if="row.status === 'PENDING'"
                   type="primary"
                   size="small"
-                  data-test="decide-btn"
+                  data-test="ops-decide-btn"
                   @click="openDecide(row as Arbitration)"
                 >
                   仲裁
@@ -435,7 +353,7 @@ onMounted(() => {
                 <el-button
                   v-else
                   size="small"
-                  data-test="detail-btn"
+                  data-test="ops-detail-btn"
                   @click="openDetail(row as Arbitration)"
                 >
                   详情
@@ -457,17 +375,17 @@ onMounted(() => {
       </main>
     </div>
 
-    <!-- 裁决弹窗（09 §4.1 线框） -->
+    <!-- 裁决弹窗（四选中文 + 备注必填） -->
     <el-dialog
       v-model="decideVisible"
-      :title="`⚖️ 仲裁 · 代建入库异议 ${decideTarget?.docNo ?? ''}`"
+      :title="`⚖️ 仲裁 · 出库客诉 ${decideTarget?.docNo ?? ''}`"
       width="600px"
       :close-on-click-modal="false"
-      data-test="decide-dialog"
+      data-test="ops-decide-dialog"
     >
       <template v-if="decideTarget">
         <el-descriptions :column="2" size="small" border class="decide-info">
-          <el-descriptions-item label="关联入库单" :span="2">
+          <el-descriptions-item label="关联出库单" :span="2">
             {{ decideTarget.refDocNo }}
           </el-descriptions-item>
           <el-descriptions-item label="涉事商户">
@@ -476,17 +394,8 @@ onMounted(() => {
           <el-descriptions-item label="发起时间">
             {{ formatTime(decideTarget.createdAt) }}
           </el-descriptions-item>
-          <el-descriptions-item label="异议理由" :span="2">
+          <el-descriptions-item label="客诉理由" :span="2">
             {{ decideTarget.reason }}
-          </el-descriptions-item>
-          <el-descriptions-item label="已冲销（按在库封顶）">
-            {{ decideTarget.reversedQty ?? 0 }} 件
-          </el-descriptions-item>
-          <el-descriptions-item label="已售差额">
-            <span :class="{ 'shortfall-warn': (decideTarget.shortfallQty ?? 0) > 0 }">
-              {{ decideTarget.shortfallQty ?? 0 }} 件
-              <template v-if="(decideTarget.shortfallQty ?? 0) > 0">⚠️ 驳回时需定责</template>
-            </span>
           </el-descriptions-item>
         </el-descriptions>
 
@@ -506,19 +415,8 @@ onMounted(() => {
 
         <el-form label-position="top" class="decide-form" @submit.prevent>
           <el-form-item label="结论（必选）" required>
-            <el-radio-group v-model="conclusion" data-test="conclusion-radio">
-              <el-radio value="APPROVED">通过 · 恢复流水（沿用原入库时间计费）</el-radio>
-              <el-radio value="REJECTED">驳回 · 保留冲销</el-radio>
-            </el-radio-group>
-          </el-form-item>
-
-          <el-form-item
-            v-if="liabilityRequired"
-            label="差额责任方（驳回且差额>0 时必填）"
-            required
-          >
-            <el-radio-group v-model="liability" data-test="liability-radio">
-              <el-radio v-for="opt in LIABILITY_OPTIONS" :key="opt.value" :value="opt.value">
+            <el-radio-group v-model="conclusion" data-test="ops-conclusion-radio">
+              <el-radio v-for="opt in CONCLUSION_OPTIONS" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </el-radio>
             </el-radio-group>
@@ -532,21 +430,13 @@ onMounted(() => {
               maxlength="512"
               show-word-limit
               placeholder="裁决理由与线下处理约定，双方站内信将附带此备注"
-              data-test="decide-remark"
+              data-test="ops-decide-remark"
             />
           </el-form-item>
         </el-form>
 
         <el-alert type="info" :closable="false" class="decide-hint">
-          <template v-if="conclusion === 'APPROVED'">
-            通过后联动：库存 +{{ decideTarget.reversedQty ?? 0 }} / 入库单转「已确认」，
-            恢复流水沿用原入库时间戳计费。
-          </template>
-          <template v-else-if="conclusion === 'REJECTED'">
-            驳回后联动：冲销保留、库存不变 / 入库单转「已撤销」；差额部分作为线下定责依据，
-            平台不接资金。
-          </template>
-          <template v-else>请选择结论查看联动说明；裁决后不可撤销、不可重开。</template>
+          {{ decideHint }}
         </el-alert>
       </template>
 
@@ -555,7 +445,7 @@ onMounted(() => {
         <el-button
           type="primary"
           :loading="decideSubmitting"
-          data-test="decide-submit"
+          data-test="ops-decide-submit"
           @click="onDecideSubmit"
         >
           提交裁决
@@ -566,28 +456,22 @@ onMounted(() => {
     <!-- 已裁决详情（只读） -->
     <el-dialog
       v-model="detailVisible"
-      :title="`仲裁详情 ${detailTarget?.docNo ?? ''}`"
+      :title="`客诉详情 ${detailTarget?.docNo ?? ''}`"
       width="560px"
-      data-test="arbitration-detail-dialog"
+      data-test="ops-arb-detail-dialog"
     >
       <el-descriptions v-if="detailTarget" :column="1" border>
-        <el-descriptions-item label="关联入库单">
+        <el-descriptions-item label="关联出库单">
           {{ detailTarget.refDocNo }}
         </el-descriptions-item>
         <el-descriptions-item label="涉事商户">
           {{ detailTarget.wholesalerName || '—' }}
         </el-descriptions-item>
-        <el-descriptions-item label="异议理由">{{ detailTarget.reason }}</el-descriptions-item>
-        <el-descriptions-item label="已冲销 / 已售差额">
-          {{ detailTarget.reversedQty ?? 0 }} 件 / {{ detailTarget.shortfallQty ?? 0 }} 件
-        </el-descriptions-item>
+        <el-descriptions-item label="客诉理由">{{ detailTarget.reason }}</el-descriptions-item>
         <el-descriptions-item label="结论">
-          <span data-test="detail-conclusion">
-            {{ CONCLUSION_LABEL[detailTarget.conclusion ?? ''] ?? detailTarget.conclusion ?? '—' }}
+          <span data-test="ops-detail-conclusion">
+            {{ conclusionLabel(detailTarget.conclusion) }}
           </span>
-        </el-descriptions-item>
-        <el-descriptions-item label="差额责任方">
-          {{ liabilityLabel(detailTarget.liability) }}
         </el-descriptions-item>
         <el-descriptions-item label="结论备注">
           {{ detailTarget.conclusionRemark || '—' }}
@@ -604,35 +488,35 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.ta-shell {
+.ops-shell {
   min-height: 100vh;
   background: var(--color-bg-2);
   display: flex;
   flex-direction: column;
 }
 
-.ta-body {
+.ops-body {
   flex: 1;
   display: flex;
   min-height: calc(100vh - 56px);
 }
 
 /* ===== 左侧菜单 ===== */
-.ta-side {
+.ops-side {
   width: 220px;
   background: var(--color-bg-1);
   border-right: 1px solid var(--color-border-1);
   flex-shrink: 0;
 }
-.ta-side__menu {
+.ops-side__menu {
   border-right: none;
 }
-.ta-side__menu :deep(.el-menu-item) {
+.ops-side__menu :deep(.el-menu-item) {
   height: 48px;
   line-height: 48px;
   font-size: var(--font-size-body);
 }
-.ta-side__menu :deep(.el-menu-item.is-active) {
+.ops-side__menu :deep(.el-menu-item.is-active) {
   background: var(--color-info-bg);
   color: var(--color-brand-accent);
   border-right: 3px solid var(--color-brand-accent);
@@ -642,7 +526,7 @@ onMounted(() => {
 }
 
 /* ===== 主区 ===== */
-.ta-main {
+.ops-main {
   flex: 1;
   padding: var(--space-6);
   display: flex;
@@ -690,13 +574,6 @@ onMounted(() => {
   align-items: center;
   gap: var(--space-1);
 }
-.overdue-tag {
-  margin-left: var(--space-1);
-}
-.shortfall-warn {
-  color: var(--color-danger);
-  font-weight: var(--font-weight-semibold);
-}
 
 .pager {
   margin-top: var(--space-4);
@@ -737,10 +614,10 @@ onMounted(() => {
 
 /* ===== 响应式 ===== */
 @media (max-width: 768px) {
-  .ta-side {
+  .ops-side {
     display: none;
   }
-  .ta-main {
+  .ops-main {
     padding: var(--space-4);
     min-width: 0;
   }

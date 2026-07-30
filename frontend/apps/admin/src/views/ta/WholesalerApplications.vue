@@ -29,6 +29,7 @@ import {
   Goods,
   Stamp,
   Refresh,
+  Van,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import type {
@@ -103,6 +104,7 @@ const menus = computed<MenuItem[]>(() => [
     badge: menuBadgeTotal.value,
   },
   { key: '/ta/skus', label: '商品', icon: Goods },
+  { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -116,6 +118,7 @@ const ROUTABLE = new Set([
   '/ta/wholesalers',
   '/ta/skus',
   '/ta/approvals',
+  '/ta/outbound',
 ])
 
 const handleMenuSelect = (key: string) => {

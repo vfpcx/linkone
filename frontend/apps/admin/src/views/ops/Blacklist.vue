@@ -20,6 +20,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import {
   Monitor,
   CircleClose,
+  ScaleToOriginal,
   Stamp,
   Plus,
   Refresh,
@@ -69,6 +70,7 @@ const menus = [
   { key: '/ops/dashboard', label: '运营控制台', icon: Monitor },
   { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
+  { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal },
 ]
 
 const handleMenuSelect = (key: string) => {
@@ -76,7 +78,11 @@ const handleMenuSelect = (key: string) => {
     activeMenu.value = key
     return
   }
-  if (key === '/ops/dashboard' || key === '/ops/tenant-audit') {
+  if (
+    key === '/ops/dashboard' ||
+    key === '/ops/tenant-audit' ||
+    key === '/ops/arbitrations'
+  ) {
     router.push(key)
     return
   }

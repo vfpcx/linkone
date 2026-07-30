@@ -16,6 +16,7 @@ import type {
   InboundRequest,
   InboundDisputeRequest,
   InboundDisputeResult,
+  InboundStockPreview,
   MpPage,
 } from '@cangchu/api-types'
 
@@ -30,6 +31,13 @@ export const waInboundApi = {
         page: params.page ?? 1,
         size: params.size ?? 20,
       },
+    }),
+
+  /** 异议前在库预览（M3）：实时在库/预计冲销/预计差额三数字（轻量快照，实际以锁内为准） */
+  stockPreview: (id: string) =>
+    request<InboundStockPreview>({
+      method: 'GET',
+      url: `/wholesaler/inbound-requests/${id}/stock-preview`,
     }),
 
   /** 确认代建入库 */
