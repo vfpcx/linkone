@@ -9,17 +9,22 @@
  *
  * 口径提示（09 §6.1/§6.2）：
  *  - 异议仅覆盖仍在库部分，已售出部分进入差额定责；
- *  - 后端未提供异议前的实时在库查询端点，精确「在库 M/差额 N−M」以提交后
- *    冲销结果回显为准（InboundDisputeResultVo），提交前以口径文案+登记数警示。
- *    TODO(FE-W1 契约偏差③)：fix/p3-be-defects 补出实时在库端点后，把下方
- *    「将冲销」两格换成实时「在库 M / 差额 N−M」数字（复查于 2026-07-27，端点尚未落地）。
+ *  - 实时数字接 GET /{id}/stock-preview（M3 补口，FE-W1 契约偏差③已闭环）：
+ *    弹窗打开即拉「实时在库 / 预计冲销 / 预计差额」三数字（轻量快照，实际冲销
+ *    以提交后回显为准）；端点异常时降级回口径文案。
+ *  - 预计差额 > 0 时提交前强制二次确认（已售部分不可冲销、进定责）。
  *
  * 提交由父页面执行（emit submit），50331/50332 等错误由父页面/全局拦截器处理。
  */
 
 import { ref, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import type { InboundRequest, InboundDisputeRequest } from '@cangchu/api-types'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import type {
+  InboundRequest,
+  InboundDisputeRequest,
+  InboundStockPreview,
+} from '@cangchu/api-types'
+import { waInboundApi } from '@/api/waInbound'
 import AttachmentUpload from '@/components/AttachmentUpload.vue'
 
 interface Props {
@@ -50,7 +55,25 @@ const preset = ref<string>('')
 const detail = ref('')
 const attachments = ref<string[]>([])
 
-// 每次打开重置表单
+// ============ 异议前在库预览（M3 三数字） ============
+const preview = ref<InboundStockPreview | null>(null)
+const previewLoading = ref(false)
+
+const fetchPreview = async () => {
+  const row = props.row
+  if (!row) return
+  previewLoading.value = true
+  preview.value = null
+  try {
+    preview.value = await waInboundApi.stockPreview(String(row.id))
+  } catch {
+    // 端点异常降级：保留口径文案展示，不阻塞异议提交
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+// 每次打开重置表单 + 拉实时在库预览
 watch(
   () => props.modelValue,
   (v) => {
@@ -58,6 +81,7 @@ watch(
       preset.value = ''
       detail.value = ''
       attachments.value = []
+      void fetchPreview()
     }
   },
 )
@@ -74,7 +98,7 @@ const detailMax = computed(() =>
   Math.max(0, 512 - (preset.value ? preset.value.length + 3 : 0)),
 )
 
-const onSubmit = () => {
+const onSubmit = async () => {
   const reason = composedReason.value
   if (!preset.value && !detail.value.trim()) {
     ElMessage.warning('请选择异议理由或填写说明')
@@ -91,6 +115,19 @@ const onSubmit = () => {
   if (reason.length > 512) {
     ElMessage.warning('异议理由最长 512 字')
     return
+  }
+  // 预计差额 > 0：强制二次确认（已售部分不可冲销，进入差额定责）
+  const p = preview.value
+  if (p && p.expectedShortfall > 0) {
+    try {
+      await ElMessageBox.confirm(
+        `已售出约 ${p.expectedShortfall} 件不可冲销，仅冲销仍在库的约 ${p.expectedReversal} 件；差额将进入店长仲裁定责。确认继续提交异议？`,
+        '存在已售差额',
+        { confirmButtonText: '继续提交', cancelButtonText: '再想想', type: 'warning' },
+      )
+    } catch {
+      return
+    }
   }
   emit('submit', {
     reason,
@@ -115,20 +152,47 @@ const onSubmit = () => {
         代建入库即视为可售，72 小时内可提异议，异议仅覆盖仍在库部分；已售出部分将进入差额定责。
       </el-alert>
 
-      <!-- 冲销数字口径（09 §6.2；实时在库量后端未提供查询端点，以提交后冲销结果为准） -->
-      <div class="dispute-dialog__facts" data-test="dispute-facts">
+      <!-- 冲销数字口径（09 §6.2；实时三数字接 stock-preview，端点异常降级口径文案） -->
+      <div v-loading="previewLoading" class="dispute-dialog__facts" data-test="dispute-facts">
         <div class="fact">
           <span class="fact__label">登记件数</span>
           <span class="fact__value">{{ row.qty }} 件</span>
         </div>
-        <div class="fact">
-          <span class="fact__label">将冲销</span>
-          <span class="fact__value">仍在库部分（按在库封顶，提交后回显实际件数）</span>
-        </div>
-        <div class="fact">
-          <span class="fact__label">已售部分</span>
-          <span class="fact__value fact__value--warn">不可冲销，将进入差额定责</span>
-        </div>
+        <template v-if="preview">
+          <div class="fact">
+            <span class="fact__label">实时在库</span>
+            <span class="fact__value" data-test="preview-onhand">{{ preview.onhand }} 件</span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">预计冲销</span>
+            <span class="fact__value" data-test="preview-reversal">
+              {{ preview.expectedReversal }} 件（按在库封顶，实际以提交后回显为准）
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">预计差额</span>
+            <span
+              class="fact__value"
+              :class="{ 'fact__value--warn': preview.expectedShortfall > 0 }"
+              data-test="preview-shortfall"
+            >
+              {{ preview.expectedShortfall }} 件
+              <template v-if="preview.expectedShortfall > 0">
+                （已售出，不可冲销，将进入差额定责）
+              </template>
+            </span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="fact">
+            <span class="fact__label">将冲销</span>
+            <span class="fact__value">仍在库部分（按在库封顶，提交后回显实际件数）</span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">已售部分</span>
+            <span class="fact__value fact__value--warn">不可冲销，将进入差额定责</span>
+          </div>
+        </template>
       </div>
 
       <el-form label-position="top" @submit.prevent>

@@ -41,6 +41,20 @@ export interface InboundDisputeResult {
   arbitrationDocNo: string
 }
 
+/**
+ * 异议前在库预览（InboundStockPreviewVo · M3，PRD 09 §6.2）：
+ * GET /wholesaler/inbound-requests/{id}/stock-preview。
+ * 轻量只读快照，实际冲销以后端锁内计算为准。
+ */
+export interface InboundStockPreview {
+  /** 当前在库件数 */
+  onhand: number
+  /** 预计冲销量 = min(registeredQty, max(onhand, 0)) */
+  expectedReversal: number
+  /** 预计差额 = registeredQty − expectedReversal（进 TA 仲裁定责） */
+  expectedShortfall: number
+}
+
 // ============ 仲裁单（arbitrations） ============
 
 /** 仲裁子类型（09 PRD §1.1） */
