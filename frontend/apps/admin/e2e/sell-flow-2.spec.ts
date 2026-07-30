@@ -47,7 +47,9 @@ async function sellOut(seed: SellSeed): Promise<void> {
   expect(sub.code, `卖光造数·提交询价失败 msg=${sub.message}`).toBe(0)
   const conf = await apiConfirmInquiry(sub.data.id, seed.waLogin.token)
   expect(conf.code, `卖光造数·WA 确认失败 msg=${conf.message}`).toBe(0)
-  expect(conf.data.status).toBe('COMPLETED')
+  // P3 契约（12 §1.4）：确认即扣库存但询价停 CONFIRMED（出库单 PENDING_ACCEPT 待 WK 登记）；
+  // 本用例只关心「库存归零→店铺不可见」，无需驱动 WK 作业闭环。
+  expect(conf.data.status).toBe('CONFIRMED')
 }
 
 // ============================== B-RT-02 卖光不显示（UI） ==============================

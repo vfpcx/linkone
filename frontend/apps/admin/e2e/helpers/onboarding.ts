@@ -324,6 +324,9 @@ export interface StockSeed {
   wholesalerId: string
   skuId: string
   stock: number
+  /** P3 W5：清库存需 WK 打印+登记出库（confirm 后出库单停 PENDING_ACCEPT），故回传 WK 凭据 */
+  wkToken: string
+  tenantId: string
 }
 
 /**
@@ -371,10 +374,39 @@ export async function seedStockForWholesaler(
     await apiPost('/tenant/inbound', { wholesalerId, skuId: sku.id, qty: stock, palletQty: 0 }, wk.token),
     'WK 入库',
   )
-  return { storeCode: qr.tenantSimpleCode, wholesalerId, skuId: sku.id, stock }
+  const tenantId = wk.roles.find((r) => r.role === 'WK')?.tenantId
+  if (!tenantId) throw new Error('[onb-seed] WK 登录态缺 tenantId')
+  return {
+    storeCode: qr.tenantSimpleCode,
+    wholesalerId,
+    skuId: sku.id,
+    stock,
+    wkToken: wk.token,
+    tenantId: String(tenantId),
+  }
 }
 
-/** 清空库存：RT 公开询价整量下单 → WA 确认转出库（库存 N → 0） */
+/**
+ * P3 W5：WA 确认全部待确认代建入库单（BE-W1 起 WK 登记入库停 PENDING_WA_CONFIRM，
+ * 属 R13 未结单据，会卡退驻前置自查；72h 内需 WA 确认收尾）。
+ */
+export async function confirmPendingInbound(waToken: string): Promise<void> {
+  const env = await apiGet<{ records?: Array<{ id: string }> }>(
+    '/wholesaler/inbound-requests',
+    waToken,
+    { status: 'PENDING_WA_CONFIRM', page: 1, size: 50 },
+  )
+  const rows = ok(env, 'WA 列待确认入库').records ?? []
+  for (const r of rows) {
+    ok(await apiPost(`/wholesaler/inbound-requests/${r.id}/confirm`, undefined, waToken), 'WA 确认入库')
+  }
+}
+
+/**
+ * 清空库存：RT 公开询价整量下单 → WA 确认（确认即扣，库存 N → 0）
+ * → WK 打印 + 登记出库（P3 BE-W2 起 confirm 后出库单停 PENDING_ACCEPT，
+ *   属 R13 未结单据，会卡退驻前置自查，必须走完 WK 作业闭环使询价 COMPLETED）。
+ */
 export async function sellOutStock(seed: StockSeed, waToken: string): Promise<void> {
   const inq = ok(
     await apiPost<{ id: string; docNo: string }>('/rt/inquiry', {
@@ -392,6 +424,37 @@ export async function sellOutStock(seed: StockSeed, waToken: string): Promise<vo
   const target = rows.find((r) => r.docNo === inq.docNo)
   if (!target) throw new Error(`[onb-seed] 未找到询价单 ${inq.docNo}`)
   ok(await apiPost(`/tenant/inquiry/${target.id}/confirm`, {}, waToken), 'WA 确认转出库')
+
+  // P3 出库作业闭环：WK 列 PENDING_ACCEPT → 打印 → 登记出库（隔离租户内即本单）
+  const wkHeaders = {
+    Authorization: seed.wkToken,
+    satoken: seed.wkToken,
+    'X-Tenant-Id': seed.tenantId,
+  }
+  const listRes = await fetch(
+    `${API}/api/v1/tenant/outbound-requests?status=PENDING_ACCEPT&page=1&size=10`,
+    { headers: wkHeaders },
+  )
+  const listText = await listRes.text()
+  const idm = listText.match(/"id":\s*"?(\d{10,})"?/)
+  if (!idm) throw new Error(`[onb-seed] 清库存后未找到待受理出库单：${listText.slice(0, 200)}`)
+  const outboundId = idm[1]
+  const printRes = await fetch(`${API}/api/v1/tenant/outbound-requests/${outboundId}/print`, {
+    method: 'POST',
+    headers: wkHeaders,
+  })
+  const printEnv = (await printRes.json()) as { code: number; message?: string }
+  if (printEnv.code !== 0) {
+    throw new Error(`[onb-seed] WK 打印失败 code=${printEnv.code} msg=${printEnv.message ?? ''}`)
+  }
+  const regRes = await fetch(`${API}/api/v1/tenant/outbound-requests/${outboundId}/register`, {
+    method: 'POST',
+    headers: wkHeaders,
+  })
+  const regEnv = (await regRes.json()) as { code: number; message?: string }
+  if (regEnv.code !== 0) {
+    throw new Error(`[onb-seed] WK 登记出库失败 code=${regEnv.code} msg=${regEnv.message ?? ''}`)
+  }
 }
 
 /** 读 RT 店铺聚合（公开）——退驻后店铺隐藏断言 */

@@ -7,6 +7,7 @@ import {
   apiListInquiries,
   findInquiryByDocNo,
   uniqPhone,
+  completeOutboundChain,
   type SellSeed,
 } from './helpers/sell'
 
@@ -138,20 +139,32 @@ test.describe('sell S1 happy', () => {
       expect(res.code, `API 兜底确认失败 msg=${res.message}`).toBe(0)
     }
 
-    // --- 断言 1：该单状态最终为 COMPLETED（经 WA 列表回读，抗 UI 时序） ---
+    // --- 断言 1（P3 契约，12 §1.4）：确认后询价停 CONFIRMED（出库单 PENDING_ACCEPT）---
     await expect
       .poll(
         async () => {
           const rows = await apiListInquiries(seed.waLogin.token)
           return rows.find((r) => r.docNo === docNo)?.status
         },
-        { timeout: 12_000, message: '询价单未变为 COMPLETED' },
+        { timeout: 12_000, message: '询价单未变为 CONFIRMED' },
       )
-      .toBe('COMPLETED')
+      .toBe('CONFIRMED')
 
-    // --- 断言 2：库存已扣减 N → N-qty（经公开 RT 店铺回读） ---
+    // --- 断言 2：扣库存时点不变=确认即扣，N → N-qty（经公开 RT 店铺回读） ---
     const store = await fetchRtStore(seed.storeCode)
     expect(stockOfSku(store, seed.skuId)).toBe(seed.stock - qty)
+
+    // --- 断言 3（P3 终态联动）：WK 打印+登记出库后，询价 COMPLETED ---
+    await completeOutboundChain(seed)
+    await expect
+      .poll(
+        async () => {
+          const rows = await apiListInquiries(seed.waLogin.token)
+          return rows.find((r) => r.docNo === docNo)?.status
+        },
+        { timeout: 12_000, message: '出库登记后询价未联动 COMPLETED' },
+      )
+      .toBe('COMPLETED')
   })
 })
 
@@ -209,10 +222,10 @@ test.describe('sell S6 idempotency', () => {
 
     const target = await findInquiryByDocNo(seed.waLogin.token, docNo!)
 
-    // 第一次确认 → 成功 COMPLETED
+    // 第一次确认 → 成功（P3 契约：确认即扣库存，询价停 CONFIRMED 等 WK 登记出库）
     const c1 = await apiConfirmInquiry(target.id, seed.waLogin.token)
     expect(c1.code, `首次确认应成功 msg=${c1.message}`).toBe(0)
-    expect(c1.data.status).toBe('COMPLETED')
+    expect(c1.data.status).toBe('CONFIRMED')
 
     // 第二次确认 → 被状态机拒绝（50285）
     const c2 = await apiConfirmInquiry(target.id, seed.waLogin.token)

@@ -10,6 +10,7 @@ import {
   restoreWithdraw,
   seedStockForWholesaler,
   sellOutStock,
+  confirmPendingInbound,
   fetchRtStore,
   listSkus,
   listWaEmployees,
@@ -188,6 +189,8 @@ test.describe('onboarding E2E-03 退驻链', () => {
     const wholesalerId = String(approve.data.wholesalerId)
     const waLogin = ok(await apiLogin(wa.phone, wa.pwd), 'WA 登录')
     const stock = await seedStockForWholesaler(tenant.ta.login.token, wholesalerId, 4)
+    // P3 BE-W1：WK 代建入库停 PENDING_WA_CONFIRM（R13 未结单据），WA 先确认收尾
+    await confirmPendingInbound(waLogin.token)
 
     // ---- ① 前置自查展示：库存未清 → ❌ + 提交置灰 ----
     await loginAs(page, wa.phone, wa.pwd, /\/wa\/inquiry/)

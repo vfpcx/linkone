@@ -467,3 +467,39 @@ export async function findInquiryByDocNo(
   }
   return hit
 }
+
+/**
+ * P3 W5 契约升级：BE-W2（12 §1.4）起 WA 确认后询价停 CONFIRMED、出库单起点 PENDING_ACCEPT
+ * （扣库存时点不变=确认即扣）；询价名下全部出库单登记出库后才联动 COMPLETED。
+ * 本 helper 以 WK 会话走完「打印 → 登记出库」作业闭环，把该租户全部待受理出库单收尾。
+ */
+export async function completeOutboundChain(seed: SellSeed): Promise<void> {
+  const tenantId = seed.taLogin.roles.find((r) => r.role === 'TA')?.tenantId
+  if (!tenantId) throw new Error('[seed] taLogin 缺 tenantId，无法驱动 WK 出库作业')
+  const headers = {
+    Authorization: seed.wkToken,
+    satoken: seed.wkToken,
+    'X-Tenant-Id': String(tenantId),
+  }
+  const listRes = await fetch(
+    `${API}/api/v1/tenant/outbound-requests?status=PENDING_ACCEPT&page=1&size=50`,
+    { headers },
+  )
+  const listText = await listRes.text()
+  const ids = [...listText.matchAll(/"id":\s*"?(\d{10,})"?/g)].map((m) => m[1])
+  if (ids.length === 0) {
+    throw new Error(`[seed] 无待受理出库单可收尾：${listText.slice(0, 200)}`)
+  }
+  for (const id of ids) {
+    for (const step of ['print', 'register'] as const) {
+      const res = await fetch(`${API}/api/v1/tenant/outbound-requests/${id}/${step}`, {
+        method: 'POST',
+        headers,
+      })
+      const env = (await res.json()) as Envelope<unknown>
+      if (env.code !== 0) {
+        throw new Error(`[seed] WK ${step} 出库单 ${id} 失败 code=${env.code} msg=${env.message ?? ''}`)
+      }
+    }
+  }
+}
