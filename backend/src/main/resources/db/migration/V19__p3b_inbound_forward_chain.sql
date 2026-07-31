@@ -17,6 +17,8 @@ ALTER TABLE `inbound_requests` ADD COLUMN `print_count` INT NOT NULL DEFAULT 0 C
 ALTER TABLE `inbound_requests` ADD COLUMN `registered_at` DATETIME NULL COMMENT '登记时刻（R3 纠错 24h 窗口锚点，SQL 内比数据库时间）';
 ALTER TABLE `inbound_requests` ADD COLUMN `batch_submit_id` BIGINT NULL COMMENT '同批提交共享雪花 id（D-5 多行拆单打印聚合）';
 ALTER TABLE `inbound_requests` ADD COLUMN `wa_user_id` BIGINT NULL COMMENT '提交人（WA 或被授权 WE）';
+-- 备注列（13 §1.2 登记差异非 0 时 remark 必填的落点；设计 V19 清单未列、据实现补——提交行备注亦落此，登记备注覆写）
+ALTER TABLE `inbound_requests` ADD COLUMN `remark` VARCHAR(512) NULL COMMENT '备注（提交行备注；登记差异备注覆写）';
 
 -- WK 待受理队列索引
 CREATE INDEX `idx_inb_tenant_status` ON `inbound_requests` (`tenant_id`, `status`, `created_at`);

@@ -128,6 +128,9 @@ public class InboundRequest {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long waUserId;
 
+    /** 备注（提交行备注；登记差异非 0 时必填的差异备注覆写此列） */
+    private String remark;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

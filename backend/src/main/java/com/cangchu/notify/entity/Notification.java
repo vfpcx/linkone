@@ -43,6 +43,18 @@ public class Notification {
     public static final String TYPE_OUTBOUND_WITHDRAW_REJECTED = "OUTBOUND_WITHDRAW_REJECTED";
     /** R8 意向单作废联动（BE-W2：整单出库撤销+回补） */
     public static final String TYPE_INQUIRY_VOIDED = "INQUIRY_VOIDED";
+    /** P3b T1：入库申请提交 → 通知库管（13 §1.4） */
+    public static final String TYPE_INBOUND_SUBMITTED = "INBOUND_SUBMITTED";
+    /** P3b T1：申请受理 → 通知商户 */
+    public static final String TYPE_INBOUND_ACCEPTED = "INBOUND_ACCEPTED";
+    /** P3b T1：申请驳回（R2）→ 通知商户（可一键复制重建） */
+    public static final String TYPE_INBOUND_REJECTED = "INBOUND_REJECTED";
+    /** P3b T1：登记完成（直落已入库）→ 通知商户 */
+    public static final String TYPE_INBOUND_REGISTERED = "INBOUND_REGISTERED";
+    /** P3b T1：R3 纠错待审 → 通知租户管理员（审批中心） */
+    public static final String TYPE_CORRECTION_PENDING = "CORRECTION_PENDING";
+    /** P3b T1：R3 纠错结论 → 通知发起库管 */
+    public static final String TYPE_CORRECTION_DECIDED = "CORRECTION_DECIDED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
