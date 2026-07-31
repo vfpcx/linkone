@@ -150,8 +150,8 @@ public enum ErrorCode {
     WHOLESALER_STATE_TRANSITION_INVALID(50318, "批发商当前状态不允许该操作"),
 
     // ==================== WE 批发商员工 (P2 入驻 Wave 3，50319+) ====================
-    // P3 BE-W1：授权位白名单扩 INBOUND_CONFIRM（G7），文案同步
-    EMPLOYEE_INVITE_PERMISSION_INVALID(50319, "员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM/INBOUND_CONFIRM）"),
+    // P3 BE-W1 扩 INBOUND_CONFIRM（G7）；P3b T1-BE 扩 INBOUND_SUBMIT（D-5），文案同步
+    EMPLOYEE_INVITE_PERMISSION_INVALID(50319, "员工授权项非法（仅允许 PRICE_EDIT/INQUIRY_CONFIRM/INBOUND_CONFIRM/INBOUND_SUBMIT）"),
     EMPLOYEE_NOT_FOUND(50320, "员工不存在或不属于本商户"),
     EMPLOYEE_STATE_INVALID(50321, "员工当前状态不允许该操作"),
     EMPLOYEE_RESTORE_EXPIRED(50322, "员工禁用已超 30 天，无法恢复"),
@@ -172,7 +172,14 @@ public enum ErrorCode {
     OUTBOUND_COMPLAINT_WINDOW_CLOSED(50339, "客诉期已过（出库后 30 天内可提）"),
     FILE_UPLOAD_INVALID(50340, "文件格式或大小不符合要求"),
     NOTIFICATION_NOT_FOUND(50341, "消息不存在"),
-    ARBITRATION_LIABILITY_INVALID(50342, "差额定责选项缺失或不适用");
+    ARBITRATION_LIABILITY_INVALID(50342, "差额定责选项缺失或不适用"),
+
+    // ==================== P3b T1 正向申请链 (13-p3b-design §4.2，D-14 溢出段 50350-50369；50343-50349 维持预留缓冲) ====================
+    INBOUND_NOT_WITHDRAWABLE(50350, "申请已受理，无法撤回"),
+    INBOUND_QTY_DIFF_EXCEEDED(50351, "实收与申请件数差异超 5%，请驳回后重新申请"),
+    INBOUND_CORRECTION_WINDOW_CLOSED(50352, "登记已超 24 小时，请通过盘点调整"),
+    INBOUND_CORRECTION_PENDING_EXISTS(50353, "该单已有待审批的纠错申请"),
+    INBOUND_CORRECTION_INVALID(50354, "纠错件数无效");
 
     private final int code;
     private final String message;

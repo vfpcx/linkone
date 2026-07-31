@@ -24,8 +24,10 @@ public final class WePermissions {
     public static final String INQUIRY_CONFIRM = "INQUIRY_CONFIRM";
     /** 代建入库确认/异议（P3 BE-W1，G7 授权位扩 1 枚） */
     public static final String INBOUND_CONFIRM = "INBOUND_CONFIRM";
+    /** 入库申请提交/撤回（P3b T1-BE，D-5 白名单第 4 枚；出库侧 OUTBOUND_SUBMIT/COMPLAIN 维持悬置 P5 议） */
+    public static final String INBOUND_SUBMIT = "INBOUND_SUBMIT";
 
-    public static final Set<String> ALLOWED = Set.of(PRICE_EDIT, INQUIRY_CONFIRM, INBOUND_CONFIRM);
+    public static final Set<String> ALLOWED = Set.of(PRICE_EDIT, INQUIRY_CONFIRM, INBOUND_CONFIRM, INBOUND_SUBMIT);
 
     private WePermissions() {
     }

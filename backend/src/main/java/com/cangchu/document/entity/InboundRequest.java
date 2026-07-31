@@ -32,6 +32,16 @@ public class InboundRequest {
     /** 已撤销（仲裁驳回，冲销保留，货线下处理） */
     public static final String STATUS_REVOKED = "REVOKED";
 
+    // ==================== P3b T1 正向申请链 4 值（13 §1.1，命名 12 §2.1 冻结） ====================
+    /** 待受理（WA/WE 提交，source=WA_SUBMIT；零库存/零流水/零计费） */
+    public static final String STATUS_SUBMITTED = "SUBMITTED";
+    /** 已撤回（R1，仅 SUBMITTED 可撤，withdraw_reason 必填；终态） */
+    public static final String STATUS_WITHDRAWN = "WITHDRAWN";
+    /** 已驳回（R2，reason 单选+remark 必填+附件可选；终态，WA 一键复制重建） */
+    public static final String STATUS_REJECTED = "REJECTED";
+    /** 已受理（WK 锁单防撤回；仍零库存，登记时才 addStock） */
+    public static final String STATUS_ACCEPTED = "ACCEPTED";
+
     /** 来源：WK 代建（P1/本波唯一来源） */
     public static final String SOURCE_WK_CREATED = "WK_CREATED";
     /** 来源：WA 自主申请（R1-R3 波启用） */
@@ -80,6 +90,43 @@ public class InboundRequest {
 
     /** WA 异议时刻 */
     private LocalDateTime disputedAt;
+
+    // ==================== P3b T1 正向申请链列（V19） ====================
+
+    /** 申请件数（正向链提交落值后不可变；代建链 NULL。qty=实登件数，登记时覆写） */
+    private Integer requestedQty;
+
+    /** R2 驳回原因单选：QTY/QUALITY/BATCH/OTHER */
+    private String rejectReason;
+
+    /** R2 驳回备注（驳回必填） */
+    private String rejectRemark;
+
+    /** R2 驳回举证附件（JSON 数组 URL ≤5，独立于登记照片） */
+    private String rejectAttachments;
+
+    /** R1 撤回理由（撤回必填） */
+    private String withdrawReason;
+
+    /** 登记照片（JSON 数组 URL ≤5，D-2 最小版复用 /files） */
+    private String attachments;
+
+    /** 最近打印时刻（T1-7，非状态节点） */
+    private LocalDateTime printedAt;
+
+    /** 打印次数（补打 count++） */
+    private Integer printCount;
+
+    /** 登记时刻（R3 纠错 24h 窗口锚点，SQL 内比数据库时间） */
+    private LocalDateTime registeredAt;
+
+    /** 同批提交共享雪花 id（D-5 多行拆单打印聚合） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long batchSubmitId;
+
+    /** 提交人（WA 或被授权 WE） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long waUserId;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

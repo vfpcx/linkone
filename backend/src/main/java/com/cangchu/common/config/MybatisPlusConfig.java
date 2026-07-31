@@ -51,7 +51,9 @@ public class MybatisPlusConfig {
             // P3 BE-W1（12 §4.1/§4.3）：仲裁单 + 站内信纳入兜底隔离。
             // OPS 跨租户查询（客诉仲裁）与 72h Job（系统态）无 TenantContext → 不注入，符合先例。
             "arbitrations",
-            "notifications"
+            "notifications",
+            // P3b T1-BE（13 §4.1 V19）：R3 登记纠错单纳入兜底隔离
+            "inbound_corrections"
     );
 
     @Bean

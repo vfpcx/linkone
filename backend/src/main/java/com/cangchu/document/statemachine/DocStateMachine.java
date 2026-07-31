@@ -56,7 +56,12 @@ public final class DocStateMachine {
             OutboundRequest.STATUS_WITHDRAWN, Set.of(),
             OutboundRequest.STATUS_CANCELLED, Set.of());
 
-    /** 入库迁移矩阵（12 §2.1；BE-W1 已按此直写 CAS，此处冻结为权威表）。 */
+    /**
+     * 入库迁移矩阵（12 §2.1 代建链 + 13-p3b §1.1 正向链，两链共表）：
+     * 正向链：SUBMITTED → WITHDRAWN(R1) | REJECTED(R2) | ACCEPTED(受理锁单)；ACCEPTED → CONFIRMED(登记
+     * 才 addStock，D-3 直落，不复活 REGISTERED)。不可达红线：REJECTED→ACCEPTED ❌、CONFIRMED→WITHDRAWN ❌、
+     * SUBMITTED→CONFIRMED ❌（必须经受理）。代建链一字不动。
+     */
     private static final Map<String, Set<String>> INBOUND_TRANSITIONS = Map.of(
             InboundRequest.STATUS_PENDING_WA_CONFIRM, Set.of(
                     InboundRequest.STATUS_CONFIRMED,
@@ -65,7 +70,14 @@ public final class DocStateMachine {
                     InboundRequest.STATUS_CONFIRMED,
                     InboundRequest.STATUS_REVOKED),
             InboundRequest.STATUS_CONFIRMED, Set.of(),
-            InboundRequest.STATUS_REVOKED, Set.of());
+            InboundRequest.STATUS_REVOKED, Set.of(),
+            InboundRequest.STATUS_SUBMITTED, Set.of(
+                    InboundRequest.STATUS_WITHDRAWN,
+                    InboundRequest.STATUS_REJECTED,
+                    InboundRequest.STATUS_ACCEPTED),
+            InboundRequest.STATUS_ACCEPTED, Set.of(InboundRequest.STATUS_CONFIRMED),
+            InboundRequest.STATUS_WITHDRAWN, Set.of(),
+            InboundRequest.STATUS_REJECTED, Set.of());
 
     private static final Map<DocKind, Map<String, Set<String>>> TABLES = Map.of(
             DocKind.OUTBOUND, OUTBOUND_TRANSITIONS,
