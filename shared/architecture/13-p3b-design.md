@@ -407,8 +407,26 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 
 ---
 
+## 附：T1-BE 据实现备注（2026-07-31，branch feat/p3b-inbound-apply，据实现编写）
+
+> 实现与本设计一致处不重复；以下为落地时的补充口径与轻微偏差，T1-FE / 后续波次以此为准。
+
+1. **端点路径全部按 §5.1 落地**；docNo 沿用 DocType.INBOUND 前缀 **`WK-`**（A3 零改造，正向链不启新前缀）。WK 待受理队列（`GET /tenant/inbound?status=SUBMITTED`）按创建时间**升序**（先到先受理），其余列表倒序。
+2. **提交护栏补充**：单次 items ≤50 行（40001）；提交通知库管为**整批 1 条**（含张数/合计件数/首单号），收件人=新增 `AuthService.listActiveWkUserIdsOfTenant`（user_roles 推导先例，多 WK 全发，文案零角色码）。
+3. **CAS 败方语义化**：撤回失败重读——已非 SUBMITTED → 50350、其余 50331；并发受理败方为 50331 或 50330（重读已 ACCEPTED 撞矩阵，时序两态）——前端两码均按「刷新重试」处理。
+4. **登记端点防绕行**：`/{id}/register` 仅 source=WA_SUBMIT（代建链走原 POST /tenant/inbound），否则 50330；5% 边界为整型算式 `|actual−requested|×100 > requested×5`（无浮点误差，含等于放行实测 950/1000 过、949/1000 拒）。打印端点未加 source 限制（代建链补打无害，非状态节点）。
+5. **R3 纠错托盘**：pallet_delta 列随 V20/T3-W1 才落——本波 CORRECTION_IN/OUT 流水以 remark `palletAdjusted=±N` 快照留痕（DISPUTE_REVERSAL remark 先例），V20 后新流水双写；比例=±ceil(原入库 pallet×applied/原 qty)，释放侧对在库托盘二次封顶。
+6. **24h 窗口 SQL**：`registered_at > NOW() - INTERVAL '24' HOUR`（MySQL/H2 双方言实测通过）；防重=先查后写 + `uk_corr_req_pending` 部分唯一兜底（DuplicateKey→50353）；并发双裁由 status=PENDING 条件 CAS 决出（败方 50331）。
+7. **纠错通知**：待审→租户联系人（getContactUserId，审批中心角标先例）；结论→发起 WK 单人（corr.wk_user_id）。
+8. **R13 未结计数**：`countOpenForWholesaler` = 单据 (PENDING_WA_CONFIRM/DISPUTED/SUBMITTED/ACCEPTED) + 纠错 PENDING（同 document 域直连 InboundCorrectionMapper，合规）。
+9. **SKU 放宽**：仅 `listByWholesaler`（GET /tenant/skus）闸门 requireWaOrTa→requireWkOrWaOrTa；`/listed` 本就无角色闸（登录+租户上下文）；写路径三处不动（测试断言 WK 写→42101 保留）。
+10. **测试**：新增 `InboundForwardChainScenarioTest` 20 用例（矩阵 8×8 逐格/零库存断言/5% 三点/封顶三态+D-4 锚点/虚拟线程并发受理/WE 三态/越权矩阵/R13/SKU 回归/不变量扩 CORRECTION_±）；全量 270 绿（基线 250 零回归；§0-A10 的「252 @Test」实为 250 可执行+2 处注释字样）。
+
+---
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-07-30 | 首版：P3b 三主题落地设计——正向申请链 4 状态+R1/R2/R3（纠错封顶）/退货登记时扣/盘点封顶/托盘账 D-8=A 补齐（pallet_delta+PALLET_RELEASE）/批次方案 C（batches+FIFO 离线推算+02:00/02:30 双 Job）/V19–V23 迁移/50350–50369 错误码/八波拆分与测试关卡 |
+| v1.1 | 2026-07-31 | 附「T1-BE 据实现备注」10 条（docNo 前缀 WK-/整批通知/CAS 败方两态/防绕行/纠错托盘 remark 快照过渡/24h SQL 方言/R13 口径/SKU 放宽范围/测试 270 绿） |
