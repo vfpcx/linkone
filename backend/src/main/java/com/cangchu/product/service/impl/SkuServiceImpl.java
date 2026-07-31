@@ -179,7 +179,9 @@ public class SkuServiceImpl implements SkuService {
         if (wholesaler == null) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
-        requireWaOrTa(wholesaler, operatorUserId);
+        // P3b T1-BE（13 §5.1 补口，上线检查单 §5-4 遗留）：只读列表放宽为 WK/WA/TA——
+        // WK 代建选货需 SKU 名称展示；写路径（create/update/toggle）维持 WA/TA 不放宽
+        requireWkOrWaOrTa(wholesaler, operatorUserId);
         // 商户自己看：含下架
         List<Sku> list = skuMapper.selectList(new LambdaQueryWrapper<Sku>()
                 .eq(Sku::getWholesalerId, wholesalerId)
@@ -224,6 +226,21 @@ public class SkuServiceImpl implements SkuService {
         if (!authService.hasRole(userId, "TA", wholesaler.getTenantId())) {
             throw new BizException(ErrorCode.PERMISSION_TENANT_001);
         }
+    }
+
+    /**
+     * S4 只读列表鉴权（P3b T1-BE，13 §5.1）：WA 归属 / TA 同租户 / <b>WK 同租户</b>（只读放宽，
+     * requireWkOrTa 写法先例见 OutboundRequestServiceImpl）。写路径禁用本方法。
+     */
+    private void requireWkOrWaOrTa(WholesalerVo wholesaler, Long userId) {
+        if (authService.hasWholesalerRole(userId, "WA", wholesaler.getId())) {
+            return;
+        }
+        if (authService.hasRole(userId, "TA", wholesaler.getTenantId())
+                || authService.hasRole(userId, "WK", wholesaler.getTenantId())) {
+            return;
+        }
+        throw new BizException(ErrorCode.PERMISSION_TENANT_001);
     }
 
     /** 读取 SKU 并做归属鉴权；不存在（含跨租户被 TenantLine 过滤）→ SKU_NOT_FOUND。 */
