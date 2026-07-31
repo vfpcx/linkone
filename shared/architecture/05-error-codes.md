@@ -272,11 +272,38 @@
 | 50340 | `FILE_UPLOAD_INVALID` | 200 | 文件格式或大小不符合要求 | 上传魔数（jpg/png/webp）/≤5MB/空文件校验（12 §4.4） | 换图片重传 |
 | 50341 | `NOTIFICATION_NOT_FOUND` | 200 | 消息不存在 | 已读非本人/不存在（按不存在，不泄漏存在性） | — |
 | 50342 | `ARBITRATION_LIABILITY_INVALID` | 200 | 差额定责选项缺失或不适用 | liability 三态：REJECTED∧shortfall>0 必填；其余必空；枚举非法（12 §4.1 刚性规则） | — |
-| 50343–50349 | 预留 | — | — | T3 退货/盘点波顺延使用 | — |
+| 50343–50349 | 预留 | — | — | 缓冲段（P3b 三主题依 D-14 拍板改用 50350–50369 溢出段，见下节；本段留作后续增补） | — |
 
 > 关联落地（P3 BE-W1）：`50319 EMPLOYEE_INVITE_PERMISSION_INVALID` 文案随 WE 授权位白名单
 > 扩 `INBOUND_CONFIRM`（G7）同步为「仅允许 PRICE_EDIT/INQUIRY_CONFIRM/INBOUND_CONFIRM」；
 > WE 未持 INBOUND_CONFIRM 调用入库 confirm/dispute 复用 `42004 PERMISSION_ROLE_004`。
+
+### P3b 正向申请链 / 退货盘点 / 批次临期（50350–50369，13-p3b-design §4.2 分配段，D-14 拍板）
+
+> 50343–50349 仅 7 枚不够 T1+T3+T4 三主题（10-p3b-requirements D-14），溢出段定 **50350–50369**：
+> 50350–50354 归 T1-BE，50355–50359 归 T3，50360–50369 归 T4（50360 例外随 T3-W1 先落禁改防御）。
+> 状态机不可达/CAS 并发一律复用 50330/50331；库存不足复用 `STOCK_NOT_ENOUGH(50251)`；
+> WE 授权位随 T1-BE 扩第 4 枚 `INBOUND_SUBMIT`（50319 文案同步），未持位复用 42004。
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50350 | `INBOUND_NOT_WITHDRAWABLE` | 200 | 申请已受理，无法撤回 | R1：仅 SUBMITTED 可撤，受理锁单后须走 WK 流转（T1-BE 启用） | 联系 WK 驳回 |
+| 50351 | `INBOUND_QTY_DIFF_EXCEEDED` | 200 | 实收与申请件数差异超 5%，请驳回后重新申请 | T1-5 登记差异边界：≤5% 按实登记+备注必填，>5% 拒登记走 R2（T1-BE） | 走驳回流程 |
+| 50352 | `INBOUND_CORRECTION_WINDOW_CLOSED` | 200 | 登记已超 24 小时，请通过盘点调整 | R3 纠错超窗（registered_at+24h，数据库时间比对；T1-BE） | 走盘点（T3） |
+| 50353 | `INBOUND_CORRECTION_PENDING_EXISTS` | 200 | 该单已有待审批的纠错申请 | R3 防重（inbound_corrections pending_flag 部分唯一兜底，V13 先例；T1-BE） | 等待 TA 审批 |
+| 50354 | `INBOUND_CORRECTION_INVALID` | 200 | 纠错件数无效 | new_qty<0 / 与实登相同 / 非正向链（source≠WA_SUBMIT）或非 CONFIRMED 单据（T1-BE） | — |
+| 50355 | `STOCKTAKE_ITEMS_INVALID` | 200 | 盘点明细为空或存在重复商品 | items 空 / 同单 SKU 重复行 / 实物数<0（T3-W2） | — |
+| 50356 | `STOCKTAKE_OPEN_EXISTS` | 200 | 该商户已有进行中的盘点单 | 同商户 DRAFT/PENDING_APPROVAL 在途（pending_flag 部分唯一，防双重盈亏；T3-W2） | 先完结在途盘点单 |
+| 50357–50359 | 预留 | — | — | T3 后续增补 | — |
+| 50360 | `BATCH_FEATURE_NOT_READY` | 200 | 批次功能开发中，暂不可开启 | D-13 禁改防御：店铺设置接口拒改 batch_enabled（T3-W1 落；T4-W1 起转「仅限 batch-toggle 专用端点」语义保留） | 等 T4 上线 |
+| 50361 | `BATCH_TOGGLE_RATE_LIMITED` | 200 | 批次开关 24 小时内最多操作 2 次 | T4-1：Redis 计数 `batch:toggle:{tenantId}` TTL 24h（T4-W1） | 次日再试 |
+| 50362 | `BATCH_NO_DUPLICATE` | 200 | 该批次号已存在 | uk(wholesaler_id, sku_id, batch_no) 冲突转译（T4-W1） | 换批次号 |
+| 50363 | `BATCH_NOT_FOUND` | 200 | 批次不存在 | 不存在/跨商户按不存在（不泄漏存在性；T4-W1） | 刷新列表 |
+| 50364 | `BATCH_EXPIRED_CONFIRM_REQUIRED` | 200 | 该批次已过期，入库需二次确认 | 04 §3.1 强警告：expiredConfirmed 凭据缺失；临期仅警告放行（T4-W1） | 二次确认后提交 |
+| 50365 | `CLEARANCE_BATCH_NOT_CLEARABLE` | 200 | 该批次无需清库 | 非 PENDING_CLEARANCE / 推算剩余为 0 / 同批次在途 QK 已存在（T4-W2） | — |
+| 50366 | `CLEARANCE_PHOTO_REQUIRED` | 200 | 清库须上传实物照片 | R19 刚性：attachments 必填 ≥1，不受 photo_mode 开关影响（T4-W2） | 上传照片 |
+| 50367 | `EXPIRY_NOTIFY_RATE_LIMITED` | 200 | 24 小时内已通知过该批次 | D-12：WK 手动一键通知同批次 24h 限 1（manual_notified_at 比对；T4-W2） | 次日再通知 |
+| 50368–50369 | 预留 | — | — | T4 后续增补 | — |
 
 ### STATE_BILL（50300–50399）账单状态
 
@@ -487,6 +514,7 @@ axios.interceptors.response.use(res => {
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-06-02 | 首版，七大类 ≥ 116 个错误码 |
+| v1.x | 2026-07-30 | P3b 段登记（13-p3b-design §4.2，D-14 拍板）：新增 50350–50369 溢出段（实分配 15 枚：50350–50356 / 50360–50367，余预留）；50343–50349 改标缓冲段 |
 
 ---
 
