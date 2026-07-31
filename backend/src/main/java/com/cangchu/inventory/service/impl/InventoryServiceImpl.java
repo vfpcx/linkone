@@ -363,6 +363,121 @@ public class InventoryServiceImpl implements InventoryService {
         return toVo(inv);
     }
 
+    // ==================== P3b T1 R3 纠错联动（13 §1.3，同锁同事务先例） ====================
+
+    @Override
+    public com.cangchu.inventory.dto.InboundCorrectionResult applyInboundCorrection(
+            com.cangchu.inventory.dto.InboundCorrectionContext ctx) {
+        if (ctx.getWholesalerId() == null || ctx.getTenantId() == null || ctx.getSkuId() == null
+                || ctx.getRefDocNo() == null) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003);
+        }
+        if (ctx.getDelta() == null || ctx.getDelta() == 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
+        return withLock(ctx.getWholesalerId(), ctx.getSkuId(), () -> self.doApplyInboundCorrectionInTx(ctx));
+    }
+
+    /**
+     * 纠错联动事务体（仅供 {@link #applyInboundCorrection} 持锁经代理调用）。
+     * 13 §1.3 口径：
+     * <pre>
+     * delta &gt; 0（改大）：applied = delta，qty += delta，写 CORRECTION_IN；
+     * delta &lt; 0（改小）：applied = min(|delta|, max(onhand,0))（12 §2.4 封顶复用），
+     *                    qty −= applied，写 CORRECTION_OUT；applied=0（售罄）不写流水；
+     * 托盘 = ±ceil(原入库 pallet × applied / 原登记 qty)，释放侧对在库托盘二次封顶；
+     * biz_time = 原 INBOUND 流水 biz_time、reversal_of_id = 原 INBOUND 流水 id（D-4 配对锚点，
+     *            P4 按配对重算仓储费——本波仅留锚点，零金额）。
+     * </pre>
+     * 托盘变化量落流水 remark 快照（palletAdjusted=±N，DISPUTE_REVERSAL remark 先例；
+     * pallet_delta 列随 V20/T3-W1 落地，V20 前流水按 13 §2.4-4 存量边界恒 0）。
+     */
+    @Override
+    @Transactional
+    public com.cangchu.inventory.dto.InboundCorrectionResult doApplyInboundCorrectionInTx(
+            com.cangchu.inventory.dto.InboundCorrectionContext ctx) {
+        // 原 INBOUND 流水（正向链登记唯一入口=register CAS 成功分支，同 doc 至多一条）
+        StockMovement original = stockMovementMapper.selectOne(new LambdaQueryWrapper<StockMovement>()
+                .eq(StockMovement::getWholesalerId, ctx.getWholesalerId())
+                .eq(StockMovement::getSkuId, ctx.getSkuId())
+                .eq(StockMovement::getType, StockMovement.TYPE_INBOUND)
+                .eq(StockMovement::getRefDocNo, ctx.getRefDocNo())
+                .orderByAsc(StockMovement::getId)
+                .last("LIMIT 1"));
+        if (original == null) {
+            // 纠错必须能配对原 INBOUND 流水（不变量：CORRECTION_*.reversal_of_id 非空，P4 配对依赖）
+            throw new BizException(ErrorCode.INVENTORY_NOT_FOUND, "原入库流水不存在，无法纠错");
+        }
+        Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
+        if (inv == null) {
+            // 登记过必有库存行（行不删除）；防御性拒绝
+            throw new BizException(ErrorCode.INVENTORY_NOT_FOUND);
+        }
+
+        int delta = ctx.getDelta();
+        int originalQty = original.getQty();
+        int originalPallet = ctx.getOriginalPalletQty() != null ? Math.max(ctx.getOriginalPalletQty(), 0) : 0;
+
+        int applied;
+        int shortfall = 0;
+        int palletAdjusted = 0;
+        Long movementId = null;
+        if (delta > 0) {
+            // 改大：补录差额，无封顶语义
+            applied = delta;
+            if (originalPallet > 0 && originalQty > 0) {
+                palletAdjusted = (int) Math.ceil(originalPallet * (double) applied / originalQty);
+            }
+            inv.setQty(inv.getQty() + applied);
+            inv.setPalletQty(inv.getPalletQty() + palletAdjusted);
+            inv.setUpdatedAt(LocalDateTime.now());
+            inventoryMapper.updateById(inv);
+
+            StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                    StockMovement.TYPE_CORRECTION_IN, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
+            mv.setBizTime(original.getBizTime());
+            mv.setReversalOfId(original.getId());
+            mv.setRemark("palletAdjusted=" + palletAdjusted);
+            stockMovementMapper.insert(mv);
+            movementId = mv.getId();
+        } else {
+            // 改小：12 §2.4 封顶——在库件优先视为被纠错单的货，库存永不打负；差额线下定责
+            int onhand = Math.max(inv.getQty(), 0);
+            applied = Math.min(-delta, onhand);
+            shortfall = -delta - applied;
+            if (applied > 0) {
+                if (originalPallet > 0 && originalQty > 0) {
+                    int proportional = (int) Math.ceil(originalPallet * (double) applied / originalQty);
+                    palletAdjusted = -Math.min(proportional, Math.max(inv.getPalletQty(), 0));
+                }
+                inv.setQty(inv.getQty() - applied);
+                inv.setPalletQty(inv.getPalletQty() + palletAdjusted);
+                inv.setUpdatedAt(LocalDateTime.now());
+                inventoryMapper.updateById(inv);
+
+                StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                        StockMovement.TYPE_CORRECTION_OUT, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
+                mv.setBizTime(original.getBizTime());
+                mv.setReversalOfId(original.getId());
+                mv.setRemark("palletAdjusted=" + palletAdjusted);
+                stockMovementMapper.insert(mv);
+                movementId = mv.getId();
+            }
+            // applied=0（售罄）：不写流水、不动库存，纠错单照常 APPROVED 留痕（13 §1.3）
+        }
+
+        log.info("[P3b] inboundCorrection wholesaler={} sku={} delta={} applied={} shortfall={} pallet={} -> qty={} (doc={})",
+                ctx.getWholesalerId(), ctx.getSkuId(), delta, applied, shortfall, palletAdjusted,
+                inv.getQty(), ctx.getRefDocNo());
+        return com.cangchu.inventory.dto.InboundCorrectionResult.builder()
+                .appliedQty(applied)
+                .shortfallQty(shortfall)
+                .palletAdjusted(palletAdjusted)
+                .movementId(movementId)
+                .remainingQty(inv.getQty())
+                .build();
+    }
+
     // ==================== 查询 ====================
 
     @Override
