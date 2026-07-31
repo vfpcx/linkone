@@ -1,0 +1,35 @@
+package com.cangchu.document.dto;
+
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+
+import java.util.List;
+
+/**
+ * WK 登记正向链入库申请入参（P3b T1-BE，13 §1.2/§5.1）。
+ *
+ * <p>5% 差异边界：|actualQty − requested_qty| / requested_qty ≤ 5%（含等于）按实登记，
+ * 差异非 0 时 remark 必填；>5% 抛 50351 提示走 R2 驳回。此刻才 addStock（登记才加库存）。
+ */
+@Data
+public class InboundForwardRegisterDto {
+
+    /** 实登件数（>0） */
+    @NotNull(message = "缺少实登件数")
+    @Min(value = 1, message = "实登件数必须大于0")
+    private Integer actualQty;
+
+    /** 实际托盘数（可空 → 沿用提交值；≥0） */
+    @Min(value = 0, message = "托盘数不能为负")
+    private Integer palletQty;
+
+    /** 差异备注（实登 ≠ 申请件数时必填 ≤512） */
+    @Size(max = 512, message = "备注最长 512 字")
+    private String remark;
+
+    /** 登记照片 ≤5（D-2 最小版，复用 /files，N2 白名单） */
+    @Size(max = 5, message = "附件最多 5 张")
+    private List<@Size(max = 200, message = "附件 URL 过长") String> attachments;
+}

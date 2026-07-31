@@ -61,6 +61,13 @@ public interface AuthService {
     java.util.List<Long> listActiveWaUserIdsOfWholesaler(Long wholesalerId);
 
     /**
+     * 上下文查询（租户维度反查，P3b T1-BE）：列出该租户全部 ACTIVE <b>WK</b> 用户 id（去重）。
+     * 与 {@link #listActiveWaUserIdsOfWholesaler} 同构——「库管」通知收件人以 user_roles
+     * 绑定为唯一可信来源（13 §1.4 提交→WK 站内信收件人推导）。
+     */
+    java.util.List<Long> listActiveWkUserIdsOfTenant(Long tenantId);
+
+    /**
      * 角色-租户绑定（幂等）：确保用户拥有一条 (role, tenantId, ACTIVE) 的角色记录。
      *
      * <p>行为与原 tenant 域直连逐一等价：优先复用一条 status=ACTIVE 且 tenant_id 为空的

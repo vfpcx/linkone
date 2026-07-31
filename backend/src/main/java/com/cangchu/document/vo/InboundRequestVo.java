@@ -56,4 +56,41 @@ public class InboundRequestVo {
     private LocalDateTime disputedAt;
 
     private LocalDateTime createdAt;
+
+    // ==================== P3b T1（13 §1）正向申请链字段 ====================
+
+    /** 申请件数（正向链；qty=实登件数，登记前二者相等） */
+    private Integer requestedQty;
+
+    /** R2 驳回原因单选：QTY/QUALITY/BATCH/OTHER */
+    private String rejectReason;
+
+    private String rejectRemark;
+
+    /** R2 驳回举证附件 URL 列表 */
+    private java.util.List<String> rejectAttachments;
+
+    /** R1 撤回理由 */
+    private String withdrawReason;
+
+    /** 登记照片 URL 列表 */
+    private java.util.List<String> attachments;
+
+    private LocalDateTime printedAt;
+
+    private Integer printCount;
+
+    /** 登记时刻（R3 24h 窗口锚点） */
+    private LocalDateTime registeredAt;
+
+    /** 同批提交共享 id（多行拆单打印聚合） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long batchSubmitId;
+
+    /** 提交人（WA 或被授权 WE） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long waUserId;
+
+    /** 备注（提交行备注 / 登记差异备注） */
+    private String remark;
 }

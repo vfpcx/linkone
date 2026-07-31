@@ -25,6 +25,10 @@ public class StockMovement {
     public static final String TYPE_DISPUTE_REVERSAL = "DISPUTE_REVERSAL";
     /** 仲裁恢复（+）：TA 仲裁通过（P3，biz_time=原入库单 created_at，G10） */
     public static final String TYPE_DISPUTE_RESTORE = "DISPUTE_RESTORE";
+    /** R3 纠错改大补录（+）：P3b T1（D-4，biz_time=原 INBOUND biz_time、reversal_of_id=原 INBOUND 流水） */
+    public static final String TYPE_CORRECTION_IN = "CORRECTION_IN";
+    /** R3 纠错改小冲销（−）：P3b T1（D-4 同上；qty=封顶后 applied，售罄 0 冲销不写流水） */
+    public static final String TYPE_CORRECTION_OUT = "CORRECTION_OUT";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)

@@ -6,6 +6,8 @@ import com.cangchu.inventory.dto.InboundContext;
 import com.cangchu.inventory.dto.InboundDisputeContext;
 import com.cangchu.inventory.dto.OutboundContext;
 import com.cangchu.inventory.dto.OutboundReversalContext;
+import com.cangchu.inventory.dto.InboundCorrectionContext;
+import com.cangchu.inventory.dto.InboundCorrectionResult;
 import com.cangchu.inventory.vo.InventoryVo;
 
 import java.util.List;
@@ -78,6 +80,19 @@ public interface InventoryService {
 
     /** 仲裁恢复事务体（内部用）：仅由 {@link #restoreInboundAfterArbitration} 持锁后经代理调用。<b>勿直接调用</b>。 */
     InventoryVo doRestoreInboundInTx(DisputeRestoreContext ctx);
+
+    /**
+     * R3 登记纠错联动（P3b T1-BE，13 §1.3）：锁内单事务——
+     * delta&gt;0 改大：qty += delta，写 CORRECTION_IN 流水；
+     * delta&lt;0 改小：applied = min(|delta|, max(onhand,0))（12 §2.4 封顶），qty −= applied，
+     * 写 CORRECTION_OUT 流水（applied=0 不写流水）；shortfall 由调用方写纠错单备注定责。
+     * 两类流水 biz_time=原 INBOUND biz_time、reversal_of_id=原 INBOUND 流水 id（refDocNo 锁内解析）；
+     * 托盘 ±ceil(原入库 pallet × applied / 原登记 qty)，释放侧对在库托盘二次封顶。
+     */
+    InboundCorrectionResult applyInboundCorrection(InboundCorrectionContext ctx);
+
+    /** 纠错联动事务体（内部用）：仅由 {@link #applyInboundCorrection} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    InboundCorrectionResult doApplyInboundCorrectionInTx(InboundCorrectionContext ctx);
 
     /**
      * 断言库存足够；不足抛 STOCK_NOT_ENOUGH，库存行不存在抛 INVENTORY_NOT_FOUND。
