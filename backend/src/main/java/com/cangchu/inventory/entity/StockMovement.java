@@ -29,6 +29,13 @@ public class StockMovement {
     public static final String TYPE_CORRECTION_IN = "CORRECTION_IN";
     /** R3 纠错改小冲销（−）：P3b T1（D-4 同上；qty=封顶后 applied，售罄 0 冲销不写流水） */
     public static final String TYPE_CORRECTION_OUT = "CORRECTION_OUT";
+    /** 退货（−）：P3b T3-W1（D-7 登记时扣；biz_time=登记日，计费当日截止；pallet_delta=−释放托盘） */
+    public static final String TYPE_RETURN = "RETURN";
+    /**
+     * 出库托盘释放（P3b T3-W1，13 §2.4-3）：件数创建即扣不变，托盘在登记出库（COMPLETED）时释放。
+     * qty=0 恒定（不进件数公式）、pallet_delta=−n、ref_doc_no=出库单、biz_time=登记时刻。
+     */
+    public static final String TYPE_PALLET_RELEASE = "PALLET_RELEASE";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)
@@ -65,6 +72,13 @@ public class StockMovement {
 
     /** 流水备注（V15：冲销托盘数等审计信息） */
     private String remark;
+
+    /**
+     * 托盘变化（V20，D-8=A）：+占用 / −释放；inventories.pallet_qty ≡ Σ pallet_delta（05 §3.4）。
+     * V20 前存量流水恒 0（不回填，13 §2.4-4）；DISPUTE_REVERSAL/RESTORE/CORRECTION_* 新流水
+     * 与既有 remark 快照（palletReversed/palletAdjusted=N）双写，读侧优先本列。
+     */
+    private Integer palletDelta;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

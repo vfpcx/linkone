@@ -211,9 +211,20 @@ class TenantControllerTest {
     void testUpdateMyStore() {
         TaContext ta = registerTaApprovedTenant();
 
+        // P3b T3-W1（D-13，13 §3.5/§7.1 适配）：通用设置接口开启批次 → 50360 拒绝（T4-W1 专用端点解除）
+        StoreSettingsDto batchDto = new StoreSettingsDto();
+        batchDto.setBatchEnabled(1);
+        ResponseEntity<R<Void>> batchResp = restTemplate.exchange(
+                baseTenant + "/me", HttpMethod.PUT,
+                new HttpEntity<>(batchDto, bearer(ta.token)),
+                new ParameterizedTypeReference<R<Void>>() {});
+        assertThat(batchResp.getBody()).isNotNull();
+        assertThat(batchResp.getBody().getCode()).isEqualTo(50360);
+
+        // 其余设置字段不受 D-13 影响（batchEnabled=0 视为无害回显放行）
         StoreSettingsDto dto = new StoreSettingsDto();
         dto.setName("已更新的仓库-" + ta.phone);
-        dto.setBatchEnabled(1);
+        dto.setBatchEnabled(0);
         dto.setPhotoMode("REQUIRED");
         dto.setBillingDim("PALLET");
         dto.setExpiryThresholdDays(45);
@@ -227,13 +238,13 @@ class TenantControllerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(0);
 
-        // 验证更新结果
+        // 验证更新结果（批次维持关闭）
         ResponseEntity<R<TenantDetailVo>> getResp = restTemplate.exchange(
                 baseTenant + "/me", HttpMethod.GET,
                 new HttpEntity<>(bearer(ta.token)),
                 new ParameterizedTypeReference<R<TenantDetailVo>>() {});
         TenantDetailVo updated = getResp.getBody().getData();
-        assertThat(updated.getBatchEnabled()).isEqualTo(1);
+        assertThat(updated.getBatchEnabled()).isEqualTo(0);
         assertThat(updated.getPhotoMode()).isEqualTo("REQUIRED");
         assertThat(updated.getBillingDim()).isEqualTo("PALLET");
         assertThat(updated.getExpiryThresholdDays()).isEqualTo(45);

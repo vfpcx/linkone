@@ -31,7 +31,9 @@ public final class DocStateMachine {
         /** 出库单（12 §1.2 矩阵，BE-W2 启用） */
         OUTBOUND,
         /** 入库单（12 §2.1 矩阵；BE-W1 直写 CAS 先落地，表在此冻结备查/供断言） */
-        INBOUND
+        INBOUND,
+        /** 退货单（13-p3b §2.1 矩阵，T3-W1 启用；无审批） */
+        RETURN
     }
 
     /**
@@ -79,9 +81,26 @@ public final class DocStateMachine {
             InboundRequest.STATUS_WITHDRAWN, Set.of(),
             InboundRequest.STATUS_REJECTED, Set.of());
 
+    /**
+     * 退货迁移矩阵（13-p3b §2.1，D-7 登记时扣）：
+     * PENDING_ACCEPT → WITHDRAWN（WA 撤回，reason 必填）| ACCEPTED（WK 受理锁单）；
+     * ACCEPTED → COMPLETED（WK 现场出货登记——此刻才 returnStock 扣件数+释放托盘）。
+     * WITHDRAWN / COMPLETED 终态。红线：受理后不可撤回（ACCEPTED→WITHDRAWN ❌）、
+     * 待受理不可直登（PENDING_ACCEPT→COMPLETED ❌，必须经受理）。
+     */
+    private static final Map<String, Set<String>> RETURN_TRANSITIONS = Map.of(
+            com.cangchu.document.entity.ReturnRequest.STATUS_PENDING_ACCEPT, Set.of(
+                    com.cangchu.document.entity.ReturnRequest.STATUS_WITHDRAWN,
+                    com.cangchu.document.entity.ReturnRequest.STATUS_ACCEPTED),
+            com.cangchu.document.entity.ReturnRequest.STATUS_ACCEPTED, Set.of(
+                    com.cangchu.document.entity.ReturnRequest.STATUS_COMPLETED),
+            com.cangchu.document.entity.ReturnRequest.STATUS_WITHDRAWN, Set.of(),
+            com.cangchu.document.entity.ReturnRequest.STATUS_COMPLETED, Set.of());
+
     private static final Map<DocKind, Map<String, Set<String>>> TABLES = Map.of(
             DocKind.OUTBOUND, OUTBOUND_TRANSITIONS,
-            DocKind.INBOUND, INBOUND_TRANSITIONS);
+            DocKind.INBOUND, INBOUND_TRANSITIONS,
+            DocKind.RETURN, RETURN_TRANSITIONS);
 
     private DocStateMachine() {
     }

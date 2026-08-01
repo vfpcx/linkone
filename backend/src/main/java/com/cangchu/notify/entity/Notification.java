@@ -55,9 +55,15 @@ public class Notification {
     public static final String TYPE_CORRECTION_PENDING = "CORRECTION_PENDING";
     /** P3b T1：R3 纠错结论 → 通知发起库管 */
     public static final String TYPE_CORRECTION_DECIDED = "CORRECTION_DECIDED";
+    /** P3b T3-W1：退货申请发起 → 通知库管受理（13 §2.1/§5.3） */
+    public static final String TYPE_RETURN_CREATED = "RETURN_CREATED";
+    /** P3b T3-W1：退货登记完成 → 通知商户（含实退件数、释放托盘） */
+    public static final String TYPE_RETURN_COMPLETED = "RETURN_COMPLETED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
+    /** P3b T3-W1：退货单跳转 */
+    public static final String REF_RETURN = "RETURN";
     public static final String REF_OUTBOUND = "OUTBOUND";
     public static final String REF_ARBITRATION = "ARBITRATION";
     /** R8 意向单作废通知跳转（BE-W2） */

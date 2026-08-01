@@ -179,7 +179,12 @@ public enum ErrorCode {
     INBOUND_QTY_DIFF_EXCEEDED(50351, "实收与申请件数差异超 5%，请驳回后重新申请"),
     INBOUND_CORRECTION_WINDOW_CLOSED(50352, "登记已超 24 小时，请通过盘点调整"),
     INBOUND_CORRECTION_PENDING_EXISTS(50353, "该单已有待审批的纠错申请"),
-    INBOUND_CORRECTION_INVALID(50354, "纠错件数无效");
+    INBOUND_CORRECTION_INVALID(50354, "纠错件数无效"),
+
+    // ==================== P3b T3-W1 退货/托盘 + D-13 防御 (13-p3b-design §2/§3.5/§4.2) ====================
+    // 退货登记不足复用 STOCK_NOT_ENOUGH(50251)（与 04 §3.2 拣货不足同构，不新占码）；
+    // 50355/50356 归 T3-W2 盘点（STOCKTAKE_ITEMS_INVALID/STOCKTAKE_OPEN_EXISTS），本波不占用。
+    BATCH_FEATURE_NOT_READY(50360, "批次功能开发中，暂不可开启");
 
     private final int code;
     private final String message;

@@ -123,8 +123,11 @@ public class InventoryServiceImpl implements InventoryService {
             inventoryMapper.updateById(inv);
         }
 
-        writeMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+        // V20（D-8=A）：入库侧现状已 +托盘，补记 pallet_delta 列（13 §2.4-5）
+        StockMovement inMv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
                 StockMovement.TYPE_INBOUND, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
+        inMv.setPalletDelta(palletDelta);
+        stockMovementMapper.insert(inMv);
 
         log.info("[B1] addStock wholesaler={} sku={} +{} -> qty={} (doc={})",
                 ctx.getWholesalerId(), ctx.getSkuId(), ctx.getQty(), inv.getQty(), ctx.getRefDocNo());
@@ -290,6 +293,8 @@ public class InventoryServiceImpl implements InventoryService {
                     StockMovement.TYPE_DISPUTE_REVERSAL, reversedQty, ctx.getRefDocNo(), ctx.getOperatorUserId());
             // 计费截止异议日（D39）：biz_time=异议时刻
             mv.setBizTime(LocalDateTime.now());
+            // V20 起双写：pallet_delta 正式列 + remark 快照保留（P4 兼容两代数据，13 §2.4-1）
+            mv.setPalletDelta(-palletReversed);
             mv.setRemark("palletReversed=" + palletReversed);
             stockMovementMapper.insert(mv);
             movementId = mv.getId();
@@ -355,6 +360,7 @@ public class InventoryServiceImpl implements InventoryService {
                 StockMovement.TYPE_DISPUTE_RESTORE, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
         mv.setBizTime(ctx.getOriginalInboundAt());
         mv.setReversalOfId(reversal.getId());
+        mv.setPalletDelta(palletRestore);
         mv.setRemark("palletRestored=" + palletRestore);
         stockMovementMapper.insert(mv);
 
@@ -437,6 +443,8 @@ public class InventoryServiceImpl implements InventoryService {
                     StockMovement.TYPE_CORRECTION_IN, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
             mv.setBizTime(original.getBizTime());
             mv.setReversalOfId(original.getId());
+            // V20 起 remark 快照迁正式列（双写，读侧优先列；13 §2.4-1 / T1-BE 备注 5 过渡收口）
+            mv.setPalletDelta(palletAdjusted);
             mv.setRemark("palletAdjusted=" + palletAdjusted);
             stockMovementMapper.insert(mv);
             movementId = mv.getId();
@@ -459,6 +467,7 @@ public class InventoryServiceImpl implements InventoryService {
                         StockMovement.TYPE_CORRECTION_OUT, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
                 mv.setBizTime(original.getBizTime());
                 mv.setReversalOfId(original.getId());
+                mv.setPalletDelta(palletAdjusted);
                 mv.setRemark("palletAdjusted=" + palletAdjusted);
                 stockMovementMapper.insert(mv);
                 movementId = mv.getId();
@@ -476,6 +485,135 @@ public class InventoryServiceImpl implements InventoryService {
                 .movementId(movementId)
                 .remainingQty(inv.getQty())
                 .build();
+    }
+
+    // ==================== P3b T3-W1：退货登记时扣 + 出库托盘释放（13 §2.1/§2.4，同锁同事务先例） ====================
+
+    @Override
+    public com.cangchu.inventory.dto.ReturnStockResult returnStock(com.cangchu.inventory.dto.ReturnStockContext ctx) {
+        validateCtx(ctx.getWholesalerId(), ctx.getTenantId(), ctx.getSkuId(), ctx.getQty());
+        if (ctx.getPalletReleaseOverride() != null && ctx.getPalletReleaseOverride() < 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
+        return withLock(ctx.getWholesalerId(), ctx.getSkuId(), () -> self.doReturnStockInTx(ctx));
+    }
+
+    /**
+     * 退货登记事务体（仅供 {@link #returnStock} 持锁经代理调用）。D-7 登记时扣：
+     * 不足抛 STOCK_NOT_ENOUGH（不写流水；调用方单据事务整体回滚保持 ACCEPTED，WA 改单）。
+     * 托盘释放（13 §2.4-2）：默认 ceil(池 pallet × n / 池 qty)（全出清零=全部释放），
+     * WK 覆盖含 0，min(·, 在库托盘) 双重封顶，pallet_qty 恒 ≥0。
+     */
+    @Override
+    @Transactional
+    public com.cangchu.inventory.dto.ReturnStockResult doReturnStockInTx(com.cangchu.inventory.dto.ReturnStockContext ctx) {
+        Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
+        if (inv == null) {
+            throw new BizException(ErrorCode.INVENTORY_NOT_FOUND);
+        }
+        int qty = ctx.getQty();
+        if (inv.getQty() < qty) {
+            // S5 同构（04 §3.2 拣货不足）：拒绝且不产生流水——「当前在库 N 件不足退货 M 件」由前端文案承接
+            throw new BizException(ErrorCode.STOCK_NOT_ENOUGH);
+        }
+        int qtyBefore = inv.getQty();
+        int palletPool = Math.max(inv.getPalletQty(), 0);
+        int released = resolvePalletRelease(ctx.getPalletReleaseOverride(), palletPool, qty, qtyBefore);
+
+        inv.setQty(inv.getQty() - qty);
+        inv.setPalletQty(inv.getPalletQty() - released);
+        inv.setUpdatedAt(LocalDateTime.now());
+        inventoryMapper.updateById(inv);
+
+        StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                StockMovement.TYPE_RETURN, qty, ctx.getRefDocNo(), ctx.getOperatorUserId());
+        // 计费当日截止锚点（05 §1.2）：biz_time=登记日（零金额，P4 结算）
+        mv.setBizTime(LocalDateTime.now());
+        mv.setPalletDelta(-released);
+        stockMovementMapper.insert(mv);
+
+        log.info("[P3b] returnStock wholesaler={} sku={} -{} palletReleased={} -> qty={} pallet={} (doc={})",
+                ctx.getWholesalerId(), ctx.getSkuId(), qty, released, inv.getQty(), inv.getPalletQty(), ctx.getRefDocNo());
+        return com.cangchu.inventory.dto.ReturnStockResult.builder()
+                .palletReleased(released)
+                .movementId(mv.getId())
+                .remainingQty(inv.getQty())
+                .remainingPalletQty(inv.getPalletQty())
+                .build();
+    }
+
+    @Override
+    public int releaseOutboundPallet(com.cangchu.inventory.dto.PalletReleaseContext ctx) {
+        if (ctx.getWholesalerId() == null || ctx.getTenantId() == null || ctx.getSkuId() == null
+                || ctx.getDocQty() == null || ctx.getDocQty() <= 0) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003);
+        }
+        if (ctx.getPalletReleaseOverride() != null && ctx.getPalletReleaseOverride() < 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
+        return withLock(ctx.getWholesalerId(), ctx.getSkuId(), () -> self.doReleaseOutboundPalletInTx(ctx));
+    }
+
+    /**
+     * 出库托盘释放事务体（仅供 {@link #releaseOutboundPallet} 持锁经代理调用，13 §2.4-3）。
+     * 件数创建时已扣 ⇒ 比例分母取「变动前在库」= 当前池 qty + docQty；扣后在库=0 时默认释放全部
+     * （05 §3.3 全出清零）。释放=0 不写流水（qty=0 且 pallet_delta=0 的空流水无对账意义）。
+     */
+    @Override
+    @Transactional
+    public int doReleaseOutboundPalletInTx(com.cangchu.inventory.dto.PalletReleaseContext ctx) {
+        Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
+        if (inv == null) {
+            // 出库过必有库存行；防御性按 0 释放（不阻断登记主链）
+            return 0;
+        }
+        int palletPool = Math.max(inv.getPalletQty(), 0);
+        int qtyBeforeChange = Math.max(inv.getQty(), 0) + ctx.getDocQty();
+        int released;
+        if (ctx.getPalletReleaseOverride() != null) {
+            released = Math.min(ctx.getPalletReleaseOverride(), palletPool);
+        } else if (palletPool == 0) {
+            released = 0;
+        } else if (Math.max(inv.getQty(), 0) == 0) {
+            // 全出清零：变动后在库=0 → 默认释放全部占用托盘
+            released = palletPool;
+        } else {
+            released = Math.min((int) Math.ceil(palletPool * (double) ctx.getDocQty() / qtyBeforeChange), palletPool);
+        }
+        if (released <= 0) {
+            return 0;
+        }
+        inv.setPalletQty(inv.getPalletQty() - released);
+        inv.setUpdatedAt(LocalDateTime.now());
+        inventoryMapper.updateById(inv);
+
+        StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                StockMovement.TYPE_PALLET_RELEASE, 0, ctx.getRefDocNo(), ctx.getOperatorUserId());
+        mv.setBizTime(LocalDateTime.now());
+        mv.setPalletDelta(-released);
+        stockMovementMapper.insert(mv);
+
+        log.info("[P3b] releaseOutboundPallet wholesaler={} sku={} -{} -> pallet={} (doc={})",
+                ctx.getWholesalerId(), ctx.getSkuId(), released, inv.getPalletQty(), ctx.getRefDocNo());
+        return released;
+    }
+
+    /**
+     * 托盘释放量决议（13 §2.4-2 / 05 §3.3，退货侧：件数与托盘同事务同时扣）：
+     * 覆盖值优先（含 0）；默认=ceil(池 pallet × 本次件数 / 变动前在库)，
+     * 全出清零（qty 扣后=0）→ 默认释放全部；一律 min(·, 在库托盘) 封顶不打负。
+     */
+    private int resolvePalletRelease(Integer override, int palletPool, int qty, int qtyBefore) {
+        if (override != null) {
+            return Math.min(override, palletPool);
+        }
+        if (palletPool == 0 || qtyBefore <= 0) {
+            return 0;
+        }
+        if (qtyBefore - qty == 0) {
+            return palletPool;
+        }
+        return Math.min((int) Math.ceil(palletPool * (double) qty / qtyBefore), palletPool);
     }
 
     // ==================== 查询 ====================
@@ -571,12 +709,23 @@ public class InventoryServiceImpl implements InventoryService {
         mv.setRefDocNo(refDocNo);
         mv.setOperatorUserId(operatorUserId);
         mv.setBizTime(LocalDateTime.now());
+        mv.setPalletDelta(0);
         return mv;
     }
 
-    /** 从 DISPUTE_REVERSAL 流水 remark 快照（palletReversed=N）还原冲销托盘数；无流水/无快照 → 0。 */
+    /**
+     * 还原 DISPUTE_REVERSAL 冲销托盘数（读侧兼容两代数据，13 §2.4-1）：
+     * V20 起优先 pallet_delta 正式列（冲销为负值取绝对值）；存量流水列恒 0 → 回退 remark
+     * 快照（palletReversed=N）解析；两者皆无 → 0。
+     */
     private int parsePalletReversed(StockMovement reversal) {
-        if (reversal == null || reversal.getRemark() == null) {
+        if (reversal == null) {
+            return 0;
+        }
+        if (reversal.getPalletDelta() != null && reversal.getPalletDelta() != 0) {
+            return Math.abs(reversal.getPalletDelta());
+        }
+        if (reversal.getRemark() == null) {
             return 0;
         }
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("palletReversed=(\\d+)").matcher(reversal.getRemark());
