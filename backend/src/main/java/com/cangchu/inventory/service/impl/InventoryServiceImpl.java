@@ -123,8 +123,11 @@ public class InventoryServiceImpl implements InventoryService {
             inventoryMapper.updateById(inv);
         }
 
-        writeMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+        // V20（D-8=A）：入库侧现状已 +托盘，补记 pallet_delta 列（13 §2.4-5）
+        StockMovement inMv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
                 StockMovement.TYPE_INBOUND, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
+        inMv.setPalletDelta(palletDelta);
+        stockMovementMapper.insert(inMv);
 
         log.info("[B1] addStock wholesaler={} sku={} +{} -> qty={} (doc={})",
                 ctx.getWholesalerId(), ctx.getSkuId(), ctx.getQty(), inv.getQty(), ctx.getRefDocNo());
@@ -290,6 +293,8 @@ public class InventoryServiceImpl implements InventoryService {
                     StockMovement.TYPE_DISPUTE_REVERSAL, reversedQty, ctx.getRefDocNo(), ctx.getOperatorUserId());
             // 计费截止异议日（D39）：biz_time=异议时刻
             mv.setBizTime(LocalDateTime.now());
+            // V20 起双写：pallet_delta 正式列 + remark 快照保留（P4 兼容两代数据，13 §2.4-1）
+            mv.setPalletDelta(-palletReversed);
             mv.setRemark("palletReversed=" + palletReversed);
             stockMovementMapper.insert(mv);
             movementId = mv.getId();
@@ -355,6 +360,7 @@ public class InventoryServiceImpl implements InventoryService {
                 StockMovement.TYPE_DISPUTE_RESTORE, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
         mv.setBizTime(ctx.getOriginalInboundAt());
         mv.setReversalOfId(reversal.getId());
+        mv.setPalletDelta(palletRestore);
         mv.setRemark("palletRestored=" + palletRestore);
         stockMovementMapper.insert(mv);
 
@@ -437,6 +443,8 @@ public class InventoryServiceImpl implements InventoryService {
                     StockMovement.TYPE_CORRECTION_IN, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
             mv.setBizTime(original.getBizTime());
             mv.setReversalOfId(original.getId());
+            // V20 起 remark 快照迁正式列（双写，读侧优先列；13 §2.4-1 / T1-BE 备注 5 过渡收口）
+            mv.setPalletDelta(palletAdjusted);
             mv.setRemark("palletAdjusted=" + palletAdjusted);
             stockMovementMapper.insert(mv);
             movementId = mv.getId();
@@ -459,6 +467,7 @@ public class InventoryServiceImpl implements InventoryService {
                         StockMovement.TYPE_CORRECTION_OUT, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
                 mv.setBizTime(original.getBizTime());
                 mv.setReversalOfId(original.getId());
+                mv.setPalletDelta(palletAdjusted);
                 mv.setRemark("palletAdjusted=" + palletAdjusted);
                 stockMovementMapper.insert(mv);
                 movementId = mv.getId();
@@ -571,12 +580,23 @@ public class InventoryServiceImpl implements InventoryService {
         mv.setRefDocNo(refDocNo);
         mv.setOperatorUserId(operatorUserId);
         mv.setBizTime(LocalDateTime.now());
+        mv.setPalletDelta(0);
         return mv;
     }
 
-    /** 从 DISPUTE_REVERSAL 流水 remark 快照（palletReversed=N）还原冲销托盘数；无流水/无快照 → 0。 */
+    /**
+     * 还原 DISPUTE_REVERSAL 冲销托盘数（读侧兼容两代数据，13 §2.4-1）：
+     * V20 起优先 pallet_delta 正式列（冲销为负值取绝对值）；存量流水列恒 0 → 回退 remark
+     * 快照（palletReversed=N）解析；两者皆无 → 0。
+     */
     private int parsePalletReversed(StockMovement reversal) {
-        if (reversal == null || reversal.getRemark() == null) {
+        if (reversal == null) {
+            return 0;
+        }
+        if (reversal.getPalletDelta() != null && reversal.getPalletDelta() != 0) {
+            return Math.abs(reversal.getPalletDelta());
+        }
+        if (reversal.getRemark() == null) {
             return 0;
         }
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("palletReversed=(\\d+)").matcher(reversal.getRemark());

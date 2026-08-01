@@ -267,6 +267,12 @@ public class TenantServiceImpl implements TenantService {
                     "租户尚未审核通过（当前状态 " + tenantForState.getStatus() + "），暂不可修改店铺设置");
         }
 
+        // D-13 禁改防御（P3b T3-W1，13 §3.5；T4-W1 专用端点 batch-toggle 解除）：
+        // 通用设置接口拒绝开启批次（存量已随 V20 校准归 0；传 0 视为无害回显/校准放行）
+        if (dto.getBatchEnabled() != null && dto.getBatchEnabled() != 0) {
+            throw new BizException(ErrorCode.BATCH_FEATURE_NOT_READY);
+        }
+
         // 更新 Store
         Store store = storeMapper.selectOne(new LambdaQueryWrapper<Store>().eq(Store::getTenantId, tenantId));
         if (store == null) {

@@ -53,7 +53,9 @@ public class MybatisPlusConfig {
             "arbitrations",
             "notifications",
             // P3b T1-BE（13 §4.1 V19）：R3 登记纠错单纳入兜底隔离
-            "inbound_corrections"
+            "inbound_corrections",
+            // P3b T3-W1（13 §4.1 V20）：退货单纳入兜底隔离
+            "return_requests"
     );
 
     @Bean
