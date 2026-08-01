@@ -59,8 +59,17 @@ public interface OutboundRequestService {
     /**
      * WK 登记出库：PRINTED→COMPLETED（completed_at=now，客诉窗口锚点）。
      * 询价终态联动（12 §1.4）：该询价名下全部出库单终态且至少一单 COMPLETED → 询价 CONFIRMED→COMPLETED。
+     * 旧签名兼容：等价 {@code registerByWk(outboundId, null, wkUserId)}（托盘按默认建议值释放）。
      */
     OutboundRequestVo registerByWk(Long outboundId, Long wkUserId);
+
+    /**
+     * WK 登记出库（P3b T3-W1 改造，13 §2.4-3 / §5.2）：同上，且同事务追加出库托盘释放——
+     * 件数创建即扣不变，托盘此刻经独立 PALLET_RELEASE 流水释放（qty=0、pallet_delta=−n）。
+     * dto 可空/字段可空=默认建议值 ceil(池 pallet × 件数 / 变动前在库)；palletRelease 为 WK 覆盖
+     * （含 0=托盘未腾空），落库前对在库托盘封顶不打负。
+     */
+    OutboundRequestVo registerByWk(Long outboundId, com.cangchu.document.dto.OutboundRegisterDto dto, Long wkUserId);
 
     /** WK 确认撤回（R4 已打印二次确认）：无 flag → 50336；CAS PRINTED→CANCELLED + 回补 + 联动 + 通知 WA。 */
     OutboundRequestVo confirmWithdrawByWk(Long outboundId, Long wkUserId);

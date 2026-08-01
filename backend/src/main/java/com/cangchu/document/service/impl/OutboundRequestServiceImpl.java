@@ -348,6 +348,18 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OutboundRequestVo registerByWk(Long outboundId, Long wkUserId) {
+        // 旧签名兼容（13 §7.1：旧用例不传参行为兼容——托盘按默认建议值释放）
+        return registerByWk(outboundId, null, wkUserId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OutboundRequestVo registerByWk(Long outboundId, com.cangchu.document.dto.OutboundRegisterDto dto,
+                                          Long wkUserId) {
+        Integer palletOverride = dto != null ? dto.getPalletRelease() : null;
+        if (palletOverride != null && palletOverride < 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
         OutboundRequest out = loadOutbound(outboundId);
         requireWkRole(out.getTenantId(), wkUserId);
         // PRINTED→COMPLETED（登记出库；PENDING_ACCEPT 须先打印——矩阵红线）
@@ -359,6 +371,22 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                         .set(OutboundRequest::getWithdrawRequested, 0)
                         .set(OutboundRequest::getWithdrawRequestedAt, null))) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
+        }
+        // P3b T3-W1（D-8=A，13 §2.4-3）：托盘在货离仓的物理时点释放——同事务追加独立
+        // PALLET_RELEASE 流水（原 OUTBOUND 流水永不 update；释放=0 不写流水）。
+        // R4/R8 撤回只发生在 COMPLETED 之前 → 从未释放 → OUTBOUND_REVERSAL 维持 pallet 0，无需回补。
+        int palletReleased = inventoryService.releaseOutboundPallet(
+                com.cangchu.inventory.dto.PalletReleaseContext.builder()
+                        .wholesalerId(out.getWholesalerId())
+                        .tenantId(out.getTenantId())
+                        .skuId(out.getSkuId())
+                        .docQty(out.getQty())
+                        .palletReleaseOverride(palletOverride)
+                        .refDocNo(out.getDocNo())
+                        .operatorUserId(wkUserId)
+                        .build());
+        if (palletReleased > 0) {
+            log.info("[P3b] 出库登记托盘释放 doc={} released={}", out.getDocNo(), palletReleased);
         }
         // 询价终态联动（12 §1.4：登记出库同事务内检查）
         recomputeInquiryState(out.getInquiryId());

@@ -50,10 +50,15 @@ public class TenantOutboundController {
         return R.ok(outboundRequestService.revertToPendingByWk(id, StpUtil.getLoginIdAsLong()));
     }
 
-    /** WK 登记出库：PRINTED→COMPLETED（+询价终态联动）。 */
+    /**
+     * WK 登记出库：PRINTED→COMPLETED（+询价终态联动）。
+     * P3b T3-W1（13 §5.2）：body 可选 {palletRelease?}——托盘此刻经 PALLET_RELEASE 流水释放
+     * （缺省=默认建议值；覆盖含 0；封顶不打负）。旧调用不传 body 行为兼容。
+     */
     @PostMapping("/api/v1/tenant/outbound-requests/{id}/register")
-    public R<OutboundRequestVo> register(@PathVariable Long id) {
-        return R.ok(outboundRequestService.registerByWk(id, StpUtil.getLoginIdAsLong()));
+    public R<OutboundRequestVo> register(@PathVariable Long id,
+                                         @RequestBody(required = false) com.cangchu.document.dto.OutboundRegisterDto dto) {
+        return R.ok(outboundRequestService.registerByWk(id, dto, StpUtil.getLoginIdAsLong()));
     }
 
     /** R4 已打印撤回二次确认：PRINTED→CANCELLED + 回补（无 flag → 50336）。 */

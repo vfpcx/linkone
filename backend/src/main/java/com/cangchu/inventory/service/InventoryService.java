@@ -95,6 +95,32 @@ public interface InventoryService {
     InboundCorrectionResult doApplyInboundCorrectionInTx(InboundCorrectionContext ctx);
 
     /**
+     * 退货登记联动（P3b T3-W1，13 §2.1：D-7 登记时扣）：锁内单事务——
+     * 在库不足抛 STOCK_NOT_ENOUGH（不写流水，调用方事务整体回滚）；足则 qty −= n、
+     * 托盘按 13 §2.4-2 释放（默认 ceil(池 pallet × n / 池 qty)，WK 覆盖含 0，
+     * min(·, 在库托盘) 封顶不打负；全出清零：扣后 qty=0 → 默认释放全部托盘），
+     * 写 RETURN 流水（biz_time=登记日=计费当日截止锚点，pallet_delta=−释放数）。
+     */
+    com.cangchu.inventory.dto.ReturnStockResult returnStock(com.cangchu.inventory.dto.ReturnStockContext ctx);
+
+    /** 退货登记事务体（内部用）：仅由 {@link #returnStock} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    com.cangchu.inventory.dto.ReturnStockResult doReturnStockInTx(com.cangchu.inventory.dto.ReturnStockContext ctx);
+
+    /**
+     * 出库登记托盘释放（P3b T3-W1，13 §2.4-3：D-8=A 出库处补齐）：锁内单事务——
+     * 默认建议值分母取「变动前在库」=当前池 qty + docQty（件数创建时已扣）；WK 覆盖含 0；
+     * min(·, 在库托盘) 封顶。释放>0 时 pallet_qty −= n 并写 PALLET_RELEASE 流水
+     * （qty=0 恒定不进件数公式、pallet_delta=−n、biz_time=登记时刻）；释放=0 不写流水。
+     * R4/R8 撤回只发生在 COMPLETED 之前 → 从未释放 → 无需托盘回补路径（对称性红利）。
+     *
+     * @return 实际释放托盘数（≥0）
+     */
+    int releaseOutboundPallet(com.cangchu.inventory.dto.PalletReleaseContext ctx);
+
+    /** 出库托盘释放事务体（内部用）：仅由 {@link #releaseOutboundPallet} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    int doReleaseOutboundPalletInTx(com.cangchu.inventory.dto.PalletReleaseContext ctx);
+
+    /**
      * 断言库存足够；不足抛 STOCK_NOT_ENOUGH，库存行不存在抛 INVENTORY_NOT_FOUND。
      * 只读校验，不加锁（真正扣减以 deductStock 锁内再校验为准）。
      */
