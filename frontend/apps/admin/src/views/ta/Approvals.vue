@@ -41,6 +41,7 @@ import type {
   ArbitrationDecideRequest,
   ArbitrationLiability,
   InboundArbitrationConclusion,
+  InboundCorrection,
 } from '@cangchu/api-types'
 import { ApiError } from '@/api/http'
 import { ErrorCode } from '@cangchu/error-codes'
@@ -48,6 +49,8 @@ import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { arbitrationApi } from '@/api/arbitration'
+import { inboundApi } from '@/api/inbound'
+import { inventoryApi } from '@/api/inventory'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -295,9 +298,164 @@ const openDetail = (row: Arbitration) => {
   detailVisible.value = true
 }
 
+// ==================== P3b T1 R3 · 入库纠错审批（复用 decide 弹窗模式） ====================
+
+const CORR_TABS: Array<{ name: string; label: string }> = [
+  { name: 'PENDING', label: '待审批' },
+  { name: 'APPROVED', label: '已通过' },
+  { name: 'REJECTED', label: '已驳回' },
+]
+const corrTab = ref('PENDING')
+const corrLoading = ref(false)
+const corrRows = ref<InboundCorrection[]>([])
+const corrPage = ref(1)
+const corrSize = 20
+const corrTotal = ref(0)
+const corrPendingCount = ref(0)
+
+/** 左侧菜单角标 = 仲裁 PENDING + 纠错 PENDING（审批中心两类待办合计） */
+const menuBadgeCount = computed(() => pendingCount.value + corrPendingCount.value)
+
+const fetchCorrList = async () => {
+  corrLoading.value = true
+  try {
+    const data = await inboundApi.listCorrections({
+      status: corrTab.value,
+      page: corrPage.value,
+      size: corrSize,
+    })
+    corrRows.value = data.records ?? []
+    corrTotal.value = Number(data.total) || 0
+    if (corrTab.value === 'PENDING') corrPendingCount.value = corrTotal.value
+  } catch {
+    // 全局 toast 已提示
+  } finally {
+    corrLoading.value = false
+  }
+}
+
+const fetchCorrPendingCount = async () => {
+  try {
+    const data = await inboundApi.listCorrections({ status: 'PENDING', page: 1, size: 1 })
+    corrPendingCount.value = Number(data.total) || 0
+  } catch {
+    /* 静默 */
+  }
+}
+
+const onCorrTabChange = () => {
+  corrPage.value = 1
+  void fetchCorrList()
+}
+
+const onCorrPageChange = (p: number) => {
+  corrPage.value = p
+  void fetchCorrList()
+}
+
+/** 纠错差额（新 − 原） */
+const corrDeltaOf = (row: InboundCorrection): number => row.newQty - row.oldQty
+
+// ============ 纠错审批弹窗 ============
+const corrDecideVisible = ref(false)
+const corrDecideTarget = ref<InboundCorrection | null>(null)
+const corrDecideSubmitting = ref(false)
+const corrConclusion = ref<'APPROVED' | 'REJECTED' | ''>('')
+const corrDecideRemark = ref('')
+/** 当前在库快照（改小封顶预览；实际以审批事务锁内为准） */
+const corrOnhand = ref<number | null>(null)
+
+const corrPreviewApplied = computed(() => {
+  const row = corrDecideTarget.value
+  if (!row) return 0
+  const delta = corrDeltaOf(row)
+  if (delta >= 0) return delta
+  return Math.min(Math.abs(delta), Math.max(corrOnhand.value ?? 0, 0))
+})
+const corrPreviewShortfall = computed(() => {
+  const row = corrDecideTarget.value
+  if (!row) return 0
+  const delta = corrDeltaOf(row)
+  if (delta >= 0 || corrOnhand.value === null) return 0
+  return Math.abs(delta) - corrPreviewApplied.value
+})
+
+const openCorrDecide = async (row: InboundCorrection) => {
+  corrDecideTarget.value = row
+  corrConclusion.value = ''
+  corrDecideRemark.value = ''
+  corrOnhand.value = null
+  corrDecideVisible.value = true
+  if (corrDeltaOf(row) < 0) {
+    try {
+      const list = await inventoryApi.query({
+        wholesalerId: String(row.wholesalerId),
+        skuId: String(row.skuId),
+      })
+      corrOnhand.value = list.length ? Number(list[0].qty) : 0
+    } catch {
+      // 预览失败不阻塞审批（后端锁内封顶为权威）
+    }
+  }
+}
+
+/** 纠错详情（已审结只读） */
+const corrDetailVisible = ref(false)
+const corrDetailTarget = ref<InboundCorrection | null>(null)
+
+const openCorrDetail = (row: InboundCorrection) => {
+  corrDetailTarget.value = row
+  corrDetailVisible.value = true
+}
+
+const onCorrDecideSubmit = async () => {
+  const row = corrDecideTarget.value
+  if (!row) return
+  if (!corrConclusion.value) {
+    ElMessage.warning('请选择结论')
+    return
+  }
+  if (corrConclusion.value === 'REJECTED' && !corrDecideRemark.value.trim()) {
+    ElMessage.warning('驳回时必须填写结论备注')
+    return
+  }
+  corrDecideSubmitting.value = true
+  try {
+    const updated = await inboundApi.decideCorrection(String(row.id), {
+      conclusion: corrConclusion.value,
+      ...(corrDecideRemark.value.trim() ? { remark: corrDecideRemark.value.trim() } : {}),
+    })
+    corrDecideVisible.value = false
+    ElMessage.success(
+      updated.status === 'APPROVED'
+        ? `纠错单已通过：实际生效 ${updated.appliedQty ?? 0} 件${(updated.shortfallQty ?? 0) > 0 ? `，差额 ${updated.shortfallQty} 件线下定责` : ''}`
+        : '纠错单已驳回，原单不变',
+    )
+    await Promise.all([fetchCorrList(), fetchCorrPendingCount()])
+  } catch (e) {
+    if (
+      e instanceof ApiError &&
+      (e.code === ErrorCode.STATE_DOC_TRANSITION_INVALID ||
+        e.code === ErrorCode.STATE_DOC_CAS_CONFLICT)
+    ) {
+      // 并发双裁被抢占：关闭弹窗刷新回显
+      corrDecideVisible.value = false
+      await Promise.all([fetchCorrList(), fetchCorrPendingCount()])
+    }
+  } finally {
+    corrDecideSubmitting.value = false
+  }
+}
+
+const refreshAll = () => {
+  void fetchList()
+  void fetchCorrList()
+}
+
 onMounted(() => {
   void fetchList()
   void fetchPendingCount()
+  void fetchCorrList()
 })
 </script>
 
@@ -322,7 +480,7 @@ onMounted(() => {
             <span>{{ m.label }}</span>
             <NavCountBadge
               v-if="m.key === '/ta/approvals'"
-              :count="pendingCount"
+              :count="menuBadgeCount"
               class="menu-badge"
             />
           </el-menu-item>
@@ -333,12 +491,14 @@ onMounted(() => {
       <main class="ta-main">
         <header class="page-head">
           <div>
-            <h2 class="page-head__title">审批中心 · 批发商代建入库异议</h2>
+            <h2 class="page-head__title">审批中心</h2>
             <p class="page-head__sub">
-              商户异议的代建入库单在此仲裁：通过则恢复流水，驳回则保留冲销并对差额定责
+              代建入库异议在此仲裁（通过恢复流水 / 驳回保留冲销并定责）；库管员发起的入库登记纠错在此审批
             </p>
           </div>
-          <el-button :icon="Refresh" :loading="loading" @click="fetchList">刷新</el-button>
+          <el-button :icon="Refresh" :loading="loading || corrLoading" @click="refreshAll">
+            刷新
+          </el-button>
         </header>
 
         <section class="card">
@@ -454,8 +614,247 @@ onMounted(() => {
             @current-change="onPageChange"
           />
         </section>
+
+        <!-- ============ P3b T1 R3 · 入库登记纠错审批 ============ -->
+        <section class="card">
+          <h3 class="card-title">入库登记纠错审批</h3>
+          <el-tabs v-model="corrTab" data-test="corr-tabs" @tab-change="onCorrTabChange">
+            <el-tab-pane v-for="t in CORR_TABS" :key="t.name" :name="t.name">
+              <template #label>
+                <span class="tab-label">
+                  {{ t.label }}
+                  <NavCountBadge v-if="t.name === 'PENDING'" :count="corrPendingCount" />
+                </span>
+              </template>
+            </el-tab-pane>
+          </el-tabs>
+
+          <el-table
+            v-loading="corrLoading"
+            :data="corrRows"
+            row-key="id"
+            class="arb-table"
+            data-test="corr-table"
+            :empty-text="corrTab === 'PENDING' ? '暂无待审批纠错单' : '暂无记录'"
+          >
+            <el-table-column label="关联入库单" min-width="180">
+              <template #default="{ row }">
+                <span class="cell-name">{{ row.refDocNo }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="原值 → 新值" width="140" align="center">
+              <template #default="{ row }">
+                {{ row.oldQty }} → <span class="cell-name">{{ row.newQty }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="差额" width="90" align="right">
+              <template #default="{ row }">
+                <span
+                  :class="
+                    corrDeltaOf(row as InboundCorrection) > 0 ? 'delta-up' : 'delta-down'
+                  "
+                >
+                  {{ corrDeltaOf(row as InboundCorrection) > 0 ? '+' : ''
+                  }}{{ corrDeltaOf(row as InboundCorrection) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="纠错理由" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="cell-muted">{{ row.reason }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-if="corrTab === 'APPROVED'"
+              label="实际生效 / 差额"
+              width="130"
+              align="right"
+            >
+              <template #default="{ row }">
+                {{ row.appliedQty ?? 0 }} /
+                <span :class="{ 'shortfall-warn': (row.shortfallQty ?? 0) > 0 }">
+                  {{ row.shortfallQty ?? 0 }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="发起时间" width="170">
+              <template #default="{ row }">
+                <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.status === 'PENDING'"
+                  type="primary"
+                  size="small"
+                  data-test="corr-decide-btn"
+                  @click="openCorrDecide(row as InboundCorrection)"
+                >
+                  审批
+                </el-button>
+                <el-button
+                  v-else
+                  size="small"
+                  data-test="corr-detail-btn"
+                  @click="openCorrDetail(row as InboundCorrection)"
+                >
+                  详情
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-pagination
+            v-if="corrTotal > corrSize"
+            class="pager"
+            layout="total, prev, pager, next"
+            :total="corrTotal"
+            :page-size="corrSize"
+            :current-page="corrPage"
+            @current-change="onCorrPageChange"
+          />
+        </section>
       </main>
     </div>
+
+    <!-- 纠错审批弹窗（线框 E 右侧：封顶预览 + 通过/驳回） -->
+    <el-dialog
+      v-model="corrDecideVisible"
+      :title="`⚠️ 审批入库纠错单 · ${corrDecideTarget?.refDocNo ?? ''}`"
+      width="560px"
+      :close-on-click-modal="false"
+      data-test="corr-decide-dialog"
+    >
+      <template v-if="corrDecideTarget">
+        <el-descriptions :column="2" size="small" border class="decide-info">
+          <el-descriptions-item label="关联入库单" :span="2">
+            {{ corrDecideTarget.refDocNo }}
+          </el-descriptions-item>
+          <el-descriptions-item label="原实登 → 更正后">
+            {{ corrDecideTarget.oldQty }} → {{ corrDecideTarget.newQty }} 件
+          </el-descriptions-item>
+          <el-descriptions-item label="差额">
+            <span
+              :class="corrDeltaOf(corrDecideTarget) > 0 ? 'delta-up' : 'delta-down'"
+              data-test="corr-decide-delta"
+            >
+              {{ corrDeltaOf(corrDecideTarget) > 0 ? '+' : '' }}{{ corrDeltaOf(corrDecideTarget) }} 件
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="纠错理由" :span="2">
+            {{ corrDecideTarget.reason }}
+          </el-descriptions-item>
+          <el-descriptions-item label="发起时间" :span="2">
+            {{ formatTime(corrDecideTarget.createdAt) }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 封顶预览（改小时；当前在库不足 → 红字，11 §1.7） -->
+        <el-alert
+          v-if="corrDeltaOf(corrDecideTarget) < 0"
+          :type="corrPreviewShortfall > 0 ? 'error' : 'info'"
+          :closable="false"
+          class="decide-hint"
+          data-test="corr-cap-preview"
+        >
+          <template v-if="corrOnhand === null">正在读取当前在库…</template>
+          <template v-else-if="corrPreviewShortfall > 0">
+            当前在库 {{ corrOnhand }} 件，将按剩余在库封顶冲销 {{ corrPreviewApplied }} 件；
+            {{ corrPreviewShortfall }} 件已售出无法冲销，差额写入备注由线下认定责任。
+          </template>
+          <template v-else>
+            当前在库 {{ corrOnhand }} 件，通过后联动：库存 −{{ corrPreviewApplied }} /
+            纠错流水（冲销）1 条。
+          </template>
+        </el-alert>
+        <el-alert v-else type="info" :closable="false" class="decide-hint">
+          通过后联动：库存 +{{ corrDeltaOf(corrDecideTarget) }} / 纠错流水（补录）1 条，
+          沿用原入库时间计费。
+        </el-alert>
+
+        <el-form label-position="top" class="decide-form" @submit.prevent>
+          <el-form-item label="结论（必选）" required>
+            <el-radio-group v-model="corrConclusion" data-test="corr-conclusion-radio">
+              <el-radio value="APPROVED">通过 · 生效并联动库存</el-radio>
+              <el-radio value="REJECTED">驳回 · 原单不变</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item
+            :label="corrConclusion === 'REJECTED' ? '审批意见（驳回必填）' : '审批意见（选填）'"
+            :required="corrConclusion === 'REJECTED'"
+          >
+            <el-input
+              v-model="corrDecideRemark"
+              type="textarea"
+              :rows="3"
+              maxlength="512"
+              show-word-limit
+              placeholder="审批意见将通知发起库管员与批发商管理员"
+              data-test="corr-decide-remark"
+            />
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button :disabled="corrDecideSubmitting" @click="corrDecideVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="corrDecideSubmitting"
+          data-test="corr-decide-submit"
+          @click="onCorrDecideSubmit"
+        >
+          提交审批
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 纠错详情（已审结只读） -->
+    <el-dialog
+      v-model="corrDetailVisible"
+      :title="`纠错详情 · ${corrDetailTarget?.refDocNo ?? ''}`"
+      width="520px"
+      data-test="corr-detail-dialog"
+    >
+      <el-descriptions v-if="corrDetailTarget" :column="1" border>
+        <el-descriptions-item label="关联入库单">
+          {{ corrDetailTarget.refDocNo }}
+        </el-descriptions-item>
+        <el-descriptions-item label="原实登 → 更正后">
+          {{ corrDetailTarget.oldQty }} → {{ corrDetailTarget.newQty }} 件
+        </el-descriptions-item>
+        <el-descriptions-item label="结论">
+          <el-tag
+            :type="corrDetailTarget.status === 'APPROVED' ? 'success' : 'danger'"
+            effect="light"
+            round
+          >
+            {{ corrDetailTarget.status === 'APPROVED' ? '已通过' : '已驳回' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="corrDetailTarget.status === 'APPROVED'" label="实际生效">
+          {{ corrDetailTarget.appliedQty ?? 0 }} 件
+          <span v-if="(corrDetailTarget.shortfallQty ?? 0) > 0" class="shortfall-warn">
+            （差额 {{ corrDetailTarget.shortfallQty }} 件线下定责）
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item label="纠错理由">{{ corrDetailTarget.reason }}</el-descriptions-item>
+        <el-descriptions-item v-if="corrDetailTarget.remark" label="系统备注">
+          {{ corrDetailTarget.remark }}
+        </el-descriptions-item>
+        <el-descriptions-item label="审批意见">
+          {{ corrDetailTarget.decideRemark || '—' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="审批时间">
+          {{ formatTime(corrDetailTarget.decidedAt) }}
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button type="primary" @click="corrDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 裁决弹窗（09 §4.1 线框） -->
     <el-dialog
@@ -677,6 +1076,20 @@ onMounted(() => {
 
 .arb-table {
   width: 100%;
+}
+.card-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-fg-1);
+}
+.delta-up {
+  color: var(--color-success);
+  font-weight: var(--font-weight-semibold);
+}
+.delta-down {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
 }
 .cell-name {
   font-weight: var(--font-weight-medium);

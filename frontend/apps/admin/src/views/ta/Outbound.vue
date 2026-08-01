@@ -52,6 +52,7 @@ import type {
   OutboundStatus,
   OutboundSource,
   Wholesaler,
+  Sku,
   InventoryItem,
   WkOutboundCreateRequest,
 } from '@cangchu/api-types'
@@ -63,6 +64,7 @@ import NotificationBell from '@/components/NotificationBell.vue'
 import { tenantOutboundApi } from '@/api/outbound'
 import { inventoryApi } from '@/api/inventory'
 import { wholesalerApi } from '@/api/wholesaler'
+import { skuApi } from '@/api/sku'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -445,38 +447,54 @@ const fetchWholesalerPage = makeClientPickerFetch<Wholesaler>(
 )
 
 /**
- * SKU 选择器（依赖已选商户）——数据源为库存行（GET /tenant/inventories）。
- * ⚠️ 契约缺口（已登记偏差）：/tenant/skus 列表仅放行 WA/TA（requireWaOrTa），
- * 纯 WK 账号 42xxx 拿不到 SKU 名称；库存查询无角色闸门（TenantLine 隔离），
- * 故代建选货降级为「在库 SKU 编号 + 在库件数」，BE 放行 WK 后可换回名称展示。
+ * SKU 选择器（依赖已选商户）——数据源为库存行（GET /tenant/inventories）+ SKU 名称
+ * （GET /tenant/skus，P3b T1-BE 起只读列表已放行库管员 requireWkOrWaOrTa，
+ * 上线检查单 §5-4 遗留缺陷 V-3 消除）：名称/规格经 skuNameMap 联查展示。
  */
 const invRows = ref<InventoryItem[]>([])
+/** 商户 SKU 名称映射（skuId → 名称（规格）） */
+const proxySkuNameMap = ref<Record<string, string>>({})
 
 const fetchInvRows = async () => {
   if (!proxyForm.wholesalerId) {
     invRows.value = []
+    proxySkuNameMap.value = {}
     return
   }
   try {
-    invRows.value = await inventoryApi.query({ wholesalerId: proxyForm.wholesalerId })
+    const [inv, skus] = await Promise.all([
+      inventoryApi.query({ wholesalerId: proxyForm.wholesalerId }),
+      skuApi.list(proxyForm.wholesalerId).catch(() => [] as Sku[]),
+    ])
+    invRows.value = inv
+    const map: Record<string, string> = {}
+    for (const s of skus) map[String(s.id)] = s.spec ? `${s.name}（${s.spec}）` : s.name
+    proxySkuNameMap.value = map
   } catch {
     // 全局 toast 已提示
   }
 }
 
+const proxySkuLabel = (skuId: unknown): string =>
+  proxySkuNameMap.value[String(skuId)] || String(skuId)
+
 const skuPickerColumns: EntityPickerColumn<InventoryItem>[] = [
-  { label: 'SKU 编号', prop: 'skuId', minWidth: 200 },
+  { label: '商品名称', formatter: (r) => proxySkuLabel(r.skuId), minWidth: 200 },
   { label: '在库件数', formatter: (r) => String(r.qty ?? 0), width: 100, align: 'right' },
   { label: '托盘', formatter: (r) => String(r.palletQty ?? 0), width: 80, align: 'right' },
 ]
 
 const fetchSkuPage = makeClientPickerFetch<InventoryItem>(
   () => invRows.value,
-  (r, kw) => String(r.skuId).toLowerCase().includes(kw),
+  (r, kw) =>
+    String(r.skuId).toLowerCase().includes(kw) ||
+    proxySkuLabel(r.skuId).toLowerCase().includes(kw),
 )
 
-/** 回显 SKU 编号（契约缺口降级，见上） */
-const selectedSkuLabel = computed(() => (proxyForm.skuId ? String(proxyForm.skuId) : ''))
+/** 回显 SKU 名称（名称缺失时回退编号） */
+const selectedSkuLabel = computed(() =>
+  proxyForm.skuId ? proxySkuLabel(proxyForm.skuId) : '',
+)
 
 const onProxyWholesalerChange = async () => {
   proxyForm.skuId = ''
