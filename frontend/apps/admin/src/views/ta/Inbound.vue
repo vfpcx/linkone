@@ -222,7 +222,7 @@ const fetchRecords = async () => {
   }
   recordsLoading.value = true
   try {
-    records.value = await inboundApi.list(selectedWholesalerId.value)
+    records.value = await inboundApi.list({ wholesalerId: selectedWholesalerId.value })
   } catch {
     // 全局 toast 已提示
   } finally {
