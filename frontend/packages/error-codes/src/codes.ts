@@ -178,6 +178,19 @@ export enum ErrorCode {
   /** 差额定责三态校验失败（REJECTED∧shortfall>0 必填；其余必空） */
   STATE_ARBITRATION_LIABILITY_INVALID = 50342,
 
+  // P3b T1 正向申请链（50350-50369 段 · 13-p3b-design.md §4.2，D-14 溢出段；
+  // 50343-50349 维持预留缓冲；权威来源：backend ErrorCode.java 实测）
+  /** R1 撤回失败：仅待受理可撤，受理锁单后须走库管员流转 */
+  STATE_INBOUND_NOT_WITHDRAWABLE = 50350,
+  /** T1-5 登记差异边界：|实登−申请|/申请 > 5%，须驳回后重新申请 */
+  STATE_INBOUND_QTY_DIFF_EXCEEDED = 50351,
+  /** R3 纠错超窗：登记已超 24 小时（数据库时间比对） */
+  STATE_INBOUND_CORRECTION_WINDOW_CLOSED = 50352,
+  /** R3 防重：同单已有待审批纠错申请 */
+  STATE_INBOUND_CORRECTION_PENDING_EXISTS = 50353,
+  /** R3 件数非法：为负 / 与实登相同 / 非正向链或非已入库单据 */
+  STATE_INBOUND_CORRECTION_INVALID = 50354,
+
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,
   STATE_BILL_PAID = 50303,
