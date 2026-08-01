@@ -424,9 +424,28 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 
 ---
 
+## 附：T3-W1 据实现备注（2026-08-01，branch feat/p3b-returns，据实现编写）
+
+> 实现与本设计一致处不重复；以下为落地补充口径与偏差，T3-FE / T3-W2 以此为准。
+
+1. **开工实测**：main@4d93c5c 迁移最高 V19，V20 号无冲突启用；错误码 50355/50356 按 §4.2 归 T3-W2 盘点，**本波未占用**（派工简报中「50355 退货不足」为笔误——退货登记不足按 §2.1 复用 `STOCK_NOT_ENOUGH(50251)`，已按设计实现）。
+2. **端点按 §5.2 落地**；发起入参仅 `{skuId, qty, remark?}`——wholesalerId/tenantId 由 sku 真实归属推导（S4 不取客户端），与设计表意一致。docNo 前缀 `RTN-`（DocType.RETURN，A3 零改造实测通过）。
+3. **R14 有意不接退货**（§3.6 同理由外推）：退货是存量库存治理、退驻前置「库存=0」依赖退货通道，商户 OFFLINE/退驻流程中仍可发起与登记退货。接 requireWholesalerActive 会造成「下架商户无法清库→永远退不了驻」死锁。
+4. **通知按 §2.1/§5.3 两类**：RETURN_CREATED（发起→库管，user_roles 推导多账号全发）、RETURN_COMPLETED（登记完成→商户，含实退件数与释放托盘）；文案零角色码。**PRD §2.1 的「撤回→库管员」未实现**（偏差）：撤回撞受理由 CAS 决出（败方 50330/50331 刷新即知），单独通知价值低——T3-FE 若坚持需求另议补发。
+5. **登记按实覆写留痕**：`ReturnRegisterDto{actualQty?, palletRelease?, remark?}`；actualQty≠申请值时 remark 自动落「申请 X 件，实退 Y 件」并与 WK 手填备注拼接；`pallet_release` 列回写**封顶后的实际释放值**（非覆盖原值）。事务序：CAS ACCEPTED→COMPLETED → returnStock（不足 50251 整体回滚，单据保持 ACCEPTED）→ 回写 pallet_release → 通知。
+6. **托盘决议实现口径（§2.4-2）**：覆盖值优先（含 0），一律 `min(·, 在库托盘)` 封顶；默认值=ceil(池 pallet × 件数 / 变动前在库)，扣后 qty=0 → 默认释放全部（05 §3.3 全出清零）。**出库登记侧分母=「变动前在库」= 当前池 qty + 单据 qty**（件数创建时已扣，比例语义按 PRD「变动前在库件数」还原）；释放=0 时**不写 PALLET_RELEASE 流水**（qty=0 且 delta=0 的空行无对账意义）。
+7. **双写迁列落地**：INBOUND 流水 pallet_delta=+palletQty；DISPUTE_REVERSAL/RESTORE、CORRECTION_IN/OUT 列+remark 快照双写（remark 保留供 P4 兼容两代数据）；仲裁恢复读侧**列优先、remark 回退**。OUTBOUND/OUTBOUND_REVERSAL 维持 0（BE-W2 备注 5 行为不变）。
+8. **遗留点（T3-FE/后续波知悉）**：WK 代建出库（WK_CREATED 直达 COMPLETED，无登记页）**本波未接托盘释放**——§2.4-5 接入点清单只列「出库登记」，代建链托盘仍只增不减；量小可由首次盘点校准兜住，若需精确请 T3-W2/T4 补议（建议在 createByWk 复用 releaseOutboundPallet 默认值）。
+9. **D-13 实现口径**：通用设置接口 `batchEnabled` 传非 0 → 50360；**传 0 放行**（前端整包回显/存量校准无害）。V20 `UPDATE tenant_settings SET batch_enabled=0` 已落，测试以脚本内容断言+flyway 应用记录做回归护栏（H2 内存库无法模拟迁移前存量行）。
+10. **T3-FE 契约补充**：租户侧列表 `GET /tenant/return-requests?status=` 经 requireWkOrTa 闸门；status=PENDING_ACCEPT/ACCEPTED 时每行附 `currentStock`（当前在库）与 `suggestedPalletRelease`（默认释放建议值），受理响应同附——登记页「当前在库 N 件 ✅/红条」与「释放托盘默认值」直接取此两字段，无需另拉库存接口。待受理队列创建时间升序（先到先受理）。
+11. **测试**：新增 `ReturnChainScenarioTest` 15 用例（矩阵 4×4 逐格/登记时扣三态/托盘比例·覆盖·不打负/PALLET_RELEASE 两例/存量 0 断言/D-13/D-9 WE 拒/R13/队列/虚拟线程并发退货×出库同锁串行）；TenantControllerTest 店铺设置用例按 §7.1 适配（batchEnabled=1 → 50360）。全量 285 绿（基线 270 零回归）。
+
+---
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-07-30 | 首版：P3b 三主题落地设计——正向申请链 4 状态+R1/R2/R3（纠错封顶）/退货登记时扣/盘点封顶/托盘账 D-8=A 补齐（pallet_delta+PALLET_RELEASE）/批次方案 C（batches+FIFO 离线推算+02:00/02:30 双 Job）/V19–V23 迁移/50350–50369 错误码/八波拆分与测试关卡 |
 | v1.1 | 2026-07-31 | 附「T1-BE 据实现备注」10 条（docNo 前缀 WK-/整批通知/CAS 败方两态/防绕行/纠错托盘 remark 快照过渡/24h SQL 方言/R13 口径/SKU 放宽范围/测试 270 绿） |
+| v1.2 | 2026-08-01 | 附「T3-W1 据实现备注」11 条（退货不足复用 50251 纠偏/R14 不接退货防清库死锁/通知两类偏差/托盘决议与出库分母口径/双写迁列+读侧列优先/代建出库托盘遗留点/D-13 传 0 放行/T3-FE 契约 currentStock·suggestedPalletRelease/测试 285 绿） |
