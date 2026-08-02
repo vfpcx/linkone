@@ -121,6 +121,27 @@ public interface InventoryService {
     int doReleaseOutboundPalletInTx(com.cangchu.inventory.dto.PalletReleaseContext ctx);
 
     /**
+     * 盘盈联动（P3b T3-W2，13 §2.2：审批通过逐 SKU 锁内）：qty += diff（无行 upsert 建行，
+     * addStock 同构——盘出账外货），写 GAIN 流水（biz_time=审批通过日，盘盈次日起算锚点；
+     * pallet_delta=+M 可选）。盘盈并入 SKU 池（US-TA-12 无批次期口径）。
+     */
+    InventoryVo gainStock(com.cangchu.inventory.dto.GainStockContext ctx);
+
+    /** 盘盈事务体（内部用）：仅由 {@link #gainStock} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    InventoryVo doGainStockInTx(com.cangchu.inventory.dto.GainStockContext ctx);
+
+    /**
+     * 盘亏联动（P3b T3-W2，13 §2.2：D-10 封顶）：applied = min(qty, max(onhand,0))
+     * （onhand=审批时刻锁内重读，非提交快照——G9）；applied&gt;0 写 LOSS 流水
+     * （biz_time=审批通过日计费当日截止；pallet_delta=−释放，默认比例/WK 覆盖双重封顶不打负）；
+     * applied=0（售罄）零冲销不写流水。shortfall 由调用方写备注+通知定责，禁止打负。
+     */
+    com.cangchu.inventory.dto.LossStockResult lossStock(com.cangchu.inventory.dto.LossStockContext ctx);
+
+    /** 盘亏事务体（内部用）：仅由 {@link #lossStock} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    com.cangchu.inventory.dto.LossStockResult doLossStockInTx(com.cangchu.inventory.dto.LossStockContext ctx);
+
+    /**
      * 断言库存足够；不足抛 STOCK_NOT_ENOUGH，库存行不存在抛 INVENTORY_NOT_FOUND。
      * 只读校验，不加锁（真正扣减以 deductStock 锁内再校验为准）。
      */

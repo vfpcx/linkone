@@ -598,6 +598,112 @@ public class InventoryServiceImpl implements InventoryService {
         return released;
     }
 
+    // ==================== P3b T3-W2：盘盈/盘亏（13 §2.2，D-10 封顶；同锁同事务先例） ====================
+
+    @Override
+    public InventoryVo gainStock(com.cangchu.inventory.dto.GainStockContext ctx) {
+        validateCtx(ctx.getWholesalerId(), ctx.getTenantId(), ctx.getSkuId(), ctx.getQty());
+        if (ctx.getPalletDelta() != null && ctx.getPalletDelta() < 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
+        return withLock(ctx.getWholesalerId(), ctx.getSkuId(), () -> self.doGainStockInTx(ctx));
+    }
+
+    /**
+     * 盘盈事务体（仅供 {@link #gainStock} 持锁经代理调用）。qty += diff；无库存行 upsert 建行
+     * （addStock 同构：盘出账外货 system_qty=0 也可盘盈）；写 GAIN 流水（biz_time=审批通过日——
+     * 盘盈次日起算视同当日入库锚点，05 §1.2 零金额；pallet_delta=+M 可选）。
+     */
+    @Override
+    @Transactional
+    public InventoryVo doGainStockInTx(com.cangchu.inventory.dto.GainStockContext ctx) {
+        int palletDelta = ctx.getPalletDelta() != null ? ctx.getPalletDelta() : 0;
+        Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
+        if (inv == null) {
+            inv = new Inventory();
+            inv.setId(snowflakeIdUtil.nextId());
+            inv.setTenantId(ctx.getTenantId());
+            inv.setWholesalerId(ctx.getWholesalerId());
+            inv.setSkuId(ctx.getSkuId());
+            inv.setQty(ctx.getQty());
+            inv.setPalletQty(palletDelta);
+            inventoryMapper.insert(inv);
+        } else {
+            inv.setQty(inv.getQty() + ctx.getQty());
+            inv.setPalletQty(inv.getPalletQty() + palletDelta);
+            inv.setUpdatedAt(LocalDateTime.now());
+            inventoryMapper.updateById(inv);
+        }
+
+        StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                StockMovement.TYPE_GAIN, ctx.getQty(), ctx.getRefDocNo(), ctx.getOperatorUserId());
+        mv.setBizTime(LocalDateTime.now());
+        mv.setPalletDelta(palletDelta);
+        stockMovementMapper.insert(mv);
+
+        log.info("[P3b] gainStock wholesaler={} sku={} +{} pallet+{} -> qty={} (doc={})",
+                ctx.getWholesalerId(), ctx.getSkuId(), ctx.getQty(), palletDelta, inv.getQty(), ctx.getRefDocNo());
+        return toVo(inv);
+    }
+
+    @Override
+    public com.cangchu.inventory.dto.LossStockResult lossStock(com.cangchu.inventory.dto.LossStockContext ctx) {
+        validateCtx(ctx.getWholesalerId(), ctx.getTenantId(), ctx.getSkuId(), ctx.getQty());
+        if (ctx.getPalletReleaseOverride() != null && ctx.getPalletReleaseOverride() < 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
+        return withLock(ctx.getWholesalerId(), ctx.getSkuId(), () -> self.doLossStockInTx(ctx));
+    }
+
+    /**
+     * 盘亏事务体（仅供 {@link #lossStock} 持锁经代理调用）。D-10 封顶（12 §2.4 家族第 3 处）：
+     * <pre>
+     * applied   = min(qty, max(onhand, 0))   // onhand=审批时刻锁内重读（G9：等待期被出完按剩余封顶）
+     * shortfall = qty − applied              // 调用方写备注+通知定责，qty 恒 ≥0 不破
+     * </pre>
+     * applied&gt;0 才写 LOSS 流水（qty=applied、biz_time=审批通过日计费当日截止、
+     * pallet_delta=−释放——默认 resolvePalletRelease 比例/WK 覆盖，双重封顶不打负）；
+     * applied=0（售罄）零冲销：不写流水、不动库存（CORRECTION_OUT/DISPUTE_REVERSAL 同构）。
+     * 无库存行（从未入库却盘亏）按 onhand=0 处理，不抛不建行。
+     */
+    @Override
+    @Transactional
+    public com.cangchu.inventory.dto.LossStockResult doLossStockInTx(com.cangchu.inventory.dto.LossStockContext ctx) {
+        Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
+        int onhand = inv != null ? Math.max(inv.getQty(), 0) : 0;
+        int applied = Math.min(ctx.getQty(), onhand);
+        int shortfall = ctx.getQty() - applied;
+
+        int released = 0;
+        Long movementId = null;
+        if (applied > 0) {
+            int palletPool = Math.max(inv.getPalletQty(), 0);
+            released = resolvePalletRelease(ctx.getPalletReleaseOverride(), palletPool, applied, onhand);
+            inv.setQty(inv.getQty() - applied);
+            inv.setPalletQty(inv.getPalletQty() - released);
+            inv.setUpdatedAt(LocalDateTime.now());
+            inventoryMapper.updateById(inv);
+
+            StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                    StockMovement.TYPE_LOSS, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
+            mv.setBizTime(LocalDateTime.now());
+            mv.setPalletDelta(-released);
+            stockMovementMapper.insert(mv);
+            movementId = mv.getId();
+        }
+
+        log.info("[P3b] lossStock wholesaler={} sku={} target={} onhand={} applied={} shortfall={} palletReleased={} (doc={})",
+                ctx.getWholesalerId(), ctx.getSkuId(), ctx.getQty(), onhand, applied, shortfall, released, ctx.getRefDocNo());
+        return com.cangchu.inventory.dto.LossStockResult.builder()
+                .appliedQty(applied)
+                .shortfallQty(shortfall)
+                .palletReleased(released)
+                .movementId(movementId)
+                .remainingQty(inv != null ? inv.getQty() : 0)
+                .remainingPalletQty(inv != null ? inv.getPalletQty() : 0)
+                .build();
+    }
+
     /**
      * 托盘释放量决议（13 §2.4-2 / 05 §3.3，退货侧：件数与托盘同事务同时扣）：
      * 覆盖值优先（含 0）；默认=ceil(池 pallet × 本次件数 / 变动前在库)，
