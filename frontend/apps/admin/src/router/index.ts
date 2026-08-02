@@ -94,6 +94,18 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '出库作业' },
   },
   {
+    path: '/ta/returns',
+    name: 'ta-returns',
+    component: () => import('@/views/ta/Returns.vue'),
+    meta: { role: 'TA', title: '退货受理' },
+  },
+  {
+    path: '/ta/stocktake',
+    name: 'ta-stocktake',
+    component: () => import('@/views/ta/Stocktake.vue'),
+    meta: { role: 'TA', title: '盘点' },
+  },
+  {
     path: '/ta/wholesaler-applications',
     name: 'ta-wholesaler-applications',
     component: () => import('@/views/ta/WholesalerApplications.vue'),
@@ -130,6 +142,12 @@ const routes: RouteRecordRaw[] = [
     name: 'wa-outbound',
     component: () => import('@/views/wa/Outbound.vue'),
     meta: { role: 'WA', title: '出库单' },
+  },
+  {
+    path: '/wa/returns',
+    name: 'wa-returns',
+    component: () => import('@/views/wa/Returns.vue'),
+    meta: { role: 'WA', title: '退货' },
   },
   {
     path: '/wa/apply',
