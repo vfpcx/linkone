@@ -33,7 +33,9 @@ public final class DocStateMachine {
         /** 入库单（12 §2.1 矩阵；BE-W1 直写 CAS 先落地，表在此冻结备查/供断言） */
         INBOUND,
         /** 退货单（13-p3b §2.1 矩阵，T3-W1 启用；无审批） */
-        RETURN
+        RETURN,
+        /** 盘点单（13-p3b §2.2 矩阵，T3-W2 启用；TA 全量审批，D23 无自动通过） */
+        STOCKTAKE
     }
 
     /**
@@ -97,10 +99,29 @@ public final class DocStateMachine {
             com.cangchu.document.entity.ReturnRequest.STATUS_WITHDRAWN, Set.of(),
             com.cangchu.document.entity.ReturnRequest.STATUS_COMPLETED, Set.of());
 
+    /**
+     * 盘点迁移矩阵（13-p3b §2.2，D-10 盘亏封顶）：
+     * DRAFT → PENDING_APPROVAL（提交，明细 system_qty 快照定格）；
+     * PENDING_APPROVAL → REJECTED（驳回，保留记录不动账）| APPROVED（逐 SKU 锁内 GAIN/LOSS）；
+     * REJECTED → DRAFT（重新编辑重提，pending_flag 回置 1 撞唯一 → 50356）；APPROVED 终态不可逆。
+     * 红线：DRAFT→APPROVED ❌（必须经提交）、APPROVED→任意 ❌（已通过不可逆）、
+     * PENDING_APPROVAL→DRAFT ❌（提交后不可自行撤回，只能等审批——快照定格语义）。
+     */
+    private static final Map<String, Set<String>> STOCKTAKE_TRANSITIONS = Map.of(
+            com.cangchu.document.entity.CountSheet.STATUS_DRAFT, Set.of(
+                    com.cangchu.document.entity.CountSheet.STATUS_PENDING_APPROVAL),
+            com.cangchu.document.entity.CountSheet.STATUS_PENDING_APPROVAL, Set.of(
+                    com.cangchu.document.entity.CountSheet.STATUS_REJECTED,
+                    com.cangchu.document.entity.CountSheet.STATUS_APPROVED),
+            com.cangchu.document.entity.CountSheet.STATUS_REJECTED, Set.of(
+                    com.cangchu.document.entity.CountSheet.STATUS_DRAFT),
+            com.cangchu.document.entity.CountSheet.STATUS_APPROVED, Set.of());
+
     private static final Map<DocKind, Map<String, Set<String>>> TABLES = Map.of(
             DocKind.OUTBOUND, OUTBOUND_TRANSITIONS,
             DocKind.INBOUND, INBOUND_TRANSITIONS,
-            DocKind.RETURN, RETURN_TRANSITIONS);
+            DocKind.RETURN, RETURN_TRANSITIONS,
+            DocKind.STOCKTAKE, STOCKTAKE_TRANSITIONS);
 
     private DocStateMachine() {
     }

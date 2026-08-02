@@ -36,6 +36,10 @@ public class StockMovement {
      * qty=0 恒定（不进件数公式）、pallet_delta=−n、ref_doc_no=出库单、biz_time=登记时刻。
      */
     public static final String TYPE_PALLET_RELEASE = "PALLET_RELEASE";
+    /** 盘盈（+）：P3b T3-W2（审批通过；biz_time=审批通过日，盘盈次日起算视同当日入库；pallet_delta=+M 可选） */
+    public static final String TYPE_GAIN = "GAIN";
+    /** 盘亏（−）：P3b T3-W2（D-10 封顶：qty=min(|diff|, 审批时刻在库)；biz_time=审批通过日计费当日截止；pallet_delta=−释放） */
+    public static final String TYPE_LOSS = "LOSS";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)

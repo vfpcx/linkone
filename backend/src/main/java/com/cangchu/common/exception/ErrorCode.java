@@ -181,9 +181,13 @@ public enum ErrorCode {
     INBOUND_CORRECTION_PENDING_EXISTS(50353, "该单已有待审批的纠错申请"),
     INBOUND_CORRECTION_INVALID(50354, "纠错件数无效"),
 
+    // ==================== P3b T3-W2 盘点 (13-p3b-design §2.2/§4.2) ====================
+    // 盘亏封顶（D-10）非错误路径：审批时在库不足按剩余封顶生效+差额备注通知，不驳回不报错。
+    STOCKTAKE_ITEMS_INVALID(50355, "盘点明细为空或存在重复商品"),
+    STOCKTAKE_OPEN_EXISTS(50356, "该商户已有进行中的盘点单"),
+
     // ==================== P3b T3-W1 退货/托盘 + D-13 防御 (13-p3b-design §2/§3.5/§4.2) ====================
-    // 退货登记不足复用 STOCK_NOT_ENOUGH(50251)（与 04 §3.2 拣货不足同构，不新占码）；
-    // 50355/50356 归 T3-W2 盘点（STOCKTAKE_ITEMS_INVALID/STOCKTAKE_OPEN_EXISTS），本波不占用。
+    // 退货登记不足复用 STOCK_NOT_ENOUGH(50251)（与 04 §3.2 拣货不足同构，不新占码）。
     BATCH_FEATURE_NOT_READY(50360, "批次功能开发中，暂不可开启");
 
     private final int code;
