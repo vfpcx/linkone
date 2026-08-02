@@ -67,6 +67,8 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
     private final com.cangchu.document.service.ArbitrationService arbitrationService;
     // P3b T3-W1（13 §7.1）：退货 PENDING_ACCEPT/ACCEPTED 计入未结（阻退驻）
     private final com.cangchu.document.service.ReturnRequestService returnRequestService;
+    // P3b T3-W2（13 §7.1）：盘点 DRAFT/PENDING_APPROVAL 计入未结（WK 发起但对象是该商户库存）
+    private final com.cangchu.document.service.CountSheetService countSheetService;
     private final SkuService skuService;
     private final PricingService pricingService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -416,7 +418,8 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
         long openDocs = inquiryService.countOpenDocsForWholesaler(wholesalerId)
                 + inboundRequestService.countOpenForWholesaler(wholesalerId)
                 + arbitrationService.countPendingForWholesaler(wholesalerId)
-                + returnRequestService.countOpenForWholesaler(wholesalerId);
+                + returnRequestService.countOpenForWholesaler(wholesalerId)
+                + countSheetService.countOpenForWholesaler(wholesalerId);
         return new Precheck(stockCleared, openDocs);
     }
 
