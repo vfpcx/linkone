@@ -442,6 +442,25 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 
 ---
 
+## 附：T3-W2 据实现备注（2026-08-02，branch feat/p3b-stocktake，据实现编写）
+
+> 实现与本设计一致处不重复；以下为落地补充口径与偏差，T3-FE / T4 波次以此为准。
+
+1. **开工实测**：main@321ef14（含 T3-W1 全部）迁移最高 V20，V21 号无冲突启用；50355/50356 按 §4.2 启用（05-error-codes 已登记无需改）。
+2. **端点按 §5.2 落地** + 补充 **`DELETE /api/v1/tenant/count-sheets/{id}`**（§5.2 清单未列，PRD §2.2 状态机「草稿可删除」要求）：仅 DRAFT 可删（否则 50330），硬删两表并释放在途唯一位。docNo 前缀 `PD-`（DocType.STOCKTAKE，A3 零改造实测通过）；待审批队列（status=PENDING_APPROVAL）创建**升序**先到先审，其余列表倒序。
+3. **表结构偏差（V21 注释已载）**：`count_sheet_items.pallet_delta` 由蓝图 `NOT NULL DEFAULT 0` 改 **NULL 化**——NULL=盘亏默认比例建议值、非空=WK 覆盖（**含 0**）；DEFAULT 0 无法区分「未覆盖」与「覆盖为 0」（T3-W1 palletReleaseOverride 同语义）。审批通过后该列**回写生效带符号值**（盘盈 +M / 盘亏 −实际释放，RTN pallet_release 回写先例）；`applied_diff` 同样带符号（盘盈 +diff / 盘亏 −applied / 无差异 0），驳回恒 NULL。
+4. **system_qty 两时点落法**：建单/编辑时预填当刻账面（录入页「账面数自动带出」数据源），**提交时刻重快照定格**为真源（提交后出库不改 diff——G9 测试分离断言）；生效量以审批时刻锁内 onhand 封顶（§7.3 口径不变）。
+5. **pending_flag 精确口径**：DRAFT/PENDING_APPROVAL=1、**REJECTED/APPROVED=NULL**（REJECTED 非终态但不在途——不阻新建、不计 R13）；REJECTED 编辑重提时 CAS 回 DRAFT 并回置 flag=1，撞同商户新在途单 → DataIntegrityViolation 转 50356（先查后写 + uk_cs_ws_pending 双兜底，并发双建实测恰一成功）。
+6. **审批通过事务序**：CAS `PENDING_APPROVAL→APPROVED`（并发双裁败方 50331）先行 → 逐 SKU **skuId 升序**（多行不同序死锁防御）锁内 GAIN/LOSS → 明细回写 → 差额汇总。盘亏差额文案按 PRD §2.2-5 写明细行 remark + 单据 remark 汇总（512 列宽截断保护）；无差异行 applied_diff=0 零流水留痕。盘盈无库存行时 upsert 建行（盘出账外货，addStock 同构）；盘亏无库存行按 onhand=0 零冲销。
+7. **通知**：`STOCKTAKE_PENDING`（提交→租户联系人 getContactUserId，审批中心角标先例）、`STOCKTAKE_DECIDED`（结论→发起 WK 单人；**封顶差额另发 TA 一条同类型**——PRD「通知租户管理员与库管员」的两收件人落法）。
+8. **T3-W1 备注 8 遗留点已收口**：`createByWk` 代建出库同事务按默认比例追加 `releaseOutboundPallet`（无 WK 覆盖入参——代建无登记页，货离仓时点=创建时刻；释放=0 不写流水），代建链托盘不再只增不减。
+9. **T3-FE 契约**：`GET /count-sheets/in-transit-hint?wholesalerId=` 返回 `{outboundDocCount, outboundQtyTotal, returnDocCount, returnQtyTotal, skuOutboundQty{skuId→qty}, skuReturnQty}`（skuId 字符串键防 JS 精度）；出库在途=PENDING_ACCEPT/PRINTED、退货在途=ACCEPTED（待受理退货不计——未锁单不构成「实物即将出」承诺）。详情 `GET /{id}` 内嵌同源 `inTransitHint` + 每行 `currentStock`/`suggestedPalletRelease`（审批弹窗封顶预览=min(|盘亏|, currentStock) 前端可直算，无需另拉库存接口）；`skuName`/`wholesalerName` 详情已带。
+10. **R14 有意不接**（§3.6/T3-W1 备注 3 同理）：盘点是存量库存治理，商户 OFFLINE/退驻中仍可盘（首次盘点校准依赖此通道）。R13 已扩：盘点 DRAFT/PENDING_APPROVAL 计入未结（WholesalerLifecycleServiceImpl.precheck 第 5 项）。
+11. **防御性上限**：单张明细 ≤200 行（40001，T1「提交 ≤50」的盘点域放宽——全仓性质）；attachments ≤5 复用 50340/N2 白名单（AttachmentUrls 先例）。
+12. **测试**：新增 `StocktakeChainScenarioTest` 18 用例（PD 矩阵 4×4 逐格/50355 四态/50356 四路/虚拟线程并发双建+审批×出库两分支/两时点快照/封顶三态/GAIN·LOSS 双向锚点/托盘四例不打负/驳回不动账+重提再审/权限矩阵/在途聚合/R13/DISPUTE×LOSS 交叉/代建 PALLET_RELEASE 两例）；全量 **303 绿**（基线 285 零回归——含 createByWk 托盘变更对存量用例零冲击实测）。
+
+---
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
@@ -449,3 +468,4 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 | v1 | 2026-07-30 | 首版：P3b 三主题落地设计——正向申请链 4 状态+R1/R2/R3（纠错封顶）/退货登记时扣/盘点封顶/托盘账 D-8=A 补齐（pallet_delta+PALLET_RELEASE）/批次方案 C（batches+FIFO 离线推算+02:00/02:30 双 Job）/V19–V23 迁移/50350–50369 错误码/八波拆分与测试关卡 |
 | v1.1 | 2026-07-31 | 附「T1-BE 据实现备注」10 条（docNo 前缀 WK-/整批通知/CAS 败方两态/防绕行/纠错托盘 remark 快照过渡/24h SQL 方言/R13 口径/SKU 放宽范围/测试 270 绿） |
 | v1.2 | 2026-08-01 | 附「T3-W1 据实现备注」11 条（退货不足复用 50251 纠偏/R14 不接退货防清库死锁/通知两类偏差/托盘决议与出库分母口径/双写迁列+读侧列优先/代建出库托盘遗留点/D-13 传 0 放行/T3-FE 契约 currentStock·suggestedPalletRelease/测试 285 绿） |
+| v1.3 | 2026-08-02 | 附「T3-W2 据实现备注」12 条（V21 pallet_delta NULL 化偏差+生效值回写/DELETE 草稿补端点/pending_flag REJECTED=NULL 口径/审批 CAS 先行+skuId 升序防死锁/封顶差额双收件人/代建托盘遗留点收口/in-transit-hint 契约/明细 ≤200/测试 303 绿） |
