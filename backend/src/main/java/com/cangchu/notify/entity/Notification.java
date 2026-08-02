@@ -59,11 +59,17 @@ public class Notification {
     public static final String TYPE_RETURN_CREATED = "RETURN_CREATED";
     /** P3b T3-W1：退货登记完成 → 通知商户（含实退件数、释放托盘） */
     public static final String TYPE_RETURN_COMPLETED = "RETURN_COMPLETED";
+    /** P3b T3-W2：盘点提交待审 → 通知租户管理员（审批中心角标先例） */
+    public static final String TYPE_STOCKTAKE_PENDING = "STOCKTAKE_PENDING";
+    /** P3b T3-W2：盘点审批结论（通过含封顶差额/驳回）→ 通知发起库管；封顶差额另发 TA（D-10） */
+    public static final String TYPE_STOCKTAKE_DECIDED = "STOCKTAKE_DECIDED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
     /** P3b T3-W1：退货单跳转 */
     public static final String REF_RETURN = "RETURN";
+    /** P3b T3-W2：盘点单跳转 */
+    public static final String REF_STOCKTAKE = "STOCKTAKE";
     public static final String REF_OUTBOUND = "OUTBOUND";
     public static final String REF_ARBITRATION = "ARBITRATION";
     /** R8 意向单作废通知跳转（BE-W2） */

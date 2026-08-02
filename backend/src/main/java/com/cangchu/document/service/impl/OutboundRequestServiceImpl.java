@@ -531,6 +531,22 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                 .operatorUserId(wkUserId)
                 .build());
 
+        // P3b T3-W2（T3-W1 备注 8 遗留点收口）：代建直达 COMPLETED 无登记页 ⇒ 货离仓时点=此刻，
+        // 同事务按默认比例释放托盘（PALLET_RELEASE 流水；无 WK 覆盖入参——复用 releaseOutboundPallet
+        // 默认值，13 §2.4-2；释放=0 不写流水），代建链托盘不再只增不减。
+        int proxyPalletReleased = inventoryService.releaseOutboundPallet(
+                com.cangchu.inventory.dto.PalletReleaseContext.builder()
+                        .wholesalerId(dto.getWholesalerId())
+                        .tenantId(tenantId)
+                        .skuId(dto.getSkuId())
+                        .docQty(dto.getQty())
+                        .refDocNo(docNo)
+                        .operatorUserId(wkUserId)
+                        .build());
+        if (proxyPalletReleased > 0) {
+            log.info("[P3b] 代建出库托盘释放 doc={} released={}", docNo, proxyPalletReleased);
+        }
+
         // 通知归属 WA（「已确认（代建）」队列=WA 出库列表 source=WK_CREATED 过滤）
         // P3 缺陷修复：user_roles 推导收件人（owner_user_id 在 SELF_OPERATED 上是 TA），多账号全发
         notificationService.sendToAll(tenantId, waRecipients(dto.getWholesalerId()),
