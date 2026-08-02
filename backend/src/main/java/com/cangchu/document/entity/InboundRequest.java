@@ -131,6 +131,17 @@ public class InboundRequest {
     /** 备注（提交行备注；登记差异非 0 时必填的差异备注覆写此列） */
     private String remark;
 
+    // ==================== P3b T4-W1 批次三字段（V22，批次开关启用时提交/登记必填） ====================
+
+    /** 批次号（≤64；(商户,SKU,批次号) 唯一，冲突 50362；登记时写入登记簿） */
+    private String batchNo;
+
+    /** 生产日期（≤今天，40205） */
+    private java.time.LocalDate productionDate;
+
+    /** 到效期（>生产日期，40206；≤今天登记需二次确认 50364，临期仅警告放行） */
+    private java.time.LocalDate expiryDate;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

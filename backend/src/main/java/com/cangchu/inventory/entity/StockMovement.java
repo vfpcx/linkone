@@ -84,6 +84,14 @@ public class StockMovement {
      */
     private Integer palletDelta;
 
+    /**
+     * 批次标识（V22，方案 C 定义，13-p3b §3.1）：仅 INBOUND / EXPIRY_CLEARANCE / CORRECTION_IN/OUT
+     * 落值，出库类流水恒 NULL（出库按 SKU 池扣减不感知批次，批次归属由 02:00 FIFO 离线推算）。
+     * 落值方式为登记簿后置钩子回填（BatchService），交易路径（addStock 等）零改动。
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long batchId;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

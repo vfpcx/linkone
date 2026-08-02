@@ -15,6 +15,9 @@ public enum ErrorCode {
     VALIDATION_FORMAT_001(40101, "手机号格式不正确"),
     VALIDATION_FORMAT_002(40102, "密码强度不足（6-20位，含字母数字）"),
     VALIDATION_BUSINESS_001(40201, "数量必须大于0"),
+    // P3b T4-W1（05-error-codes §VALIDATION_BUSINESS 既定编号，13 §3.1 批次三字段校验）
+    VALIDATION_BUSINESS_005(40205, "生产日期不能晚于今天"),
+    VALIDATION_BUSINESS_006(40206, "保质期日期不能早于生产日期"),
 
     // ==================== AUTH (41000-41999) ====================
     AUTH_BASIC_001(41001, "您尚未登录，请先登录"),
@@ -188,7 +191,14 @@ public enum ErrorCode {
 
     // ==================== P3b T3-W1 退货/托盘 + D-13 防御 (13-p3b-design §2/§3.5/§4.2) ====================
     // 退货登记不足复用 STOCK_NOT_ENOUGH(50251)（与 04 §3.2 拣货不足同构，不新占码）。
-    BATCH_FEATURE_NOT_READY(50360, "批次功能开发中，暂不可开启");
+    // T4-W1 解除禁改后，50360 语义转「专用端点（batch-toggle）外禁改」保留（13 §4.2）。
+    BATCH_FEATURE_NOT_READY(50360, "批次功能开发中，暂不可开启"),
+
+    // ==================== P3b T4-W1 批次登记 + FIFO 离线推算 (13-p3b-design §3/§4.2，D-11=C) ====================
+    BATCH_TOGGLE_RATE_LIMITED(50361, "批次开关 24 小时内最多操作 2 次"),
+    BATCH_NO_DUPLICATE(50362, "该批次号已存在"),
+    BATCH_NOT_FOUND(50363, "批次不存在"),
+    BATCH_EXPIRED_CONFIRM_REQUIRED(50364, "该批次已过期，入库需二次确认");
 
     private final int code;
     private final String message;

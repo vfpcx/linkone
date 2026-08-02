@@ -58,7 +58,9 @@ public class MybatisPlusConfig {
             "return_requests",
             // P3b T3-W2（13 §4.1 V21）：盘点单两表纳入兜底隔离
             "count_sheets",
-            "count_sheet_items"
+            "count_sheet_items",
+            // P3b T4-W1（13 §4.1 V22）：批次登记簿纳入兜底隔离
+            "batches"
     );
 
     @Bean
