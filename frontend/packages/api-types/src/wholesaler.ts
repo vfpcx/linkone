@@ -175,8 +175,15 @@ export interface ForceOfflineResult {
 //    POST   /api/v1/wholesaler/employees/{id}/restore  30 天内恢复
 // ============================================================
 
-/** WE 授权位（O-4 最小集，仅此两枚） */
-export type WePermission = 'PRICE_EDIT' | 'INQUIRY_CONFIRM'
+/**
+ * WE 授权位（后端 WePermissions.ALLOWED 白名单，P3b T1 起共 4 枚）：
+ * 改价 / 询价确认 / 代建入库确认（P3 BE-W1）/ 提交入库申请（P3b T1-BE，D-5 第 4 枚）
+ */
+export type WePermission =
+  | 'PRICE_EDIT'
+  | 'INQUIRY_CONFIRM'
+  | 'INBOUND_CONFIRM'
+  | 'INBOUND_SUBMIT'
 
 export type WaEmployeeStatus = 'ACTIVE' | 'DISABLED'
 

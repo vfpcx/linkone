@@ -371,10 +371,20 @@ export interface InboundRegisterRequest {
 }
 
 /**
- * 入库单状态机（P3 BE-W1 · 12-p3-design.md §2.1；
- * 存量 REGISTERED 已由 V16 回填为 CONFIRMED；SUBMITTED/ACCEPTED 等留待 R1/R2 波启用）
+ * 入库单状态机（P3 BE-W1 · 12-p3-design.md §2.1；P3b T1 · 13-p3b-design.md §1.1 扩正向链 4 值）：
+ *  - 代建链：PENDING_WA_CONFIRM → CONFIRMED | DISPUTED → CONFIRMED | REVOKED
+ *  - 正向链：SUBMITTED → WITHDRAWN | REJECTED | ACCEPTED → CONFIRMED（登记才加库存）
+ * CONFIRMED 双链共用，正向链界面文案统一「已入库」（D-3，靠 source 区分链路）。
  */
-export type InboundStatus = 'PENDING_WA_CONFIRM' | 'CONFIRMED' | 'DISPUTED' | 'REVOKED'
+export type InboundStatus =
+  | 'PENDING_WA_CONFIRM'
+  | 'CONFIRMED'
+  | 'DISPUTED'
+  | 'REVOKED'
+  | 'SUBMITTED'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'WITHDRAWN'
 
 /** 入库单来源（P3 BE-W1）：WK 现场代建 / WA 正向申请 */
 export type InboundSource = 'WK_CREATED' | 'WA_SUBMIT'
@@ -402,6 +412,115 @@ export interface InboundRequest {
   autoAccepted: number | null
   disputedAt: string | null
   createdAt: string
+  // ==================== P3b T1 正向申请链字段（InboundRequestVo 扩展） ====================
+  /** 申请件数（正向链；qty=实登件数，登记前二者相等；代建链 null） */
+  requestedQty?: number | null
+  /** R2 驳回原因单选：QTY/QUALITY/BATCH/OTHER */
+  rejectReason?: string | null
+  rejectRemark?: string | null
+  /** R2 驳回举证附件 URL 列表 */
+  rejectAttachments?: string[] | null
+  /** R1 撤回理由 */
+  withdrawReason?: string | null
+  /** 登记照片 URL 列表 */
+  attachments?: string[] | null
+  printedAt?: string | null
+  printCount?: number | null
+  /** 登记时刻（R3 24h 窗口锚点） */
+  registeredAt?: string | null
+  /** 同批提交共享 id（多行拆单打印聚合，「同批 N 单」标识） */
+  batchSubmitId?: SnowflakeId | null
+  /** 提交人（WA 或被授权 WE） */
+  waUserId?: SnowflakeId | null
+  /** 备注（提交行备注 / 登记差异备注） */
+  remark?: string | null
+}
+
+// ============ P3b T1 正向申请链（13-p3b-design.md §5.1，契约=后端 controller 实测） ============
+
+/** R2 驳回原因单选枚举（InboundRejectDto.reason） */
+export type InboundRejectReason = 'QTY' | 'QUALITY' | 'BATCH' | 'OTHER'
+
+/** WA/WE 提交入库申请（POST /wholesaler/inbound-requests；多行拆 N 单共享 batchSubmitId） */
+export interface InboundSubmitRequest {
+  wholesalerId: SnowflakeId
+  /** ≥1 行、≤50 行（40001）；每行拆一张一单一 SKU 的申请单 */
+  items: Array<{
+    skuId: SnowflakeId
+    /** 申请件数 >0（落 requestedQty，登记前不可变） */
+    qty: number
+    /** 预计托盘数（可空默认 0；登记时库管员可覆写） */
+    palletQty?: number
+    /** 行备注 ≤512 */
+    remark?: string
+  }>
+}
+
+/** R1 撤回入库申请（POST /wholesaler/inbound-requests/{id}/withdraw；仅 SUBMITTED，50350） */
+export interface InboundWithdrawRequest {
+  reason: string
+}
+
+/** R2 驳回入库申请（POST /tenant/inbound/{id}/reject） */
+export interface InboundRejectRequest {
+  reason: InboundRejectReason
+  /** 备注必填 ≤512 */
+  remark: string
+  /** 举证附件 ≤5 */
+  attachments?: string[]
+}
+
+/** WK 登记正向链入库（POST /tenant/inbound/{id}/register；5% 边界 50351，此刻才加库存） */
+export interface InboundForwardRegisterRequest {
+  /** 实登件数 >0 */
+  actualQty: number
+  /** 实际托盘数（可空 → 沿用提交值） */
+  palletQty?: number
+  /** 差异备注（实登 ≠ 申请件数时必填） */
+  remark?: string
+  /** 登记照片 ≤5 */
+  attachments?: string[]
+}
+
+/** R3 纠错单状态 */
+export type InboundCorrectionStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+/** R3 登记纠错单（InboundCorrectionVo） */
+export interface InboundCorrection {
+  id: SnowflakeId
+  tenantId: SnowflakeId
+  wholesalerId: SnowflakeId
+  skuId: SnowflakeId
+  inboundRequestId: SnowflakeId
+  /** 冗余入库单号（列表展示免 join） */
+  refDocNo: string
+  oldQty: number
+  newQty: number
+  reason: string
+  status: InboundCorrectionStatus | string
+  /** APPROVED 实际生效变动量（改小封顶后） */
+  appliedQty: number | null
+  /** 改小遇已售差额（线下定责） */
+  shortfallQty: number | null
+  remark: string | null
+  decideRemark: string | null
+  wkUserId: SnowflakeId | null
+  taUserId: SnowflakeId | null
+  decidedAt: string | null
+  createdAt: string
+}
+
+/** R3 发起纠错（POST /tenant/inbound/{id}/corrections；24h/防重/合法性 50352-50354） */
+export interface InboundCorrectionCreateRequest {
+  /** 纠错后件数 ≥0（=当前实登值 / 为负 → 50354） */
+  newQty: number
+  reason: string
+}
+
+/** TA 审批纠错（POST /tenant/inbound/corrections/{id}/decide；REJECTED 时 remark 必填） */
+export interface InboundCorrectionDecideRequest {
+  conclusion: 'APPROVED' | 'REJECTED'
+  remark?: string
 }
 
 // ============ WA 询价确认（phase-1 C2） ============

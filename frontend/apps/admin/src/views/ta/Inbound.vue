@@ -1,16 +1,24 @@
 <script setup lang="ts">
 /**
- * WK 入库登记（PC）— phase-1 C1 仓管员登记入库
+ * WK 入库工作台（PC）— phase-1 C1 代建登记 + P3b T1-FE 正向申请链受理/驳回/登记/打印/R3 纠错
  *
- * 来源：
- *  - 契约：backend/.../document/controller/InboundController.java
- *      POST /api/v1/tenant/inbound   {wholesalerId, skuId, qty, palletQty?}  登记入库（单事务：建单 + 增库存）
- *      GET  /api/v1/tenant/inbound?wholesalerId=   列出本租户入库单
- *    选商户/SKU 复用：wholesalerApi.list / skuApi.list?wholesalerId=
- *  - 视觉：沿用 Skus.vue 的顶栏 + 左侧菜单 shell + el-table/el-form 风格
+ * 契约（权威：backend/.../document/controller/InboundController.java 实测）：
+ *  - POST /tenant/inbound                 代建登记（单事务：建单 + 增库存）
+ *  - GET  /tenant/inbound?status=         status=SUBMITTED 待受理队列（后端升序，先到先受理）
+ *  - POST /tenant/inbound/{id}/accept     受理锁单（50313 商户非营业 / 50330/50331 刷新重试）
+ *  - POST /tenant/inbound/{id}/reject     R2 驳回（仅待受理；原因单选 + 备注必填 + 附件 ≤5）
+ *  - POST /tenant/inbound/{id}/register   登记正向链（5% 整型边界 50351；此刻才加库存）
+ *  - POST /tenant/inbound/{id}/print      打印核对单/补打（非状态节点）
+ *  - POST /tenant/inbound/{id}/corrections  R3 纠错（登记后 ≤24h 50352 / 防重 50353 / 非法 50354）
  *
- * 范围：仅 WK 入库登记（选商户 → 选 SKU → 数量/托盘数 → 登记 → 刷新记录），
- *       不碰出库/询价/审批。归属/tenantId 由后端登录态推导，前端只传 4 字段。
+ * 产品口径（11 PRD §1.4-§1.7 / 线框 C·D·E）：
+ *  - 受理二次确认「受理后批发商将不可撤回」；≤5% 黄条 + 差异备注必填；>5% 红条 + 登记按钮置灰；
+ *  - 正向链 CONFIRMED 统一「已入库」；打印非状态节点，登记前核对、登记后补打；
+ *  - 纠错改小遇已售按在库封顶，差额线下定责（弹窗内实时预览）。
+ *  - ⚠️ 契约注记：状态机 ACCEPTED→REJECTED 不可达（驳回仅待受理态），受理后发现超差
+ *    只能线下与商户协调（详见 13 §1.1 冻结矩阵）。
+ *
+ * 视觉：沿用 Skus.vue 的顶栏 + 左侧菜单 shell + el-table/el-form 风格。
  */
 
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -28,19 +36,32 @@ import {
   Box,
   Stamp,
   Van,
+  Printer,
+  Refresh,
 } from '@element-plus/icons-vue'
 import {
   AppTopbar,
   EntityPickerDialog,
   makeClientPickerFetch,
+  NavCountBadge,
   type EntityPickerColumn,
 } from '@cangchu/ui-shared'
-import type { Wholesaler, Sku, InboundRequest, InboundRegisterRequest } from '@cangchu/api-types'
+import type {
+  Wholesaler,
+  Sku,
+  InboundRequest,
+  InboundRegisterRequest,
+  InboundRejectReason,
+} from '@cangchu/api-types'
+import { ApiError } from '@/api/http'
+import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 import { wholesalerApi } from '@/api/wholesaler'
 import { skuApi } from '@/api/sku'
 import { inboundApi } from '@/api/inbound'
+import { inventoryApi } from '@/api/inventory'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -222,7 +243,7 @@ const fetchRecords = async () => {
   }
   recordsLoading.value = true
   try {
-    records.value = await inboundApi.list(selectedWholesalerId.value)
+    records.value = await inboundApi.list({ wholesalerId: selectedWholesalerId.value })
   } catch {
     // 全局 toast 已提示
   } finally {
@@ -322,7 +343,382 @@ const onSubmit = async () => {
   }
 }
 
-onMounted(fetchWholesalers)
+// ==================== P3b T1 · 正向申请链工作台 ====================
+
+/** 页面主 Tab：申请工作台（正向链）/ 代建登记（既有表单） */
+const PAGE_TAB_FORWARD = 'forward'
+const PAGE_TAB_PROXY = 'proxy'
+const pageTab = ref(PAGE_TAB_FORWARD)
+
+const formatQtyPct = (n: number) => (Math.round(n * 100) / 100).toString()
+
+/** 工作台状态 Tab（正向链专属；REJECTED/WITHDRAWN 归「已关闭」历史） */
+const WB_TABS: Array<{ name: string; label: string }> = [
+  { name: 'SUBMITTED', label: '申请待受理' },
+  { name: 'ACCEPTED', label: '已受理待登记' },
+  { name: 'CONFIRMED', label: '已入库' },
+  { name: 'REJECTED', label: '已驳回' },
+]
+const wbTab = ref('SUBMITTED')
+const wbLoading = ref(false)
+const wbRows = ref<InboundRequest[]>([])
+/** 待受理角标（独立拉取，切 Tab 后仍准确） */
+const wbPendingCount = ref(0)
+
+/** 正向链过滤（列表端点返回全链单据，工作台只看 source=WA_SUBMIT） */
+const onlyForward = (rows: InboundRequest[]) => rows.filter((r) => r.source === 'WA_SUBMIT')
+
+const fetchWb = async () => {
+  wbLoading.value = true
+  try {
+    const rows = onlyForward(await inboundApi.list({ status: wbTab.value }))
+    wbRows.value = rows
+    if (wbTab.value === 'SUBMITTED') wbPendingCount.value = rows.length
+    void ensureWbSkuNames(rows)
+  } catch {
+    // 全局 toast 已提示
+  } finally {
+    wbLoading.value = false
+  }
+}
+
+const fetchWbPendingCount = async () => {
+  try {
+    wbPendingCount.value = onlyForward(await inboundApi.list({ status: 'SUBMITTED' })).length
+  } catch {
+    /* 静默 */
+  }
+}
+
+const onWbTabChange = () => void fetchWb()
+
+/** 工作台 SKU 名称映射（跨商户；按需拉取并缓存，SKU 列表已放行库管员只读） */
+const wbSkuNameMap = ref<Record<string, string>>({})
+const wbSkuLoadedWholesalers = new Set<string>()
+
+const ensureWbSkuNames = async (rows: InboundRequest[]) => {
+  const wids = Array.from(new Set(rows.map((r) => String(r.wholesalerId)))).filter(
+    (w) => w && !wbSkuLoadedWholesalers.has(w),
+  )
+  await Promise.all(
+    wids.map(async (w) => {
+      try {
+        const list = await skuApi.list(w)
+        wbSkuLoadedWholesalers.add(w)
+        for (const s of list) {
+          wbSkuNameMap.value[String(s.id)] = s.spec ? `${s.name}（${s.spec}）` : s.name
+        }
+      } catch {
+        // 名称拉取失败回退展示 skuId（不阻塞队列）
+      }
+    }),
+  )
+}
+
+const wbSkuLabel = (id: unknown): string => wbSkuNameMap.value[String(id)] || String(id)
+
+/** 「同批 N 单」标识（当前列表内同 batchSubmitId 计数） */
+const wbBatchCountMap = computed<Record<string, number>>(() => {
+  const map: Record<string, number> = {}
+  for (const r of wbRows.value) {
+    const key = r.batchSubmitId ? String(r.batchSubmitId) : ''
+    if (key) map[key] = (map[key] ?? 0) + 1
+  }
+  return map
+})
+const wbBatchTag = (row: InboundRequest): string => {
+  const key = row.batchSubmitId ? String(row.batchSubmitId) : ''
+  const n = key ? (wbBatchCountMap.value[key] ?? 0) : 0
+  return n >= 2 ? `同批 ${n} 单` : ''
+}
+
+/** CAS/状态类冲突统一「刷新重试」处理（T1-BE 备注 3：50330/50331 两态均按刷新） */
+const refreshOnStateConflict = async (e: unknown): Promise<boolean> => {
+  if (
+    e instanceof ApiError &&
+    (e.code === ErrorCode.STATE_DOC_TRANSITION_INVALID ||
+      e.code === ErrorCode.STATE_DOC_CAS_CONFLICT ||
+      e.code === ErrorCode.STATE_WA_NOT_ACTIVE)
+  ) {
+    await Promise.all([fetchWb(), fetchWbPendingCount()])
+    return true
+  }
+  return false
+}
+
+// ============ 受理（一次点击 + 二次确认） ============
+const acceptingId = ref('')
+
+const onAccept = async (row: InboundRequest) => {
+  try {
+    await ElMessageBox.confirm(
+      `受理申请 ${row.docNo}（${wbSkuLabel(row.skuId)} × ${row.requestedQty ?? row.qty}）？受理后批发商将不可撤回。`,
+      '确认受理',
+      { confirmButtonText: '确认受理', cancelButtonText: '再想想', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  acceptingId.value = String(row.id)
+  try {
+    const updated = await inboundApi.accept(String(row.id))
+    ElMessage.success(`申请 ${updated.docNo} 已受理，请安排收货登记`)
+    await Promise.all([fetchWb(), fetchWbPendingCount()])
+  } catch (e) {
+    await refreshOnStateConflict(e)
+  } finally {
+    acceptingId.value = ''
+  }
+}
+
+// ============ R2 驳回弹窗 ============
+const REJECT_REASONS: Array<{ value: InboundRejectReason; label: string }> = [
+  { value: 'QTY', label: '数量不符' },
+  { value: 'QUALITY', label: '质量问题' },
+  { value: 'BATCH', label: '批次不符' },
+  { value: 'OTHER', label: '其他' },
+]
+const rejectReasonLabel = (v: string | null | undefined) =>
+  REJECT_REASONS.find((r) => r.value === v)?.label ?? v ?? '—'
+
+const rejectVisible = ref(false)
+const rejectTarget = ref<InboundRequest | null>(null)
+const rejectSubmitting = ref(false)
+const rejectForm = reactive({
+  reason: '' as InboundRejectReason | '',
+  remark: '',
+  attachments: [] as string[],
+})
+
+const openReject = (row: InboundRequest) => {
+  rejectTarget.value = row
+  rejectForm.reason = ''
+  rejectForm.remark = ''
+  rejectForm.attachments = []
+  rejectVisible.value = true
+}
+
+const onRejectSubmit = async () => {
+  const row = rejectTarget.value
+  if (!row) return
+  if (!rejectForm.reason) {
+    ElMessage.warning('请选择驳回原因')
+    return
+  }
+  if (!rejectForm.remark.trim()) {
+    ElMessage.warning('请填写驳回备注')
+    return
+  }
+  rejectSubmitting.value = true
+  try {
+    const updated = await inboundApi.reject(String(row.id), {
+      reason: rejectForm.reason,
+      remark: rejectForm.remark.trim(),
+      ...(rejectForm.attachments.length ? { attachments: rejectForm.attachments } : {}),
+    })
+    rejectVisible.value = false
+    ElMessage.success(`申请 ${updated.docNo} 已驳回，批发商可复制重建后重新提交`)
+    await Promise.all([fetchWb(), fetchWbPendingCount()])
+  } catch (e) {
+    if (await refreshOnStateConflict(e)) rejectVisible.value = false
+  } finally {
+    rejectSubmitting.value = false
+  }
+}
+
+// ============ 登记入库弹窗（5% 差异边界，线框 D） ============
+const registerVisible = ref(false)
+const registerTarget = ref<InboundRequest | null>(null)
+const registerSubmitting = ref(false)
+const registerForm = reactive({
+  actualQty: undefined as number | undefined,
+  palletQty: undefined as number | undefined,
+  remark: '',
+  attachments: [] as string[],
+})
+
+const openRegister = (row: InboundRequest) => {
+  registerTarget.value = row
+  registerForm.actualQty = row.requestedQty ?? row.qty
+  registerForm.palletQty = row.palletQty ?? undefined
+  registerForm.remark = ''
+  registerForm.attachments = []
+  registerVisible.value = true
+}
+
+/** 差异件数（实登 − 申请） */
+const regDiff = computed(() => {
+  const row = registerTarget.value
+  const actual = registerForm.actualQty
+  if (!row || actual === undefined || actual === null) return 0
+  return Number(actual) - (row.requestedQty ?? row.qty)
+})
+/** 差异百分比（展示用） */
+const regDiffPct = computed(() => {
+  const row = registerTarget.value
+  const requested = row?.requestedQty ?? row?.qty ?? 0
+  if (!requested) return 0
+  return (Math.abs(regDiff.value) / requested) * 100
+})
+/** >5% 禁止登记（与后端同口径整型算式：|actual−requested|×100 > requested×5，含等于放行） */
+const regDiffExceeded = computed(() => {
+  const row = registerTarget.value
+  const actual = registerForm.actualQty
+  if (!row || actual === undefined || actual === null) return false
+  const requested = row.requestedQty ?? row.qty
+  return Math.abs(Number(actual) - requested) * 100 > requested * 5
+})
+const regValid = computed(() => {
+  const a = registerForm.actualQty
+  if (a === undefined || a === null || !Number.isInteger(Number(a)) || Number(a) <= 0) return false
+  if (regDiffExceeded.value) return false
+  if (regDiff.value !== 0 && !registerForm.remark.trim()) return false
+  return true
+})
+
+const onRegisterSubmit = async () => {
+  const row = registerTarget.value
+  if (!row || !regValid.value) return
+  registerSubmitting.value = true
+  try {
+    const updated = await inboundApi.registerForward(String(row.id), {
+      actualQty: Number(registerForm.actualQty),
+      ...(registerForm.palletQty !== undefined && registerForm.palletQty !== null
+        ? { palletQty: Number(registerForm.palletQty) }
+        : {}),
+      ...(registerForm.remark.trim() ? { remark: registerForm.remark.trim() } : {}),
+      ...(registerForm.attachments.length ? { attachments: registerForm.attachments } : {}),
+    })
+    registerVisible.value = false
+    const stockTip =
+      updated.currentStock !== null && updated.currentStock !== undefined
+        ? `，当前库存 ${updated.currentStock}`
+        : ''
+    ElMessage.success(`申请 ${updated.docNo} 已登记入库（实登 ${updated.qty} 件）${stockTip}`)
+    await Promise.all([fetchWb(), fetchWbPendingCount()])
+  } catch (e) {
+    // 50351 超界回显：弹窗保持打开，红条已由 regDiffExceeded 展示；服务端兜底命中时刷新单据
+    if (e instanceof ApiError && e.code === ErrorCode.STATE_INBOUND_QTY_DIFF_EXCEEDED) {
+      // 全局 toast 已提示「差异超 5%，请驳回后重新申请」，表单保留供改数
+    } else {
+      if (await refreshOnStateConflict(e)) registerVisible.value = false
+    }
+  } finally {
+    registerSubmitting.value = false
+  }
+}
+
+// ============ 打印核对单（非状态节点，登记前后均可） ============
+const printVisible = ref(false)
+const printTarget = ref<InboundRequest | null>(null)
+const printingId = ref('')
+
+const onPrintForward = async (row: InboundRequest) => {
+  printingId.value = String(row.id)
+  try {
+    const updated = await inboundApi.print(String(row.id))
+    printTarget.value = updated
+    printVisible.value = true
+    await fetchWb()
+  } catch {
+    // 全局 toast 已提示
+  } finally {
+    printingId.value = ''
+  }
+}
+
+const doWindowPrint = () => {
+  window.print()
+}
+
+// ============ R3 登记纠错（≤24h，线框 E） ============
+/** 24h 窗口内（前端置灰辅助；权威判定在后端 SQL，50352 兜底） */
+const within24h = (row: InboundRequest): boolean => {
+  if (!row.registeredAt) return false
+  const t = new Date(String(row.registeredAt)).getTime()
+  return Number.isFinite(t) && Date.now() - t <= 24 * 3600 * 1000
+}
+
+const corrVisible = ref(false)
+const corrTarget = ref<InboundRequest | null>(null)
+const corrSubmitting = ref(false)
+const corrForm = reactive({
+  newQty: undefined as number | undefined,
+  reason: '',
+})
+/** 当前在库（改小封顶预览；轻量快照，实际以审批时刻锁内为准） */
+const corrOnhand = ref<number | null>(null)
+
+const openCorrection = async (row: InboundRequest) => {
+  corrTarget.value = row
+  corrForm.newQty = row.qty
+  corrForm.reason = ''
+  corrOnhand.value = null
+  corrVisible.value = true
+  try {
+    const list = await inventoryApi.query({
+      wholesalerId: String(row.wholesalerId),
+      skuId: String(row.skuId),
+    })
+    corrOnhand.value = list.length ? Number(list[0].qty) : 0
+  } catch {
+    // 预览失败不阻塞表单（审批弹窗仍有权威预览）
+  }
+}
+
+/** 纠错差额（新 − 原实登） */
+const corrDelta = computed(() => {
+  const row = corrTarget.value
+  const n = corrForm.newQty
+  if (!row || n === undefined || n === null) return 0
+  return Number(n) - row.qty
+})
+/** 改小封顶预览：实际冲销 = min(|delta|, max(onhand,0)) */
+const corrApplied = computed(() => {
+  if (corrDelta.value >= 0) return 0
+  const onhand = Math.max(corrOnhand.value ?? 0, 0)
+  return Math.min(Math.abs(corrDelta.value), onhand)
+})
+const corrShortfall = computed(() =>
+  corrDelta.value < 0 ? Math.abs(corrDelta.value) - corrApplied.value : 0,
+)
+const corrValid = computed(() => {
+  const n = corrForm.newQty
+  if (n === undefined || n === null || !Number.isInteger(Number(n)) || Number(n) < 0) return false
+  if (corrDelta.value === 0) return false
+  return Boolean(corrForm.reason.trim())
+})
+
+const onCorrectionSubmit = async () => {
+  const row = corrTarget.value
+  if (!row || !corrValid.value) return
+  corrSubmitting.value = true
+  try {
+    await inboundApi.createCorrection(String(row.id), {
+      newQty: Number(corrForm.newQty),
+      reason: corrForm.reason.trim(),
+    })
+    corrVisible.value = false
+    ElMessage.success('纠错申请已提交，等待租户管理员审批')
+  } catch (e) {
+    // 50352 超窗 / 50353 防重 / 50354 非法：全局 toast 已提示
+    if (
+      e instanceof ApiError &&
+      (e.code === ErrorCode.STATE_INBOUND_CORRECTION_WINDOW_CLOSED ||
+        e.code === ErrorCode.STATE_INBOUND_CORRECTION_PENDING_EXISTS)
+    ) {
+      corrVisible.value = false
+      await fetchWb()
+    }
+  } finally {
+    corrSubmitting.value = false
+  }
+}
+
+onMounted(() => {
+  void fetchWholesalers()
+  void fetchWb()
+})
 </script>
 
 <template>
@@ -349,13 +745,208 @@ onMounted(fetchWholesalers)
       <main class="ta-main">
         <header class="page-head">
           <div>
-            <h2 class="page-head__title">入库登记</h2>
-            <p class="page-head__sub">仓管员为商户 SKU 登记入库数量，登记后库存实时增加</p>
+            <h2 class="page-head__title">入库</h2>
+            <p class="page-head__sub">
+              {{
+                pageTab === PAGE_TAB_FORWARD
+                  ? '批发商提交的入库申请在此受理、驳回与登记；提交与受理不影响库存与计费，登记后库存实时增加'
+                  : '仓管员为商户 SKU 现场代建登记入库，登记后库存实时增加'
+              }}
+            </p>
           </div>
+          <el-button
+            v-if="pageTab === PAGE_TAB_FORWARD"
+            :icon="Refresh"
+            :loading="wbLoading"
+            @click="fetchWb"
+          >
+            刷新
+          </el-button>
         </header>
 
-        <!-- 商户选择器 -->
-        <section class="card">
+        <!-- 页面主 Tab：申请工作台 / 现场代建（P3b T1） -->
+        <el-tabs v-model="pageTab" class="page-tabs" data-test="inbound-page-tabs">
+          <el-tab-pane :name="PAGE_TAB_FORWARD">
+            <template #label>
+              <span class="tab-label">
+                申请工作台
+                <NavCountBadge :count="wbPendingCount" />
+              </span>
+            </template>
+          </el-tab-pane>
+          <el-tab-pane label="现场代建入库" :name="PAGE_TAB_PROXY" />
+        </el-tabs>
+
+        <!-- ============ 申请工作台（正向链） ============ -->
+        <section v-if="pageTab === PAGE_TAB_FORWARD" class="card">
+          <el-tabs v-model="wbTab" data-test="wb-tabs" @tab-change="onWbTabChange">
+            <el-tab-pane v-for="t in WB_TABS" :key="t.name" :name="t.name">
+              <template #label>
+                <span class="tab-label">
+                  {{ t.label }}
+                  <NavCountBadge v-if="t.name === 'SUBMITTED'" :count="wbPendingCount" />
+                </span>
+              </template>
+            </el-tab-pane>
+          </el-tabs>
+
+          <el-table
+            v-loading="wbLoading"
+            :data="wbRows"
+            row-key="id"
+            class="inbound-table"
+            data-test="wb-table"
+            :empty-text="wbTab === 'SUBMITTED' ? '暂无待受理申请' : '暂无单据'"
+          >
+            <el-table-column prop="docNo" label="申请单号" min-width="180">
+              <template #default="{ row }">
+                <span class="cell-name">{{ row.docNo }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="批发商" min-width="130">
+              <template #default="{ row }">
+                {{ wholesalerNameMap[String(row.wholesalerId)] || row.wholesalerId }}
+              </template>
+            </el-table-column>
+            <el-table-column label="商品" min-width="170" show-overflow-tooltip>
+              <template #default="{ row }">{{ wbSkuLabel(row.skuId) }}</template>
+            </el-table-column>
+            <el-table-column label="申请件数" width="100" align="right">
+              <template #default="{ row }">{{ row.requestedQty ?? row.qty }}</template>
+            </el-table-column>
+            <el-table-column v-if="wbTab === 'CONFIRMED'" label="实登件数" width="100" align="right">
+              <template #default="{ row }">
+                <span class="cell-name">{{ row.qty }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="托盘" width="80" align="right">
+              <template #default="{ row }">
+                <span class="cell-muted">{{ row.palletQty ?? '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="标识" width="110">
+              <template #default="{ row }">
+                <el-tag
+                  v-if="wbBatchTag(row as InboundRequest)"
+                  type="info"
+                  effect="plain"
+                  size="small"
+                  data-test="wb-batch-tag"
+                >
+                  {{ wbBatchTag(row as InboundRequest) }}
+                </el-tag>
+                <span v-else class="cell-muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-if="wbTab === 'REJECTED'"
+              label="驳回原因"
+              width="120"
+            >
+              <template #default="{ row }">
+                {{ rejectReasonLabel(row.rejectReason) }}
+              </template>
+            </el-table-column>
+            <el-table-column :label="wbTab === 'CONFIRMED' ? '登记时间' : '提交时间'" width="170">
+              <template #default="{ row }">
+                <span class="cell-muted">
+                  {{ formatTime(wbTab === 'CONFIRMED' ? row.registeredAt : row.createdAt) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="打印" width="90" align="center">
+              <template #default="{ row }">
+                <el-tooltip
+                  v-if="(row.printCount ?? 0) > 0"
+                  :content="`首打时间 ${formatTime(row.printedAt)}`"
+                  placement="top"
+                >
+                  <span class="cell-muted">{{ row.printCount }} 次</span>
+                </el-tooltip>
+                <span v-else class="cell-muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="230" fixed="right">
+              <template #default="{ row }">
+                <template v-if="row.status === 'SUBMITTED'">
+                  <el-button
+                    type="primary"
+                    size="small"
+                    :loading="acceptingId === String(row.id)"
+                    data-test="accept-btn"
+                    @click="onAccept(row as InboundRequest)"
+                  >
+                    受理
+                  </el-button>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    plain
+                    data-test="reject-btn"
+                    @click="openReject(row as InboundRequest)"
+                  >
+                    驳回
+                  </el-button>
+                </template>
+                <template v-else-if="row.status === 'ACCEPTED'">
+                  <el-button
+                    type="primary"
+                    size="small"
+                    data-test="register-btn"
+                    @click="openRegister(row as InboundRequest)"
+                  >
+                    登记入库
+                  </el-button>
+                  <el-button
+                    size="small"
+                    :icon="Printer"
+                    :loading="printingId === String(row.id)"
+                    data-test="print-btn"
+                    @click="onPrintForward(row as InboundRequest)"
+                  >
+                    核对单
+                  </el-button>
+                </template>
+                <template v-else-if="row.status === 'CONFIRMED'">
+                  <el-button
+                    size="small"
+                    :icon="Printer"
+                    :loading="printingId === String(row.id)"
+                    data-test="reprint-btn"
+                    @click="onPrintForward(row as InboundRequest)"
+                  >
+                    补打
+                  </el-button>
+                  <el-tooltip
+                    :content="
+                      within24h(row as InboundRequest)
+                        ? '登记后 24 小时内可发起纠错'
+                        : '已超过 24 小时纠错窗口，请通过盘点调整'
+                    "
+                    placement="top"
+                  >
+                    <span class="corr-btn-wrap">
+                      <el-button
+                        size="small"
+                        type="warning"
+                        plain
+                        :disabled="!within24h(row as InboundRequest)"
+                        data-test="corr-btn"
+                        @click="openCorrection(row as InboundRequest)"
+                      >
+                        发起纠错
+                      </el-button>
+                    </span>
+                  </el-tooltip>
+                </template>
+                <span v-else class="cell-muted">—</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+
+        <!-- 商户选择器（现场代建） -->
+        <section v-if="pageTab === PAGE_TAB_PROXY" class="card">
           <div class="toolbar">
             <span class="toolbar__label">商户</span>
             <EntityPickerDialog
@@ -435,8 +1026,8 @@ onMounted(fetchWholesalers)
           </el-form>
         </section>
 
-        <!-- 入库记录表 -->
-        <section class="card">
+        <!-- 入库记录表（现场代建） -->
+        <section v-if="pageTab === PAGE_TAB_PROXY" class="card">
           <div class="card__head">
             <h3 class="card__title">入库记录</h3>
             <el-button text :loading="recordsLoading" @click="fetchRecords">刷新</el-button>
@@ -484,6 +1075,340 @@ onMounted(fetchWholesalers)
         </section>
       </main>
     </div>
+
+    <!-- R2 驳回弹窗（线框 C：原因单选 + 备注必填 + 照片 ≤5） -->
+    <el-dialog
+      v-model="rejectVisible"
+      title="驳回入库申请"
+      width="520px"
+      :close-on-click-modal="false"
+      data-test="reject-dialog"
+    >
+      <template v-if="rejectTarget">
+        <p class="dlg-doc">
+          <span class="cell-name">{{ rejectTarget.docNo }}</span>
+          <span class="cell-muted">
+            {{ wholesalerNameMap[String(rejectTarget.wholesalerId)] || '' }} ·
+            {{ wbSkuLabel(rejectTarget.skuId) }} ×
+            {{ rejectTarget.requestedQty ?? rejectTarget.qty }}
+          </span>
+        </p>
+        <el-form label-position="top" @submit.prevent>
+          <el-form-item label="驳回原因（必选）" required>
+            <el-radio-group v-model="rejectForm.reason" data-test="reject-reason">
+              <el-radio v-for="r in REJECT_REASONS" :key="r.value" :value="r.value">
+                {{ r.label }}
+              </el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="备注（必填）" required>
+            <el-input
+              v-model="rejectForm.remark"
+              type="textarea"
+              :rows="3"
+              maxlength="200"
+              show-word-limit
+              placeholder="向批发商说明驳回原因（≤200 字）"
+              data-test="reject-remark"
+            />
+          </el-form-item>
+          <el-form-item label="照片（选填 ≤5 张）">
+            <AttachmentUpload v-model="rejectForm.attachments" :max="5" />
+          </el-form-item>
+        </el-form>
+        <p class="dlg-note">驳回不影响库存与计费；批发商可一键复制重建后重新提交。</p>
+      </template>
+      <template #footer>
+        <el-button :disabled="rejectSubmitting" @click="rejectVisible = false">取消</el-button>
+        <el-button
+          type="danger"
+          :loading="rejectSubmitting"
+          data-test="reject-submit"
+          @click="onRejectSubmit"
+        >
+          确认驳回
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 登记入库弹窗（线框 D：5% 差异边界） -->
+    <el-dialog
+      v-model="registerVisible"
+      title="登记入库"
+      width="560px"
+      :close-on-click-modal="false"
+      data-test="register-dialog"
+    >
+      <template v-if="registerTarget">
+        <el-descriptions :column="2" size="small" border class="reg-info">
+          <el-descriptions-item label="单号" :span="2">
+            {{ registerTarget.docNo }}
+          </el-descriptions-item>
+          <el-descriptions-item label="批发商">
+            {{ wholesalerNameMap[String(registerTarget.wholesalerId)] || '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="商品">
+            {{ wbSkuLabel(registerTarget.skuId) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="申请件数">
+            {{ registerTarget.requestedQty ?? registerTarget.qty }} 件（只读）
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <el-form label-position="top" @submit.prevent>
+          <el-form-item label="实际入库件数（必填）" required>
+            <el-input-number
+              v-model="registerForm.actualQty"
+              :min="1"
+              :precision="0"
+              :step="1"
+              class="full-width"
+              data-test="register-actual-qty"
+            />
+          </el-form-item>
+
+          <!-- ≤5% 黄条 / >5% 红条（含等于放行，整型算式与后端一致） -->
+          <el-alert
+            v-if="regDiffExceeded"
+            type="error"
+            :closable="false"
+            class="reg-alert"
+            data-test="diff-exceeded-alert"
+          >
+            实收与申请件数差异 {{ Math.abs(regDiff) }} 件（{{ formatQtyPct(regDiffPct) }}%），
+            超过 5%，禁止登记；请驳回后由批发商重新提交（本单已受理，需线下与批发商协调）。
+          </el-alert>
+          <el-alert
+            v-else-if="regDiff !== 0"
+            type="warning"
+            :closable="false"
+            class="reg-alert"
+            data-test="diff-warn-alert"
+          >
+            实际与申请差 {{ Math.abs(regDiff) }} 件（{{ formatQtyPct(regDiffPct) }}%），
+            将按实登记，差异备注必填。
+          </el-alert>
+
+          <el-form-item
+            v-if="regDiff !== 0 && !regDiffExceeded"
+            label="差异备注（必填）"
+            required
+          >
+            <el-input
+              v-model="registerForm.remark"
+              type="textarea"
+              :rows="2"
+              maxlength="200"
+              show-word-limit
+              placeholder="说明差异原因（≤200 字）"
+              data-test="register-remark"
+            />
+          </el-form-item>
+
+          <el-form-item label="占用托盘数（可改）">
+            <el-input-number
+              v-model="registerForm.palletQty"
+              :min="0"
+              :precision="0"
+              :step="1"
+              class="full-width"
+              data-test="register-pallet"
+            />
+          </el-form-item>
+
+          <el-form-item label="照片附件（选填 ≤5 张）">
+            <AttachmentUpload v-model="registerForm.attachments" :max="5" />
+          </el-form-item>
+        </el-form>
+
+        <p class="dlg-note">登记成功即加库存并生成入库流水，计费自次日 0:00 起算。</p>
+      </template>
+      <template #footer>
+        <el-button
+          :icon="Printer"
+          :disabled="registerSubmitting"
+          @click="registerTarget && onPrintForward(registerTarget)"
+        >
+          打印核对单
+        </el-button>
+        <el-button :disabled="registerSubmitting" @click="registerVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="registerSubmitting"
+          :disabled="!regValid"
+          data-test="register-submit"
+          @click="onRegisterSubmit"
+        >
+          登记入库
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- R3 发起纠错弹窗（线框 E：封顶预览） -->
+    <el-dialog
+      v-model="corrVisible"
+      title="登记纠错（24 小时内）"
+      width="520px"
+      :close-on-click-modal="false"
+      data-test="corr-dialog"
+    >
+      <template v-if="corrTarget">
+        <el-descriptions :column="2" size="small" border class="reg-info">
+          <el-descriptions-item label="原单" :span="2">
+            {{ corrTarget.docNo }}
+          </el-descriptions-item>
+          <el-descriptions-item label="商品">
+            {{ wbSkuLabel(corrTarget.skuId) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="原实登件数">{{ corrTarget.qty }} 件</el-descriptions-item>
+        </el-descriptions>
+
+        <el-form label-position="top" @submit.prevent>
+          <el-form-item label="更正后件数（必填）" required>
+            <el-input-number
+              v-model="corrForm.newQty"
+              :min="0"
+              :precision="0"
+              :step="1"
+              class="full-width"
+              data-test="corr-new-qty"
+            />
+          </el-form-item>
+
+          <p class="corr-delta" data-test="corr-delta">
+            差额：
+            <span :class="corrDelta > 0 ? 'delta-up' : corrDelta < 0 ? 'delta-down' : ''">
+              {{ corrDelta > 0 ? `+${corrDelta}` : corrDelta }} 件
+            </span>
+            <span v-if="corrDelta === 0" class="cell-muted">（与原实登相同，无法提交）</span>
+          </p>
+
+          <el-alert
+            v-if="corrDelta < 0"
+            :type="corrShortfall > 0 ? 'error' : 'info'"
+            :closable="false"
+            class="reg-alert"
+            data-test="corr-cap-alert"
+          >
+            <template v-if="corrOnhand === null">正在读取当前在库…</template>
+            <template v-else-if="corrShortfall > 0">
+              当前在库 {{ corrOnhand }} 件，将按剩余在库封顶冲销 {{ corrApplied }} 件；
+              差额 {{ corrShortfall }} 件已售出无法冲销，将写入纠错单备注，责任线下认定。
+            </template>
+            <template v-else>
+              当前在库 {{ corrOnhand }} 件，审批通过后将冲销 {{ corrApplied }} 件（库存充足，无差额）。
+            </template>
+          </el-alert>
+          <el-alert
+            v-else-if="corrDelta > 0"
+            type="info"
+            :closable="false"
+            class="reg-alert"
+          >
+            审批通过后将补录 {{ corrDelta }} 件入库流水（沿用原入库时间计费）。
+          </el-alert>
+
+          <el-form-item label="纠错理由（必填）" required>
+            <el-input
+              v-model="corrForm.reason"
+              type="textarea"
+              :rows="3"
+              maxlength="200"
+              show-word-limit
+              placeholder="说明纠错原因，例如现场复核多记 / 少记（≤200 字）"
+              data-test="corr-reason"
+            />
+          </el-form-item>
+        </el-form>
+
+        <p class="dlg-note">
+          提交后进入租户管理员审批；通过后生效并联动库存，驳回则原单不变（窗口内可重新发起）。
+        </p>
+      </template>
+      <template #footer>
+        <el-button :disabled="corrSubmitting" @click="corrVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="corrSubmitting"
+          :disabled="!corrValid"
+          data-test="corr-submit"
+          @click="onCorrectionSubmit"
+        >
+          提交审批
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 打印核对单（票面区域走 @media print 输出；申请/实登双值展示） -->
+    <el-dialog
+      v-model="printVisible"
+      title="入库申请核对单"
+      width="640px"
+      :close-on-click-modal="false"
+      data-test="print-dialog"
+    >
+      <div v-if="printTarget" class="print-sheet" data-test="print-sheet">
+        <h3 class="print-sheet__title">入库单</h3>
+        <p class="print-sheet__doc-no">{{ printTarget.docNo }}</p>
+        <table class="print-sheet__table">
+          <tbody>
+            <tr>
+              <th>批发商</th>
+              <td>{{ wholesalerNameMap[String(printTarget.wholesalerId)] || printTarget.wholesalerId }}</td>
+              <th>状态</th>
+              <td>
+                {{
+                  printTarget.status === 'CONFIRMED'
+                    ? '已入库'
+                    : printTarget.status === 'ACCEPTED'
+                      ? '已受理（核对用）'
+                      : '待受理（核对用）'
+                }}
+              </td>
+            </tr>
+            <tr>
+              <th>商品</th>
+              <td>{{ wbSkuLabel(printTarget.skuId) }}</td>
+              <th>托盘数</th>
+              <td>{{ printTarget.palletQty ?? 0 }}</td>
+            </tr>
+            <tr>
+              <th>申请件数</th>
+              <td class="print-sheet__qty">{{ printTarget.requestedQty ?? printTarget.qty }} 件</td>
+              <th>实登件数</th>
+              <td class="print-sheet__qty">
+                {{ printTarget.status === 'CONFIRMED' ? `${printTarget.qty} 件` : '—' }}
+              </td>
+            </tr>
+            <tr>
+              <th>提交时间</th>
+              <td>{{ formatTime(printTarget.createdAt) }}</td>
+              <th>登记时间</th>
+              <td>{{ formatTime(printTarget.registeredAt ?? null) }}</td>
+            </tr>
+            <tr>
+              <th>打印次数</th>
+              <td>第 {{ printTarget.printCount ?? 1 }} 次</td>
+              <th>打印时间</th>
+              <td>{{ formatTime(printTarget.printedAt ?? null) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="print-sheet__signs">
+          <span>库管员签字：__________________</span>
+          <span>送货人签字：__________________</span>
+        </div>
+        <p class="print-sheet__note">
+          登记前打印用于收货核对，登记后补打用于盖章存档；申请与实登双值以单据为准。
+        </p>
+      </div>
+      <template #footer>
+        <el-button @click="printVisible = false">关闭</el-button>
+        <el-button type="primary" :icon="Printer" data-test="do-print-btn" @click="doWindowPrint">
+          打印
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -618,6 +1543,111 @@ onMounted(fetchWholesalers)
   width: 100%;
 }
 
+/* ===== P3b T1 工作台 ===== */
+.page-tabs :deep(.el-tabs__header) {
+  margin-bottom: 0;
+}
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.corr-btn-wrap {
+  display: inline-block;
+  margin-left: var(--space-3);
+}
+
+.dlg-doc {
+  margin: 0 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.dlg-note {
+  margin: var(--space-2) 0 0;
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
+  line-height: 1.6;
+}
+.reg-info {
+  margin-bottom: var(--space-3);
+}
+.reg-alert {
+  margin-bottom: var(--space-3);
+}
+.reg-alert :deep(.el-alert__description) {
+  margin: 0;
+}
+.corr-delta {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-body);
+  color: var(--color-fg-2);
+}
+.delta-up {
+  color: var(--color-success);
+  font-weight: var(--font-weight-bold);
+}
+.delta-down {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-bold);
+}
+
+/* ===== 打印票面（复用 ta/Outbound.vue 版式先例） ===== */
+.print-sheet {
+  border: 1px solid var(--color-border-1);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  background: #fff;
+  color: #1f2937;
+}
+.print-sheet__title {
+  margin: 0;
+  text-align: center;
+  font-size: 20px;
+  letter-spacing: 8px;
+}
+.print-sheet__doc-no {
+  margin: var(--space-2) 0 var(--space-4);
+  text-align: center;
+  font-family: var(--font-family-mono);
+  font-size: 15px;
+  color: #374151;
+}
+.print-sheet__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.print-sheet__table th,
+.print-sheet__table td {
+  border: 1px solid #d1d5db;
+  padding: 8px 12px;
+  font-size: 13px;
+  text-align: left;
+}
+.print-sheet__table th {
+  width: 88px;
+  background: #f9fafb;
+  color: #6b7280;
+  font-weight: 500;
+}
+.print-sheet__qty {
+  font-weight: 700;
+  font-size: 15px;
+}
+.print-sheet__signs {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  font-size: 13px;
+}
+.print-sheet__note {
+  margin: var(--space-4) 0 0;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
 /* ===== 响应式 ===== */
 @media (max-width: 768px) {
   .ta-side {
@@ -628,6 +1658,26 @@ onMounted(fetchWholesalers)
   }
   .inbound-form__item {
     flex: 1 1 100%;
+  }
+}
+</style>
+
+<!-- 打印样式：仅输出票面区域（el-dialog teleport 到 body，需非 scoped） -->
+<style>
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible !important;
+  }
+  .print-sheet {
+    position: fixed !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 }
 </style>

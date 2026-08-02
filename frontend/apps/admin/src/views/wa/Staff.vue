@@ -8,7 +8,8 @@
  *  - 视觉：仿 ta/Employees.vue（顶栏 + 左侧菜单 + el-table/el-dialog）
  *
  * 关键交互（已定稿）：
- *  - 授权位仅两枚（O-4）：PRICE_EDIT 改价 / INQUIRY_CONFIRM 询价确认；switch 即时生效无保存按钮
+ *  - 授权位 4 枚（O-4 两枚 + P3 确认代建入库 + P3b T1 提交入库申请，对齐后端
+ *    WePermissions.ALLOWED）：switch 即时生效无保存按钮
  *  - [禁用]（R17）确认弹窗：立即踢出登录 + 草稿单据作废；30 天内可恢复，逾期"已永久移除"
  *  - 生码：角色固定 WE；初始授权默认只勾"询价确认"（最小授权原则）
  *  - WA 本身被下架/退驻 → 本页只读化 + 顶部灰条说明
@@ -126,9 +127,12 @@ const fetchEmployees = async () => {
   }
 }
 
+/** 授权位白名单（后端 WePermissions.ALLOWED 4 枚；P3 扩「确认代建入库」、P3b T1 扩「提交入库申请」） */
 const PERMS: Array<{ key: WePermission; label: string }> = [
   { key: 'PRICE_EDIT', label: '改价' },
   { key: 'INQUIRY_CONFIRM', label: '询价确认' },
+  { key: 'INBOUND_CONFIRM', label: '确认代建入库' },
+  { key: 'INBOUND_SUBMIT', label: '提交入库申请' },
 ]
 
 const permLabel = (p: WePermission): string =>
@@ -526,25 +530,20 @@ onMounted(async () => {
                 <span class="cell-code">{{ row.phone || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="改价" width="90" align="center">
+            <el-table-column
+              v-for="perm in PERMS"
+              :key="perm.key"
+              :label="perm.label"
+              :width="perm.label.length > 4 ? 120 : 100"
+              align="center"
+            >
               <template #default="{ row }">
                 <el-switch
-                  :model-value="hasPerm(row as WaEmployee, 'PRICE_EDIT')"
+                  :model-value="hasPerm(row as WaEmployee, perm.key)"
                   :disabled="isReadonly || row.status !== 'ACTIVE'"
                   :loading="permSubmittingId === String(row.id)"
-                  @change="(v: string | number | boolean) => onTogglePerm(row as WaEmployee, 'PRICE_EDIT', !!v)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column label="询价确认" width="100" align="center">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="hasPerm(row as WaEmployee, 'INQUIRY_CONFIRM')"
-                  :disabled="isReadonly || row.status !== 'ACTIVE'"
-                  :loading="permSubmittingId === String(row.id)"
-                  @change="
-                    (v: string | number | boolean) => onTogglePerm(row as WaEmployee, 'INQUIRY_CONFIRM', !!v)
-                  "
+                  :data-test="`perm-switch-${perm.key}`"
+                  @change="(v: string | number | boolean) => onTogglePerm(row as WaEmployee, perm.key, !!v)"
                 />
               </template>
             </el-table-column>
@@ -712,8 +711,9 @@ onMounted(async () => {
 
         <el-form-item label="初始授权（注册后可在员工列表调整）">
           <el-checkbox-group v-model="createForm.permissions">
-            <el-checkbox value="PRICE_EDIT">改价（PRICE_EDIT）</el-checkbox>
-            <el-checkbox value="INQUIRY_CONFIRM">询价确认（INQUIRY_CONFIRM）</el-checkbox>
+            <el-checkbox v-for="perm in PERMS" :key="perm.key" :value="perm.key">
+              {{ perm.label }}
+            </el-checkbox>
           </el-checkbox-group>
           <span class="form-hint">
             默认只勾「询价确认」；可全不勾（员工注册后仅基础单据录入）

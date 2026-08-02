@@ -106,7 +106,8 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_WITHDRAW_DUPLICATE]: '已有退驻申请在审批中，请勿重复提交',
   [ErrorCode.STATE_RESTORE_WINDOW_EXPIRED]: '60 天恢复期已过，请重新申请入驻',
   [ErrorCode.STATE_WHOLESALER_TRANSITION_INVALID]: '商户当前状态不允许此操作',
-  [ErrorCode.STATE_EMPLOYEE_PERMISSION_INVALID]: '授权项不合法，仅支持「改价 / 询价确认」',
+  [ErrorCode.STATE_EMPLOYEE_PERMISSION_INVALID]:
+    '授权项不合法，仅支持「改价 / 询价确认 / 确认代建入库 / 提交入库申请」',
   [ErrorCode.STATE_EMPLOYEE_NOT_FOUND]: '员工不存在或不属于本商户',
   [ErrorCode.STATE_EMPLOYEE_STATUS_INVALID]: '员工当前状态不允许此操作，请刷新后重试',
   [ErrorCode.STATE_EMPLOYEE_RESTORE_EXPIRED]: '已超过 30 天恢复期，员工已永久移除',
@@ -125,6 +126,13 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_FILE_UPLOAD_INVALID]: '文件格式或大小不符合要求',
   [ErrorCode.STATE_NOTIFICATION_NOT_FOUND]: '消息不存在',
   [ErrorCode.STATE_ARBITRATION_LIABILITY_INVALID]: '差额定责选项缺失或不适用',
+
+  // P3b T1 正向申请链（50350-50354 · 13-p3b-design.md §4.2 userMessage 对齐）
+  [ErrorCode.STATE_INBOUND_NOT_WITHDRAWABLE]: '申请已受理，无法撤回',
+  [ErrorCode.STATE_INBOUND_QTY_DIFF_EXCEEDED]: '实收与申请件数差异超 5%，请驳回后重新申请',
+  [ErrorCode.STATE_INBOUND_CORRECTION_WINDOW_CLOSED]: '登记已超 24 小时，请通过盘点调整',
+  [ErrorCode.STATE_INBOUND_CORRECTION_PENDING_EXISTS]: '该单已有待审批的纠错申请',
+  [ErrorCode.STATE_INBOUND_CORRECTION_INVALID]: '纠错件数无效',
 
   [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
   [ErrorCode.STATE_BILL_DISPATCHED]: '账单已下发，不能直接调整',
