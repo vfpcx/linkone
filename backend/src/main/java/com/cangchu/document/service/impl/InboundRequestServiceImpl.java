@@ -80,6 +80,9 @@ public class InboundRequestServiceImpl implements InboundRequestService {
     private final AuthService authService;
     private final DocumentNumberService documentNumberService;
     private final InventoryService inventoryService;
+    // P3b T4-W1（13 §3.1，方案 C）：批次登记簿后置钩子——只追加登记簿行/回填流水 batch_id，
+    // 不动库存事务（addStock 对批次零感知）
+    private final com.cangchu.inventory.service.BatchService batchService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     // P3 BE-W1（12 §2）：异议冲销→仲裁单同事务编排 + 站内信
     private final ArbitrationService arbitrationService;
@@ -123,6 +126,14 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             throw new BizException(ErrorCode.SKU_NOT_FOUND);
         }
 
+        // P3b T4-W1（13 §3.5）：代建=提交即登记，按当刻开关状态校验批次三字段必填 + 过期二次确认
+        boolean batchEnabled = tenantService.getBatchConfig(tenantId).getBatchEnabled() == 1;
+        if (batchEnabled) {
+            validateBatchFields(dto.getWholesalerId(), dto.getSkuId(),
+                    dto.getBatchNo(), dto.getProductionDate(), dto.getExpiryDate());
+            assertExpiredConfirmed(dto.getExpiryDate(), dto.getExpiredConfirmed());
+        }
+
         // 生成单据号（DocumentNumberService，C2 复用）
         String docNo = documentNumberService.generate(DocType.INBOUND, resolveSimpleCode(tenantId));
 
@@ -143,6 +154,11 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         req.setWaConfirmDeadline(now.plusHours(WA_CONFIRM_WINDOW_HOURS));
         req.setAutoAccepted(0);
         req.setWkUserId(wkUserId);
+        if (batchEnabled) {
+            req.setBatchNo(dto.getBatchNo().trim());
+            req.setProductionDate(dto.getProductionDate());
+            req.setExpiryDate(dto.getExpiryDate());
+        }
         try {
             inboundRequestMapper.insert(req);
         } catch (DuplicateKeyException e) {
@@ -160,6 +176,20 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                 .refDocNo(docNo)
                 .operatorUserId(wkUserId)
                 .build());
+
+        // P3b T4-W1 后置钩子（addStock 之后，同事务）：追加批次登记簿行 + 回填 INBOUND 流水 batch_id
+        if (batchEnabled) {
+            batchService.registerInboundBatch(com.cangchu.inventory.dto.InboundBatchContext.builder()
+                    .tenantId(tenantId)
+                    .wholesalerId(dto.getWholesalerId())
+                    .skuId(dto.getSkuId())
+                    .batchNo(dto.getBatchNo())
+                    .productionDate(dto.getProductionDate())
+                    .expiryDate(dto.getExpiryDate())
+                    .qty(dto.getQty())
+                    .refDocNo(docNo)
+                    .build());
+        }
 
         // 同事务通知归属 WA（12 §2.2；产品口径文案：可售 + 72h 异议 + 差额定责，PRD 09 §6.1）
         // P3 缺陷修复：收件人以 user_roles 推导（SELF_OPERATED 的 owner_user_id 是 TA 操作人，
@@ -407,10 +437,15 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         }
         String submitAttachments = AttachmentUrls.encode(dto.getAttachments());
 
+        // P3b T4-W1（13 §3.1）：批次开关启用 → 每行批次三字段必填校验 + 批次号占用/同批内重复预检
+        // （提交仅预检友好拦截；权威兜底在登记 insert 撞 uk → 50362 整体回滚）
+        boolean batchEnabled = tenantService.getBatchConfig(tenantId).getBatchEnabled() == 1;
+
         // D-5 多行拆单：单事务建 N 张单，任一行非法整批回滚（原子性）；共享 batch_submit_id
         long batchSubmitId = snowflakeIdUtil.nextId();
         LocalDateTime now = LocalDateTime.now();
         List<InboundRequest> created = new java.util.ArrayList<>(dto.getItems().size());
+        java.util.Set<String> seenBatchKeys = new java.util.HashSet<>();
         int totalQty = 0;
         for (InboundSubmitDto.Item item : dto.getItems()) {
             if (item.getQty() == null || item.getQty() <= 0) {
@@ -423,6 +458,14 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             SkuVo sku = skuService.getById(item.getSkuId());
             if (sku == null || !dto.getWholesalerId().equals(sku.getWholesalerId())) {
                 throw new BizException(ErrorCode.SKU_NOT_FOUND);
+            }
+            if (batchEnabled) {
+                validateBatchFields(dto.getWholesalerId(), item.getSkuId(),
+                        item.getBatchNo(), item.getProductionDate(), item.getExpiryDate());
+                // 同批提交内 (sku, batchNo) 重复同样 50362（登记簿一批一行，不做合并）
+                if (!seenBatchKeys.add(item.getSkuId() + ":" + item.getBatchNo().trim())) {
+                    throw new BizException(ErrorCode.BATCH_NO_DUPLICATE);
+                }
             }
             InboundRequest req = new InboundRequest();
             req.setId(snowflakeIdUtil.nextId());
@@ -445,6 +488,11 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             req.setRemark(trimToNull(item.getRemark()));
             req.setAttachments(submitAttachments);
             req.setPrintCount(0);
+            if (batchEnabled) {
+                req.setBatchNo(item.getBatchNo().trim());
+                req.setProductionDate(item.getProductionDate());
+                req.setExpiryDate(item.getExpiryDate());
+            }
             req.setCreatedAt(now);
             try {
                 inboundRequestMapper.insert(req);
@@ -619,6 +667,12 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         }
         String attachments = AttachmentUrls.encode(dto.getAttachments());
 
+        // P3b T4-W1 提交时策略（13 §7.2）：登记按单据自身 batch_no 是否有值处理，不重校验当刻开关；
+        // 过期批次强警告（到效期 ≤ 今天）须二次确认凭据（50364），临期仅前端警告放行
+        if (req.getBatchNo() != null) {
+            assertExpiredConfirmed(req.getExpiryDate(), dto.getExpiredConfirmed());
+        }
+
         int palletQty = palletOverride >= 0 ? palletOverride
                 : (req.getPalletQty() != null ? req.getPalletQty() : 0);
         // 登记事务口径（13 §1.1）：CAS ACCEPTED→CONFIRMED（qty=实登、registered_at=now、附件）
@@ -649,6 +703,21 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                 .refDocNo(req.getDocNo())
                 .operatorUserId(userId)
                 .build());
+
+        // P3b T4-W1 后置钩子（addStock 之后，同事务）：追加批次登记簿行（initial=实登件数）
+        // + 回填 INBOUND 流水 batch_id；uk 冲突 50362 → 整体回滚（单据保持 ACCEPTED）
+        if (req.getBatchNo() != null) {
+            batchService.registerInboundBatch(com.cangchu.inventory.dto.InboundBatchContext.builder()
+                    .tenantId(req.getTenantId())
+                    .wholesalerId(req.getWholesalerId())
+                    .skuId(req.getSkuId())
+                    .batchNo(req.getBatchNo())
+                    .productionDate(req.getProductionDate())
+                    .expiryDate(req.getExpiryDate())
+                    .qty(actual)
+                    .refDocNo(req.getDocNo())
+                    .build());
+        }
 
         // 同事务通知商户（登记完成；UI 文案统一「已入库」，正向链不出现「已确认」话术）
         notificationService.sendToAll(req.getTenantId(),
@@ -745,6 +814,42 @@ public class InboundRequestServiceImpl implements InboundRequestService {
     }
 
     /**
+     * P3b T4-W1 批次三字段校验（13 §3.1，批次开关启用时）：必填（40003）、批次号 ≤64（40001）、
+     * 生产日期 ≤今天（40205）、到效期 >生产日期（40206）、批次号占用预检（50362）。
+     */
+    private void validateBatchFields(Long wholesalerId, Long skuId,
+                                     String batchNo, java.time.LocalDate productionDate,
+                                     java.time.LocalDate expiryDate) {
+        if (batchNo == null || batchNo.isBlank()) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "缺少批次号");
+        }
+        if (batchNo.trim().length() > 64) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001, "批次号最长 64 字");
+        }
+        if (productionDate == null) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "缺少生产日期");
+        }
+        if (productionDate.isAfter(java.time.LocalDate.now())) {
+            throw new BizException(ErrorCode.VALIDATION_BUSINESS_005);
+        }
+        if (expiryDate == null) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "缺少到效期");
+        }
+        if (!expiryDate.isAfter(productionDate)) {
+            throw new BizException(ErrorCode.VALIDATION_BUSINESS_006);
+        }
+        batchService.assertBatchNoAvailable(wholesalerId, skuId, batchNo.trim());
+    }
+
+    /** 过期批次强警告（13 §3.1 / 04 §3.1）：到效期 ≤ 今天 → 须 expiredConfirmed=true，缺失 50364。 */
+    private void assertExpiredConfirmed(java.time.LocalDate expiryDate, Boolean expiredConfirmed) {
+        if (expiryDate != null && !expiryDate.isAfter(java.time.LocalDate.now())
+                && !Boolean.TRUE.equals(expiredConfirmed)) {
+            throw new BizException(ErrorCode.BATCH_EXPIRED_CONFIRM_REQUIRED);
+        }
+    }
+
+    /**
      * CAS 失败语义化（12 §2.3）：重读单据——已被 72h Job 自动确认 → 50332（窗口已关）；
      * 其余（已手动确认/已异议/并发被抢占）→ 50331。
      */
@@ -797,6 +902,10 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                 .batchSubmitId(r.getBatchSubmitId())
                 .waUserId(r.getWaUserId())
                 .remark(r.getRemark())
+                // P3b T4-W1 批次三字段
+                .batchNo(r.getBatchNo())
+                .productionDate(r.getProductionDate())
+                .expiryDate(r.getExpiryDate())
                 .build();
     }
 }

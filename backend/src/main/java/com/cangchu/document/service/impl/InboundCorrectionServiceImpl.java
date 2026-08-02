@@ -49,6 +49,8 @@ public class InboundCorrectionServiceImpl implements InboundCorrectionService {
     private final InboundCorrectionMapper inboundCorrectionMapper;
     private final InboundRequestMapper inboundRequestMapper;
     private final InventoryService inventoryService;
+    // P3b T4-W1：纠错流水批次标识回填（方案 C，FIFO 直扣锚点）
+    private final com.cangchu.inventory.service.BatchService batchService;
     private final AuthService authService;
     private final TenantService tenantService;
     private final NotificationService notificationService;
@@ -199,6 +201,12 @@ public class InboundCorrectionServiceImpl implements InboundCorrectionService {
                                 .build());
                 applied = result.getAppliedQty();
                 shortfall = result.getShortfallQty();
+                // P3b T4-W1（方案 C，13 §3.1）：原单带批次 → CORRECTION_IN/OUT 流水回填 batch_id
+                // 供 FIFO 直扣（后置钩子，不动库存事务；applied=0 售罄无流水则跳过）
+                if (result.getMovementId() != null && req.getBatchNo() != null) {
+                    batchService.tagCorrectionMovement(result.getMovementId(),
+                            req.getWholesalerId(), req.getSkuId(), req.getBatchNo());
+                }
             }
             LambdaUpdateWrapper<InboundCorrection> uw = new LambdaUpdateWrapper<InboundCorrection>()
                     .eq(InboundCorrection::getId, correctionId)

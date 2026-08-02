@@ -53,5 +53,17 @@ public class InboundSubmitDto {
         /** 行备注（选填 ≤512） */
         @Size(max = 512, message = "备注最长 512 字")
         private String remark;
+
+        // ==================== P3b T4-W1 批次三字段（租户批次开关启用时必填，13 §3.1） ====================
+
+        /** 批次号（开关启用必填 ≤64；(商户,SKU,批次号) 唯一，重复 50362） */
+        @Size(max = 64, message = "批次号最长 64 字")
+        private String batchNo;
+
+        /** 生产日期（开关启用必填；≤今天，40205） */
+        private java.time.LocalDate productionDate;
+
+        /** 到效期（开关启用必填；>生产日期，40206） */
+        private java.time.LocalDate expiryDate;
     }
 }
