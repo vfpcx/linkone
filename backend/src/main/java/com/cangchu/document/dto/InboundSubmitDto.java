@@ -28,6 +28,13 @@ public class InboundSubmitDto {
     @Valid
     private List<Item> items;
 
+    /**
+     * 提交附件 ≤5（T1-FE 移交补齐：随单举证照片，复用 /files，N2 白名单校验落申请单
+     * attachments 列——本批拆出的每张单均落同一组；登记时 WK 上传登记照片会覆写）。
+     */
+    @Size(max = 5, message = "附件最多 5 张")
+    private List<@Size(max = 200, message = "附件 URL 过长") String> attachments;
+
     @Data
     public static class Item {
 

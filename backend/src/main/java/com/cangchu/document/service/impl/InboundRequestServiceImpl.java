@@ -401,6 +401,12 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         // S4：WA 本人或持 INBOUND_SUBMIT 授权位的 WE（D-5；未授权 WE → 42004）
         requireWaOrSubmitWe(dto.getWholesalerId(), userId);
 
+        // T1-FE 移交补齐：提交附件 ≤5（N2 白名单），随拆单落每张申请单 attachments 列
+        if (dto.getAttachments() != null && dto.getAttachments().size() > 5) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001);
+        }
+        String submitAttachments = AttachmentUrls.encode(dto.getAttachments());
+
         // D-5 多行拆单：单事务建 N 张单，任一行非法整批回滚（原子性）；共享 batch_submit_id
         long batchSubmitId = snowflakeIdUtil.nextId();
         LocalDateTime now = LocalDateTime.now();
@@ -437,6 +443,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             req.setBatchSubmitId(batchSubmitId);
             req.setWaUserId(userId);
             req.setRemark(trimToNull(item.getRemark()));
+            req.setAttachments(submitAttachments);
             req.setPrintCount(0);
             req.setCreatedAt(now);
             try {
@@ -551,9 +558,11 @@ public class InboundRequestServiceImpl implements InboundRequestService {
         // R2 举证附件（N2 白名单校验，独立 reject_attachments 列）
         String rejectAttachments = AttachmentUrls.encode(dto.getAttachments());
         LocalDateTime now = LocalDateTime.now();
+        // T4-W1 补（T1 收尾）：CAS from=当前状态——SUBMITTED 与 ACCEPTED（受理后现场发现问题，
+        // 如实收差异 >5% 场景）均可驳回；不可达 from 已由上方 assertCanGo 拦下（50330）
         boolean ok = DocStateMachine.casTransition(inboundRequestMapper, DocStateMachine.DocKind.INBOUND,
                 inboundId, InboundRequest::getId, InboundRequest::getStatus,
-                InboundRequest.STATUS_SUBMITTED, InboundRequest.STATUS_REJECTED,
+                req.getStatus(), InboundRequest.STATUS_REJECTED,
                 uw -> uw.set(InboundRequest::getRejectReason, dto.getReason())
                         .set(InboundRequest::getRejectRemark, dto.getRemark().trim())
                         .set(rejectAttachments != null, InboundRequest::getRejectAttachments, rejectAttachments)
