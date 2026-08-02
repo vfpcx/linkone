@@ -191,6 +191,18 @@ export enum ErrorCode {
   /** R3 件数非法：为负 / 与实登相同 / 非正向链或非已入库单据 */
   STATE_INBOUND_CORRECTION_INVALID = 50354,
 
+  // P3b T3 退货 / 盘点（50355-50360 · 13-p3b-design.md §4.2；
+  // 退货登记不足复用 STOCK_NOT_ENOUGH(50251)，不新占码——13 v1.2 备注 1）
+  /** 盘点明细为空 / 同单 SKU 重复 / 实物数<0（T3-W2） */
+  STATE_STOCKTAKE_ITEMS_INVALID = 50355,
+  /** 同商户在途盘点单至多一张（DRAFT/PENDING_APPROVAL 防双重盈亏，T3-W2） */
+  STATE_STOCKTAKE_OPEN_EXISTS = 50356,
+  /** D-13 批次禁改防御（T4-W1 前店铺设置拒改 batchEnabled） */
+  STATE_BATCH_FEATURE_NOT_READY = 50360,
+
+  /** 库存不足（退货登记 D-7 / 出库 / 询价确认 共用；13 §4.2 复用不新占） */
+  STATE_STOCK_NOT_ENOUGH = 50251,
+
   STATE_BILL_NOT_GENERATED = 50301,
   STATE_BILL_DISPATCHED = 50302,
   STATE_BILL_PAID = 50303,

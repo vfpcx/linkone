@@ -25,6 +25,7 @@ import { request } from './http'
 import type {
   MpPage,
   OutboundRequest,
+  OutboundRegisterRequest,
   OutboundSubmitRequest,
   WkOutboundCreateRequest,
   OutboundComplainRequest,
@@ -58,11 +59,16 @@ export const tenantOutboundApi = {
       url: `/tenant/outbound-requests/${id}/revert-to-pending`,
     }),
 
-  /** 登记出库 PRINTED→COMPLETED（+询价终态联动） */
-  register: (id: string) =>
+  /**
+   * 登记出库 PRINTED→COMPLETED（+询价终态联动）。
+   * P3b T3-W1（13 §5.2）：body 可选 {palletRelease?}——托盘此刻经 PALLET_RELEASE
+   * 流水释放（缺省=默认建议值；覆盖含 0；封顶不打负）。
+   */
+  register: (id: string, data?: OutboundRegisterRequest) =>
     request<OutboundRequest>({
       method: 'POST',
       url: `/tenant/outbound-requests/${id}/register`,
+      ...(data ? { data } : {}),
     }),
 
   /** R4 确认撤回 PRINTED→CANCELLED + 库存回补（无撤回申请 → 50336） */
