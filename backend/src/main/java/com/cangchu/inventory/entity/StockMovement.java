@@ -40,6 +40,11 @@ public class StockMovement {
     public static final String TYPE_GAIN = "GAIN";
     /** 盘亏（−）：P3b T3-W2（D-10 封顶：qty=min(|diff|, 审批时刻在库)；biz_time=审批通过日计费当日截止；pallet_delta=−释放） */
     public static final String TYPE_LOSS = "LOSS";
+    /**
+     * 临期清库（−）：P3b T4（QK 审批通过写入，T4-W2；biz_time=清库日计费当日截止、batch_id 落值、
+     * 不计正常出库统计——P4 按 type 区分）。T4-W1 先落常量供 FIFO 直扣公式引用（13 §3.2 第 2 步）。
+     */
+    public static final String TYPE_EXPIRY_CLEARANCE = "EXPIRY_CLEARANCE";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)
