@@ -119,7 +119,8 @@ class BatchChainScenarioTest {
         long taUserId = snowflakeIdUtil.nextId();
         Tenant t = new Tenant();
         t.setId(tenantId);
-        t.setTenantSimpleCode("T" + (tenantId % 1_000_000));
+        // 前缀区隔（B≠T）：共享内存库下与其他测试类 "T"+id%1e6 的 simple_code 唯一索引零碰撞（列宽 8）
+        t.setTenantSimpleCode("B" + (tenantId % 10_000_000L));
         t.setName("仓-" + tenantId);
         t.setContactUserId(taUserId);
         t.setContactPhone("1" + String.format("%010d", tenantId % 10_000_000_000L));
@@ -310,7 +311,8 @@ class BatchChainScenarioTest {
         BatchToggleVo again = batchService.toggle(c.taUserId(), toggleDto(true, null));
         assertThat(again.getBatchEnabled()).isEqualTo(1);
         assertThat(again.getDefaultBatchCount()).isZero();
-        assertThat(again.getBatchEnabledAt()).isEqualTo(firstAt);
+        // 幂等回读自 DB（微秒精度）与首次内存值（纳秒）比对忽略纳秒位
+        assertThat(again.getBatchEnabledAt()).isEqualToIgnoringNanos(firstAt);
         assertThat(batchMapper.selectCount(new LambdaQueryWrapper<Batch>()
                 .eq(Batch::getTenantId, c.tenantId()))).isEqualTo(1);
         // 幂等空转不计次：仍可再做一次真实翻转（关）+ 一次开（共 2 次真实操作后才限流）
@@ -399,7 +401,8 @@ class BatchChainScenarioTest {
         assertThat(offMv.getBatchId()).isNull();
         assertThat(batchMapper.selectCount(new LambdaQueryWrapper<Batch>()
                 .eq(Batch::getTenantId, off.tenantId()))).isZero();
-        // 两档库存终值一致
+        // 两档库存终值一致（清上下文避免 TenantLine 兜底过滤跨租户断言）
+        TenantContext.clear();
         assertThat(inventoryService.queryInventory(on.wholesalerId(), on.skuId()).get(0).getQty()).isEqualTo(80);
         assertThat(inventoryService.queryInventory(off.wholesalerId(), off.skuId()).get(0).getQty()).isEqualTo(80);
     }
