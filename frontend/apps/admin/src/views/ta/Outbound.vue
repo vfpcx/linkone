@@ -264,22 +264,64 @@ const doWindowPrint = () => {
   window.print()
 }
 
-// ============ 登记出库 ============
+// ============ 登记出库（P3b T3-W1：托盘此刻经 PALLET_RELEASE 流水释放，D-8=A） ============
 const registeringId = ref('')
+const registerVisible = ref(false)
+const registerTarget = ref<OutboundRequest | null>(null)
+/** 释放托盘输入（默认=前端按池比例算的建议值；可覆盖含 0；后端封顶仍是权威） */
+const registerPalletRelease = ref<number | undefined>(undefined)
+/** 该 SKU 当前占用托盘（封顶上限展示） */
+const registerPoolPallet = ref<number | null>(null)
+const registerSuggested = ref<number | null>(null)
+const registerSubmitting = ref(false)
+
+/**
+ * 默认建议值（13 v1.2 备注 6 口径）：件数创建时已扣 → 变动前在库 = 当前池 qty + 单据 qty；
+ * 建议 = min(ceil(池 pallet × 单据 qty / 变动前在库), 池 pallet)；变动后在库=0 → 释放全部。
+ */
+const suggestPalletRelease = (pallet: number, poolQty: number, docQty: number): number => {
+  if (pallet <= 0) return 0
+  if (poolQty <= 0) return pallet
+  const before = poolQty + docQty
+  return Math.min(Math.ceil((pallet * docQty) / before), pallet)
+}
 
 const onRegister = async (row: OutboundRequest) => {
+  registerTarget.value = row
+  registerPoolPallet.value = null
+  registerSuggested.value = null
+  registerPalletRelease.value = undefined
+  registerVisible.value = true
   try {
-    await ElMessageBox.confirm(
-      `确认已核对纸质单并完成实物出库？出库单 ${row.docNo}（${row.qty} 件）登记后完成，商户不可再撤回。`,
-      '登记出库',
-      { confirmButtonText: '登记出库', cancelButtonText: '再想想', type: 'warning' },
-    )
+    const list = await inventoryApi.query({
+      wholesalerId: String(row.wholesalerId),
+      skuId: String(row.skuId),
+    })
+    const inv: InventoryItem | undefined = list[0]
+    const pallet = Number(inv?.palletQty ?? 0)
+    const poolQty = Number(inv?.qty ?? 0)
+    registerPoolPallet.value = pallet
+    const suggested = suggestPalletRelease(pallet, poolQty, row.qty)
+    registerSuggested.value = suggested
+    registerPalletRelease.value = suggested
   } catch {
-    return
+    // 建议值拉取失败：留空=后端按默认建议值释放
   }
+}
+
+const onRegisterSubmit = async () => {
+  const row = registerTarget.value
+  if (!row) return
   registeringId.value = String(row.id)
+  registerSubmitting.value = true
   try {
-    const updated = await tenantOutboundApi.register(String(row.id))
+    const updated = await tenantOutboundApi.register(
+      String(row.id),
+      registerPalletRelease.value !== undefined && registerPalletRelease.value !== null
+        ? { palletRelease: Number(registerPalletRelease.value) }
+        : undefined,
+    )
+    registerVisible.value = false
     ElMessage.success(`出库单 ${updated.docNo} 已登记出库`)
     await refreshAll()
   } catch (e) {
@@ -288,10 +330,12 @@ const onRegister = async (row: OutboundRequest) => {
       (e.code === ErrorCode.STATE_DOC_CAS_CONFLICT ||
         e.code === ErrorCode.STATE_DOC_TRANSITION_INVALID)
     ) {
+      registerVisible.value = false
       await refreshAll()
     }
   } finally {
     registeringId.value = ''
+    registerSubmitting.value = false
   }
 }
 
@@ -1004,6 +1048,52 @@ onMounted(() => {
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 登记出库（P3b T3-W1：托盘释放输入，D-8=A 出库处补齐） -->
+    <el-dialog
+      v-model="registerVisible"
+      title="登记出库"
+      width="480px"
+      data-test="outbound-register-dialog"
+      :close-on-click-modal="false"
+    >
+      <template v-if="registerTarget">
+        <p class="register-copy">
+          确认已核对纸质单并完成实物出库？出库单
+          <b>{{ registerTarget.docNo }}</b>（{{ registerTarget.qty }} 件）登记后完成，商户不可再撤回。
+        </p>
+        <el-form label-width="90px" label-position="right" @submit.prevent>
+          <el-form-item label="释放托盘">
+            <el-input-number
+              v-model="registerPalletRelease"
+              :min="0"
+              :step="1"
+              step-strictly
+              controls-position="right"
+              data-test="outbound-pallet-release"
+            />
+            <span class="register-pallet-hint" data-test="outbound-pallet-hint">
+              <template v-if="registerSuggested !== null">
+                默认按比例建议 {{ registerSuggested }} 托（当前占用
+                {{ registerPoolPallet ?? 0 }} 托），可改（含 0）；落库前按在库托盘封顶
+              </template>
+              <template v-else>留空则按默认比例建议值释放；可改（含 0），落库前封顶</template>
+            </span>
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button :disabled="registerSubmitting" @click="registerVisible = false">再想想</el-button>
+        <el-button
+          type="primary"
+          :loading="registerSubmitting"
+          data-test="outbound-register-submit"
+          @click="onRegisterSubmit"
+        >
+          登记出库
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1188,6 +1278,16 @@ onMounted(() => {
 }
 .restate-form {
   margin-bottom: var(--space-3);
+}
+.register-copy {
+  margin: 0 0 var(--space-3);
+  color: var(--color-fg-2);
+  line-height: 1.6;
+}
+.register-pallet-hint {
+  margin-left: var(--space-3);
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
 }
 .full-width {
   width: 100%;
