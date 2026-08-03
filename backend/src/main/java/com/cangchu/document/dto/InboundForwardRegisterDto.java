@@ -32,4 +32,10 @@ public class InboundForwardRegisterDto {
     /** 登记照片 ≤5（D-2 最小版，复用 /files，N2 白名单） */
     @Size(max = 5, message = "附件最多 5 张")
     private List<@Size(max = 200, message = "附件 URL 过长") String> attachments;
+
+    /**
+     * 过期批次强警告二次确认凭据（P3b T4-W1，13 §3.1）：单据批次到效期 ≤ 今天时登记必须
+     * 显式传 true（缺失抛 50364）；临期仅前端黄条警告放行，无需凭据。
+     */
+    private Boolean expiredConfirmed;
 }

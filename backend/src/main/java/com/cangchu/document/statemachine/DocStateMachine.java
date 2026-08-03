@@ -63,8 +63,9 @@ public final class DocStateMachine {
     /**
      * 入库迁移矩阵（12 §2.1 代建链 + 13-p3b §1.1 正向链，两链共表）：
      * 正向链：SUBMITTED → WITHDRAWN(R1) | REJECTED(R2) | ACCEPTED(受理锁单)；ACCEPTED → CONFIRMED(登记
-     * 才 addStock，D-3 直落，不复活 REGISTERED)。不可达红线：REJECTED→ACCEPTED ❌、CONFIRMED→WITHDRAWN ❌、
-     * SUBMITTED→CONFIRMED ❌（必须经受理）。代建链一字不动。
+     * 才 addStock，D-3 直落，不复活 REGISTERED) | REJECTED(T4-W1 补：WK 受理后现场发现问题仍可驳回，
+     * 如实收差异 >5% 场景——受理/驳回全程零库存，驳回通知沿用)。不可达红线：REJECTED→ACCEPTED ❌、
+     * CONFIRMED→WITHDRAWN ❌、SUBMITTED→CONFIRMED ❌（必须经受理）。代建链一字不动。
      */
     private static final Map<String, Set<String>> INBOUND_TRANSITIONS = Map.of(
             InboundRequest.STATUS_PENDING_WA_CONFIRM, Set.of(
@@ -79,7 +80,9 @@ public final class DocStateMachine {
                     InboundRequest.STATUS_WITHDRAWN,
                     InboundRequest.STATUS_REJECTED,
                     InboundRequest.STATUS_ACCEPTED),
-            InboundRequest.STATUS_ACCEPTED, Set.of(InboundRequest.STATUS_CONFIRMED),
+            InboundRequest.STATUS_ACCEPTED, Set.of(
+                    InboundRequest.STATUS_CONFIRMED,
+                    InboundRequest.STATUS_REJECTED),
             InboundRequest.STATUS_WITHDRAWN, Set.of(),
             InboundRequest.STATUS_REJECTED, Set.of());
 

@@ -973,6 +973,58 @@ public class TenantServiceImpl implements TenantService {
         else if (isInsert) settings.setDisplayImageSource("STANDARD");
     }
 
+    // ==================== P3b T4-W1 批次开关（13 §3.5） ====================
+
+    @Override
+    public com.cangchu.tenant.vo.TenantBatchConfigVo getBatchConfig(Long tenantId) {
+        TenantSettings settings = tenantSettingsMapper.selectOne(
+                new LambdaQueryWrapper<TenantSettings>().eq(TenantSettings::getTenantId, tenantId));
+        return com.cangchu.tenant.vo.TenantBatchConfigVo.builder()
+                .batchEnabled(settings != null && settings.getBatchEnabled() != null ? settings.getBatchEnabled() : 0)
+                .batchEnabledAt(settings != null ? settings.getBatchEnabledAt() : null)
+                .expiryThresholdDays(settings != null && settings.getExpiryThresholdDays() != null
+                        ? settings.getExpiryThresholdDays() : 30)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void setBatchEnabled(Long tenantId, boolean enabled, LocalDateTime enabledAt, Long operatorUserId) {
+        TenantSettings settings = tenantSettingsMapper.selectOne(
+                new LambdaQueryWrapper<TenantSettings>().eq(TenantSettings::getTenantId, tenantId));
+        if (settings == null) {
+            settings = new TenantSettings();
+            settings.setId(snowflakeIdUtil.nextId());
+            settings.setTenantId(tenantId);
+            settings.setPhotoMode("NONE");
+            settings.setBillingDim("QTY");
+            settings.setExpiryThresholdDays(30);
+            settings.setDisplayImageSource("STANDARD");
+            settings.setBatchEnabled(enabled ? 1 : 0);
+            if (enabled) settings.setBatchEnabledAt(enabledAt);
+            settings.setUpdatedBy(operatorUserId);
+            settings.setCreatedAt(LocalDateTime.now());
+            settings.setUpdatedAt(LocalDateTime.now());
+            tenantSettingsMapper.insert(settings);
+            return;
+        }
+        settings.setBatchEnabled(enabled ? 1 : 0);
+        if (enabled) {
+            // 启用（含再启用）：切割时点覆写为本次启用时刻；停用保留旧值作历史锚点
+            settings.setBatchEnabledAt(enabledAt);
+        }
+        settings.setUpdatedBy(operatorUserId);
+        settings.setUpdatedAt(LocalDateTime.now());
+        tenantSettingsMapper.updateById(settings);
+    }
+
+    @Override
+    public List<Long> listBatchEnabledTenantIds() {
+        return tenantSettingsMapper.selectList(new LambdaQueryWrapper<TenantSettings>()
+                        .eq(TenantSettings::getBatchEnabled, 1))
+                .stream().map(TenantSettings::getTenantId).toList();
+    }
+
     /** 构建租户详情 VO */
     private TenantDetailVo buildTenantDetail(Long tenantId) {
         Tenant tenant = tenantMapper.selectById(tenantId);

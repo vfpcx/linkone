@@ -125,4 +125,22 @@ public interface TenantService {
      * （调用方按通知降级处理，不阻断业务主链）。
      */
     Long getContactUserId(Long tenantId);
+
+    // ==================== P3b T4-W1 批次开关（13 §3.5，供 BatchService/document 编排域调用） ====================
+
+    /**
+     * 只读：取租户批次配置（开关状态 / 启用时点 / 临期阈值天数）。
+     * settings 行缺失按默认值（关闭 / null / 30 天）返回，不抛异常。
+     */
+    com.cangchu.tenant.vo.TenantBatchConfigVo getBatchConfig(Long tenantId);
+
+    /**
+     * 写批次开关（仅供 BatchService.toggle 专用端点编排调用——通用设置接口仍拒改，50360 语义保留）。
+     * 启用时以 {@code enabledAt} 覆写 batch_enabled_at（FIFO 切割时点）；停用保留历史时点作锚点。
+     * settings 行缺失时按默认值补建。
+     */
+    void setBatchEnabled(Long tenantId, boolean enabled, java.time.LocalDateTime enabledAt, Long operatorUserId);
+
+    /** 只读：全平台批次功能已启用的租户 id（T4-W2 双 Job 按此过滤；Job 无 TenantContext 全平台扫描先例）。 */
+    List<Long> listBatchEnabledTenantIds();
 }

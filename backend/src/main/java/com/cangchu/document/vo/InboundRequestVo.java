@@ -93,4 +93,10 @@ public class InboundRequestVo {
 
     /** 备注（提交行备注 / 登记差异备注） */
     private String remark;
+
+    // ==================== P3b T4-W1 批次三字段（批次开关启用时落值） ====================
+
+    private String batchNo;
+    private java.time.LocalDate productionDate;
+    private java.time.LocalDate expiryDate;
 }

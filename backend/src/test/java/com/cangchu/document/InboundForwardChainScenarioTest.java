@@ -314,7 +314,9 @@ class InboundForwardChainScenarioTest {
                 InboundRequest.STATUS_SUBMITTED, Set.of(
                         InboundRequest.STATUS_WITHDRAWN, InboundRequest.STATUS_REJECTED,
                         InboundRequest.STATUS_ACCEPTED),
-                InboundRequest.STATUS_ACCEPTED, Set.of(InboundRequest.STATUS_CONFIRMED),
+                // P3b T4-W1（T1 收尾）：ACCEPTED→REJECTED 补入矩阵（受理后现场发现问题可驳回，如 >5% 场景）
+                InboundRequest.STATUS_ACCEPTED, Set.of(
+                        InboundRequest.STATUS_CONFIRMED, InboundRequest.STATUS_REJECTED),
                 InboundRequest.STATUS_WITHDRAWN, Set.of(),
                 InboundRequest.STATUS_REJECTED, Set.of(),
                 InboundRequest.STATUS_PENDING_WA_CONFIRM, Set.of(
@@ -445,7 +447,7 @@ class InboundForwardChainScenarioTest {
     }
 
     @Test
-    @DisplayName("T1-ACC-01 受理：SUBMITTED→ACCEPTED 通知 WA，零库存；受理后驳回 → 50330（矩阵红线）")
+    @DisplayName("T1-ACC-01 受理：SUBMITTED→ACCEPTED 通知 WA，零库存；受理后仍可驳回（T4-W1 补，仍零库存）")
     void acceptLocksDoc() {
         Ctx c = seedAll();
         InboundRequestVo accepted = submitAndAccept(c, 15);
@@ -454,10 +456,12 @@ class InboundForwardChainScenarioTest {
         assertThat(countNotifications(c.waUserId(), Notification.TYPE_INBOUND_ACCEPTED)).isEqualTo(1);
         assertZeroStock(c);
 
-        // ACCEPTED→REJECTED 不可达（受理后只能登记；差异走 50351 → 驳回须在受理前）
-        assertThat(expectBiz(() -> inboundRequestService.rejectByWk(accepted.getId(),
-                rejectDto("QTY", "晚了", null), c.wkUserId()))
-                .getErrorCode()).isEqualTo(ErrorCode.DOC_STATE_TRANSITION_INVALID);
+        // P3b T4-W1（T1 收尾）：ACCEPTED→REJECTED 可达——受理后现场发现问题（如实收差异 >5%）可驳回，
+        // 驳回通知沿用、全程零库存；驳回后不可再受理（红线回归见矩阵用例）
+        InboundRequestVo rejected = inboundRequestService.rejectByWk(accepted.getId(),
+                rejectDto("QTY", "实收差异超 5%，驳回重报", null), c.wkUserId());
+        assertThat(rejected.getStatus()).isEqualTo(InboundRequest.STATUS_REJECTED);
+        assertZeroStock(c);
     }
 
     @Test

@@ -19,6 +19,10 @@ public class TenantSettings {
     private Long tenantId;
 
     private Integer batchEnabled;
+
+    /** 批次功能最近启用时刻（V22，FIFO 推算的流水切割时点，13-p3b §3.2；关后保留作历史锚点） */
+    private LocalDateTime batchEnabledAt;
+
     private String photoMode;
     private String billingDim;
     private Integer expiryThresholdDays;
