@@ -353,7 +353,11 @@ const removeItemRow = (idx: number) => {
 }
 
 /** 全仓便利：一键载入该商户全部在库 > 0 的 SKU（实物数留空逐行录入） */
-const loadAllInStock = () => {
+const loadAllInStock = async () => {
+  // 选商户后的数据源加载可能尚未返回：为空时就地重拉一次（防连点竞态）
+  if (inventories.value.length === 0 && editorForm.value.wholesalerId) {
+    await loadEditorSources(editorForm.value.wholesalerId)
+  }
   const existing = new Set(editorForm.value.items.map((i) => i.skuId))
   let added = 0
   for (const inv of inventories.value) {
