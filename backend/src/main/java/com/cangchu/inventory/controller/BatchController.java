@@ -5,10 +5,12 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.response.R;
 import com.cangchu.common.tenant.TenantContext;
+import com.cangchu.document.service.ClearanceRequestService;
 import com.cangchu.inventory.dto.BatchBackfillDto;
 import com.cangchu.inventory.dto.BatchToggleDto;
 import com.cangchu.inventory.service.BatchService;
 import com.cangchu.inventory.vo.BatchListVo;
+import com.cangchu.inventory.vo.ExpiryDashboardVo;
 import com.cangchu.inventory.vo.BatchToggleVo;
 import com.cangchu.inventory.vo.BatchVo;
 import jakarta.validation.Valid;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class BatchController {
 
     private final BatchService batchService;
+    private final ClearanceRequestService clearanceRequestService;
 
     /**
      * TA 批次开关专用端点（D-13 解除后的唯一改动入口；通用店铺设置接口仍拒改 50360）。
@@ -67,6 +70,18 @@ public class BatchController {
     public R<Void> notifyWholesaler(@PathVariable Long id) {
         batchService.notifyWholesalerManually(id, StpUtil.getLoginIdAsLong());
         return R.ok(null);
+    }
+
+    /**
+     * TA 临期看板（T4-W2，PRD §3.6-A）：四卡汇总 + 按 SKU 分组；
+     * 清库单待审批数经 document 域出口编排合入（G-S1：不跨域直连 Mapper）。
+     */
+    @GetMapping("/api/v1/tenant/batches/expiry-dashboard")
+    public R<ExpiryDashboardVo> expiryDashboard() {
+        Long tenantId = requireTenantId();
+        ExpiryDashboardVo vo = batchService.expiryDashboard(tenantId, StpUtil.getLoginIdAsLong());
+        vo.setPendingClearanceDocCount(clearanceRequestService.countPendingApprovalForTenant(tenantId));
+        return R.ok(vo);
     }
 
     /** 默认批次补录 production/expiry（WK/TA；仅 source=DEFAULT 且未终态）。 */
