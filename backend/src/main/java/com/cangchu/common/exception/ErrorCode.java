@@ -198,7 +198,13 @@ public enum ErrorCode {
     BATCH_TOGGLE_RATE_LIMITED(50361, "批次开关 24 小时内最多操作 2 次"),
     BATCH_NO_DUPLICATE(50362, "该批次号已存在"),
     BATCH_NOT_FOUND(50363, "批次不存在"),
-    BATCH_EXPIRED_CONFIRM_REQUIRED(50364, "该批次已过期，入库需二次确认");
+    BATCH_EXPIRED_CONFIRM_REQUIRED(50364, "该批次已过期，入库需二次确认"),
+
+    // ==================== P3b T4-W2 临期 Job + 强制清库 QK (13-p3b-design §3.3/§3.4/§4.2) ====================
+    // 清库封顶（同 D-10 口径家族第 4 处）非错误路径：审批时在库不足按剩余封顶生效+差额备注，不驳回。
+    CLEARANCE_BATCH_NOT_CLEARABLE(50365, "该批次无需清库"),
+    CLEARANCE_PHOTO_REQUIRED(50366, "清库须上传实物照片"),
+    EXPIRY_NOTIFY_RATE_LIMITED(50367, "24 小时内已通知过该批次");
 
     private final int code;
     private final String message;
