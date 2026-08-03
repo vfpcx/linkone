@@ -63,6 +63,14 @@ public class Notification {
     public static final String TYPE_STOCKTAKE_PENDING = "STOCKTAKE_PENDING";
     /** P3b T3-W2：盘点审批结论（通过含封顶差额/驳回）→ 通知发起库管；封顶差额另发 TA（D-10） */
     public static final String TYPE_STOCKTAKE_DECIDED = "STOCKTAKE_DECIDED";
+    /** P3b T4-W2：批次临期（02:00 Job 首发 D-12 去重 / WK 手动一键 24h 限 1）→ WK+WA（13 §3.3） */
+    public static final String TYPE_BATCH_EXPIRING = "BATCH_EXPIRING";
+    /** P3b T4-W2：批次到期归零标记「待清理」（02:30 Job）→ 通知库管发起清库 */
+    public static final String TYPE_BATCH_EXPIRED = "BATCH_EXPIRED";
+    /** P3b T4-W2：清库单提交待审 → 通知租户管理员（审批中心角标先例） */
+    public static final String TYPE_CLEARANCE_PENDING = "CLEARANCE_PENDING";
+    /** P3b T4-W2：清库审批结论（通过含照片凭证→商户；结论→发起库管） */
+    public static final String TYPE_CLEARANCE_DECIDED = "CLEARANCE_DECIDED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
@@ -74,6 +82,10 @@ public class Notification {
     public static final String REF_ARBITRATION = "ARBITRATION";
     /** R8 意向单作废通知跳转（BE-W2） */
     public static final String REF_INQUIRY = "INQUIRY";
+    /** P3b T4-W2：批次下钻跳转（临期/到期通知） */
+    public static final String REF_BATCH = "BATCH";
+    /** P3b T4-W2：清库单跳转 */
+    public static final String REF_CLEARANCE = "CLEARANCE";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)

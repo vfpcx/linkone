@@ -35,7 +35,9 @@ public final class DocStateMachine {
         /** 退货单（13-p3b §2.1 矩阵，T3-W1 启用；无审批） */
         RETURN,
         /** 盘点单（13-p3b §2.2 矩阵，T3-W2 启用；TA 全量审批，D23 无自动通过） */
-        STOCKTAKE
+        STOCKTAKE,
+        /** 清库单（13-p3b §3.4 矩阵，T4-W2 启用；与盘点同构，TA 审批） */
+        CLEARANCE
     }
 
     /**
@@ -120,11 +122,29 @@ public final class DocStateMachine {
                     com.cangchu.document.entity.CountSheet.STATUS_DRAFT),
             com.cangchu.document.entity.CountSheet.STATUS_APPROVED, Set.of());
 
+    /**
+     * 清库迁移矩阵（13-p3b §3.4，与盘点完全同构）：
+     * DRAFT → PENDING_APPROVAL（提交）；PENDING_APPROVAL → REJECTED（驳回，保留记录不动账）
+     * | APPROVED（锁内 clearStock 封顶 + EXPIRY_CLEARANCE 流水 + 批次 CLEARED）；
+     * REJECTED → DRAFT（重新编辑重提，pending_flag 回置 1 撞 uk_qk_batch_pending → 50365）；APPROVED 终态。
+     * 红线：DRAFT→APPROVED ❌（必须经提交）、APPROVED→任意 ❌、PENDING_APPROVAL→DRAFT ❌（提交后不可自行撤回）。
+     */
+    private static final Map<String, Set<String>> CLEARANCE_TRANSITIONS = Map.of(
+            com.cangchu.document.entity.ClearanceRequest.STATUS_DRAFT, Set.of(
+                    com.cangchu.document.entity.ClearanceRequest.STATUS_PENDING_APPROVAL),
+            com.cangchu.document.entity.ClearanceRequest.STATUS_PENDING_APPROVAL, Set.of(
+                    com.cangchu.document.entity.ClearanceRequest.STATUS_REJECTED,
+                    com.cangchu.document.entity.ClearanceRequest.STATUS_APPROVED),
+            com.cangchu.document.entity.ClearanceRequest.STATUS_REJECTED, Set.of(
+                    com.cangchu.document.entity.ClearanceRequest.STATUS_DRAFT),
+            com.cangchu.document.entity.ClearanceRequest.STATUS_APPROVED, Set.of());
+
     private static final Map<DocKind, Map<String, Set<String>>> TABLES = Map.of(
             DocKind.OUTBOUND, OUTBOUND_TRANSITIONS,
             DocKind.INBOUND, INBOUND_TRANSITIONS,
             DocKind.RETURN, RETURN_TRANSITIONS,
-            DocKind.STOCKTAKE, STOCKTAKE_TRANSITIONS);
+            DocKind.STOCKTAKE, STOCKTAKE_TRANSITIONS,
+            DocKind.CLEARANCE, CLEARANCE_TRANSITIONS);
 
     private DocStateMachine() {
     }

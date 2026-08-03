@@ -704,6 +704,68 @@ public class InventoryServiceImpl implements InventoryService {
                 .build();
     }
 
+    @Override
+    public com.cangchu.inventory.dto.ClearStockResult clearStock(com.cangchu.inventory.dto.ClearStockContext ctx) {
+        validateCtx(ctx.getWholesalerId(), ctx.getTenantId(), ctx.getSkuId(), ctx.getQty());
+        if (ctx.getBatchId() == null) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003);
+        }
+        if (ctx.getPalletReleaseOverride() != null && ctx.getPalletReleaseOverride() < 0) {
+            throw new BizException(ErrorCode.STOCK_QTY_INVALID);
+        }
+        return withLock(ctx.getWholesalerId(), ctx.getSkuId(), () -> self.doClearStockInTx(ctx));
+    }
+
+    /**
+     * 清库事务体（仅供 {@link #clearStock} 持锁经代理调用）。封顶口径家族第 4 处（13 §3.4）：
+     * <pre>
+     * applied   = min(qty, max(onhand, 0))   // onhand=审批时刻锁内重读（现场核数 vs 池在库三值收口）
+     * shortfall = qty − applied              // 调用方写单据备注定责，qty 恒 ≥0 不破
+     * </pre>
+     * applied&gt;0 才写 EXPIRY_CLEARANCE 流水（qty=applied、batch_id 落值——方案 C FIFO 直扣、
+     * biz_time=清库日仓储费当日截止、pallet_delta=−释放，默认比例/WK 覆盖双重封顶不打负、
+     * 不计正常出库统计——P4 按 type 区分）；applied=0（售罄）零冲销不写流水（LOSS 同构）。
+     */
+    @Override
+    @Transactional
+    public com.cangchu.inventory.dto.ClearStockResult doClearStockInTx(com.cangchu.inventory.dto.ClearStockContext ctx) {
+        Inventory inv = lockRowForUpdate(ctx.getWholesalerId(), ctx.getSkuId());
+        int onhand = inv != null ? Math.max(inv.getQty(), 0) : 0;
+        int applied = Math.min(ctx.getQty(), onhand);
+        int shortfall = ctx.getQty() - applied;
+
+        int released = 0;
+        Long movementId = null;
+        if (applied > 0) {
+            int palletPool = Math.max(inv.getPalletQty(), 0);
+            released = resolvePalletRelease(ctx.getPalletReleaseOverride(), palletPool, applied, onhand);
+            inv.setQty(inv.getQty() - applied);
+            inv.setPalletQty(inv.getPalletQty() - released);
+            inv.setUpdatedAt(LocalDateTime.now());
+            inventoryMapper.updateById(inv);
+
+            StockMovement mv = newMovement(ctx.getSkuId(), ctx.getWholesalerId(), ctx.getTenantId(),
+                    StockMovement.TYPE_EXPIRY_CLEARANCE, applied, ctx.getRefDocNo(), ctx.getOperatorUserId());
+            mv.setBizTime(LocalDateTime.now());
+            mv.setPalletDelta(-released);
+            mv.setBatchId(ctx.getBatchId());
+            stockMovementMapper.insert(mv);
+            movementId = mv.getId();
+        }
+
+        log.info("[P3b] clearStock wholesaler={} sku={} batch={} target={} onhand={} applied={} shortfall={} palletReleased={} (doc={})",
+                ctx.getWholesalerId(), ctx.getSkuId(), ctx.getBatchId(), ctx.getQty(), onhand, applied,
+                shortfall, released, ctx.getRefDocNo());
+        return com.cangchu.inventory.dto.ClearStockResult.builder()
+                .appliedQty(applied)
+                .shortfallQty(shortfall)
+                .palletReleased(released)
+                .movementId(movementId)
+                .remainingQty(inv != null ? inv.getQty() : 0)
+                .remainingPalletQty(inv != null ? inv.getPalletQty() : 0)
+                .build();
+    }
+
     /**
      * 托盘释放量决议（13 §2.4-2 / 05 §3.3，退货侧：件数与托盘同事务同时扣）：
      * 覆盖值优先（含 0）；默认=ceil(池 pallet × 本次件数 / 变动前在库)，

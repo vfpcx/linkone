@@ -142,6 +142,18 @@ public interface InventoryService {
     com.cangchu.inventory.dto.LossStockResult doLossStockInTx(com.cangchu.inventory.dto.LossStockContext ctx);
 
     /**
+     * 清库联动（P3b T4-W2，13 §3.4：QK 审批通过）：applied = min(qty, max(onhand,0))
+     * （封顶口径家族第 4 处，onhand=审批时刻锁内重读）；applied&gt;0 写 EXPIRY_CLEARANCE 流水
+     * （qty=applied、<b>batch_id 落值</b>、biz_time=清库日仓储费当日截止、pallet_delta=−释放
+     * 默认比例/WK 覆盖双重封顶、不计正常出库统计）；applied=0（售罄）零冲销不写流水。
+     * 批次状态流转（remaining 清零/CLEARED）由调用方经 BatchService 处理，本方法只管池与流水。
+     */
+    com.cangchu.inventory.dto.ClearStockResult clearStock(com.cangchu.inventory.dto.ClearStockContext ctx);
+
+    /** 清库事务体（内部用）：仅由 {@link #clearStock} 持锁后经代理调用。<b>勿直接调用</b>。 */
+    com.cangchu.inventory.dto.ClearStockResult doClearStockInTx(com.cangchu.inventory.dto.ClearStockContext ctx);
+
+    /**
      * 断言库存足够；不足抛 STOCK_NOT_ENOUGH，库存行不存在抛 INVENTORY_NOT_FOUND。
      * 只读校验，不加锁（真正扣减以 deductStock 锁内再校验为准）。
      */

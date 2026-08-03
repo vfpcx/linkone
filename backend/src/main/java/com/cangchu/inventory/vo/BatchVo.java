@@ -38,6 +38,10 @@ public class BatchVo {
 
     private String status;
     private String source;
+
+    /** WK 一键通知商户时刻（T4-W2：FE 按 24h 冷却置灰按钮并显示剩余时间，50367） */
+    private LocalDateTime manualNotifiedAt;
+
     private LocalDateTime clearedAt;
     private LocalDateTime createdAt;
 }
