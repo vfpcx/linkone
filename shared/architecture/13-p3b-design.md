@@ -482,6 +482,27 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 
 ---
 
+## 附：T4-W2 据实现备注（2026-08-03，branch feat/p3b-expiry，据实现编写）
+
+> 实现与本设计一致处不重复；以下为落地补充口径与偏差，T4-FE 波次以此为准。
+
+1. **开工实测**：main@e594369（含 T4-W1 全部）迁移最高 V22，V23 号无冲突启用；`clearance_requests` 纳入 TenantLine 白名单。
+2. **V23 附带纠偏（§3.1 蓝图笔误实测暴露）**：`batches.status VARCHAR(16)` 容不下 `PENDING_CLEARANCE`（17 字符），02:30 归零标记写入即溢出——V23 拓宽为 VARCHAR(32)（V23 未上任何环境，就地并入，不另起版本）。
+3. **派工简报口径纠偏**：简报所述「TA 对 EXPIRING 批次发起→WA 确认三选处置（折价出清/退货取回/销毁）→WK 登记执行」在本设计与 PRD 11 中均无出处，按真源（§3.4/PRD §3.5）实现：**WK 发起（仅 PENDING_CLEARANCE 且推算剩余>0，50365）→ TA 审批**；「三选」实为清库原因单选 EXPIRED（过期）/DAMAGED（损坏）/OTHER（其他，备注必填）。商户的降价/退货动作走既有链路（PRD §3.4 批发商端），不入 QK 单。
+4. **端点按 §5.3 落地** + 补充 `DELETE /api/v1/tenant/clearance-requests/{id}`（仅 DRAFT，盘点 T3-W2 先例）、`GET /{id}` 详情、**`GET /api/v1/tenant/batches/expiry-dashboard`**（TA 临期看板，PRD §3.6-A 四卡+按 SKU 分组；清库待审批数经 `ClearanceRequestService.countPendingApprovalForTenant` 在 Controller 编排合入，G-S1）。docNo 前缀 `QK-`（DocType.CLEARANCE，A3 零改造实测通过）；待审批队列创建升序，其余倒序。
+5. **D-12 首发落地**：02:00 Job 体 `BatchService.runDailyRecalcAndNotify()`（测试直驱）——逐 newlyExpiring **条件更新 `expiring_notified_at IS NULL` 的赢者才发**（Job 重跑/并发恰发一次）；单批次通知失败锚点不落、次日自动补发；收件人=库管全员+商户管理员全员各一条（user_roles 推导先例），文案零角色码，不发短信。
+6. **02:30 归零标记落地**：`markExpiredBatches()` 按 batch_enabled=1 租户扫 `expiry_date < CURDATE()`（SQL 内比数据库时间，**当日到期不标、昨日标**）∧ status∈(IN_STOCK,EXPIRING) ∧ remaining>0；逐批 CAS（status 仍在扫描集）赢者才发 `BATCH_EXPIRED`（重跑幂等不重发）；remaining=0 者由 02:00 落 SOLD_OUT 不清库。单租户失败吞并记日志。
+7. **手动一键通知**：仅 WK（§5.3）；仅 EXPIRING/PENDING_CLEARANCE（否则 50330 语义）；24h 限 1=条件更新 `manual_notified_at <= NOW() - INTERVAL '24' HOUR`（双方言，T1 备注 6 先例），败者 50367，并发双点恰一成功；`BatchVo` 增 `manualNotifiedAt`（FE 冷却按钮剩余时间直接可算）。
+8. **表结构偏差**：`clearance_requests.pallet_release` 由蓝图 NOT NULL DEFAULT 0 改 **NULL 化**（V21 pallet_delta 同语义先例：NULL=默认比例、非空=WK 覆盖含 0）；APPROVED 后回写**实际释放值**（RTN 先例）。
+9. **建单口径**：`qty` 可空=默认批次推算剩余；现场核数 **≤ 池当前在库**（PRD §3.5 表单口径，超出 50251——审批时刻锁内还会再封顶，两时点语义分离）；照片 ≥1（50366 刚性）≤3（40001，PRD 总纲清库凭证 ≤3）；「同批次在途 QK 已存在」复用 50365（§4.2 场景列既含此义，不另占码），先查后写 + `uk_qk_batch_pending` DuplicateKey 双兜底（并发双建实测恰一成功）。
+10. **重提与冻结**：REJECTED→DRAFT 重提时**复检批次仍 PENDING_CLEARANCE**（等待期被冻结/异常清零则 50365）；启→关冻结（批次 CLOSED）**不阻在途 QK 走完**——`markCleared` 无条件覆写 remaining=0/CLEARED/cleared_at（§3.5 提交时策略，实测断言）。applied=0（审批时售罄）：零流水、单据照常 APPROVED、批次照常 CLEARED、差额写单据备注。
+11. **clearStock 落点**：`InventoryService.clearStock`（封顶家族第 4 处，锁+doXxxInTx 同构）——EXPIRY_CLEARANCE 流水 batch_id 落值（方案 C 直扣，CLEARED 批次不入推算扫描集、其流水不进池分摊——同 SKU 其余批次推算零影响，实测断言）；托盘 resolvePalletRelease 复用（默认比例/覆盖含 0/双重封顶/全出清零释放全部）。
+12. **通知**：`CLEARANCE_PENDING`→租户联系人（审批中心角标）；`CLEARANCE_DECIDED`→商户管理员全员（**站内信含照片凭证 URL**+「仓储费当日截止、不计正常出库统计」文案）+发起库管单人；新增跳转引用 `REF_BATCH`/`REF_CLEARANCE`。R13 已扩：清库 DRAFT/PENDING_APPROVAL 计入 precheck 第 6 项（REJECTED 不在途不计）。
+13. **T4-FE 契约**：`GET /tenant/batches/expiring` 返回 BatchListVo（EXPIRING∪PENDING_CLEARANCE 剩余天数升序；行含 `manualNotifiedAt`、`remainingDays` 可负=已过期）；`GET /tenant/batches/expiry-dashboard` 返回 `ExpiryDashboardVo{thresholdDays, expiringBatchCount/expiringQtyTotal, expiredBatchCount/expiredQtyTotal, clearedBatchCount, pendingClearanceDocCount, bySku:[{skuId, skuName, wholesalerId, expiringBatchCount, expiredBatchCount, remainingQtyTotal, nearestExpiryDate}]}`（skuId/wholesalerId 字符串键防 JS 精度，组间最近到效期升序）；清库详情 `GET /{id}` 附 `batchNo/batchExpiryDate/batchRemainingQty/currentStock/suggestedPalletRelease`（审批弹窗封顶预览=min(qty, currentStock)，免另拉库存接口）。SchedulingConfig 注释新增全仓 cron 占位表（02:00/02:30 已登记，多副本前 ShedLock）。
+14. **测试**：新增 `ExpiryClearanceScenarioTest` 19 用例（D-12 首发一次+重跑不重发+远期不发/归零边界三态+幂等/02:00 不降级 PENDING_CLEARANCE 回归/手动 24h 限 1 四路/预警列表升序+权限/建单校验 10 路/QK 矩阵 4×4 逐格+端点红线/原因三选全链流水锚点/封顶三值/applied=0/托盘全出清零/CLEARED 不复算/驳回重提/冻结走完/R13 四段/看板四卡+bySku/越权矩阵/虚拟线程并发双建+审批×出库两分支对账）；全量 **337 绿**（基线 318 零回归）。
+
+---
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
@@ -491,3 +512,4 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 | v1.2 | 2026-08-01 | 附「T3-W1 据实现备注」11 条（退货不足复用 50251 纠偏/R14 不接退货防清库死锁/通知两类偏差/托盘决议与出库分母口径/双写迁列+读侧列优先/代建出库托盘遗留点/D-13 传 0 放行/T3-FE 契约 currentStock·suggestedPalletRelease/测试 285 绿） |
 | v1.3 | 2026-08-02 | 附「T3-W2 据实现备注」12 条（V21 pallet_delta NULL 化偏差+生效值回写/DELETE 草稿补端点/pending_flag REJECTED=NULL 口径/审批 CAS 先行+skuId 升序防死锁/封顶差额双收件人/代建托盘遗留点收口/in-transit-hint 契约/明细 ≤200/测试 303 绿） |
 | v1.4 | 2026-08-03 | 附「T4-W1 据实现备注」14 条（40205/40206 实为新增枚举纠偏/批次落 inventory 域+零侵入对照实测/开关幂等与计次口径/同日再启用默认批次后缀/入库即 EXPIRING/50364 判定时点/纠错 batch_id 后置回填/推算三态联动与 PENDING_CLEARANCE 不降级/T4-W2 recalc 契约/T4-FE BatchListVo 契约/T1 收尾 attachments+ACCEPTED→REJECTED/测试 318 绿） |
+| v1.5 | 2026-08-03 | 附「T4-W2 据实现备注」14 条（V23 拓宽 batches.status 纠偏/派工简报「三选处置」口径纠偏按真源 WK 发起 TA 审批/D-12 锚点条件更新恰发一次/02:30 当日不标昨日标/手动通知仅 WK 24h 条件更新/pallet_release NULL 化偏差/在途重复复用 50365/冻结在途走完+applied=0 照 CLEARED/CLEARED 流水不进池分摊/expiry-dashboard 契约+DELETE·GET 详情补端点/R13 第 6 项/测试 337 绿） |
