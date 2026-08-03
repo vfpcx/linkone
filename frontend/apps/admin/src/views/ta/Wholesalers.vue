@@ -31,6 +31,8 @@ import {
   Plus,
   Stamp,
   Van,
+  RefreshLeft,
+  Checked,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type {
@@ -93,6 +95,8 @@ const menus: MenuItem[] = [
   { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
   { key: '/ta/outbound', label: '出库作业', icon: Van },
+  { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
+  { key: '/ta/stocktake', label: '盘点', icon: Checked },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -111,7 +115,9 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/employees' ||
     key === '/ta/wholesaler-applications' ||
     key === '/ta/approvals' ||
-    key === '/ta/outbound'
+    key === '/ta/outbound' ||
+    key === '/ta/returns' ||
+    key === '/ta/stocktake'
   ) {
     router.push(key)
     return

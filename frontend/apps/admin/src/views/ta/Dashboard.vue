@@ -35,6 +35,8 @@ import {
   TrendCharts,
   Stamp,
   Van,
+  RefreshLeft,
+  Checked,
 } from '@element-plus/icons-vue'
 import { AppTopbar, CapacityBar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import { useAuthStore } from '@/stores/auth'
@@ -115,6 +117,8 @@ const menus = computed<MenuItem[]>(() => [
     badge: dashboard.value.kpi.pendingInbound,
   },
   { key: '/ta/outbound', label: '出库作业', icon: Van },
+  { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
+  { key: '/ta/stocktake', label: '盘点', icon: Checked },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   {
     key: '/ta/approvals',
@@ -141,7 +145,9 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/employees' ||
     key === '/ta/wholesaler-applications' ||
     key === '/ta/approvals' ||
-    key === '/ta/outbound'
+    key === '/ta/outbound' ||
+    key === '/ta/returns' ||
+    key === '/ta/stocktake'
   ) {
     router.push(key)
     return

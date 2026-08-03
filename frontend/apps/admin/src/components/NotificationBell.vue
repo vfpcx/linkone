@@ -87,6 +87,35 @@ const onItemClick = async (item: NotificationItem) => {
 const formatTime = (v: string | null): string =>
   v ? String(v).replace('T', ' ').slice(0, 19) : '—'
 
+/**
+ * 通知类型 → 中文标签（零角色码/零英文枚举透出；未知类型不出标签）。
+ * P3b T3-FE 补 RETURN_* / STOCKTAKE_* 四枚（13 §5.3 通知类型清单）。
+ */
+const NOTIF_TYPE_LABELS: Record<string, string> = {
+  INBOUND_PENDING_CONFIRM: '入库待确认',
+  INBOUND_AUTO_CONFIRMED: '入库自动确认',
+  DISPUTE_CREATED: '入库异议',
+  ARBITRATION_DECIDED: '仲裁结论',
+  OUTBOUND_WITHDRAW_REQUESTED: '出库撤回申请',
+  OUTBOUND_WITHDRAWN: '出库已撤回',
+  OUTBOUND_WITHDRAW_REJECTED: '撤回被拒',
+  OUTBOUND_PROXY_CREATED: '代建出库',
+  COMPLAINT_CREATED: '出库客诉',
+  INQUIRY_VOIDED: '意向单作废',
+  INBOUND_SUBMITTED: '入库申请',
+  INBOUND_ACCEPTED: '入库已受理',
+  INBOUND_REJECTED: '入库被驳回',
+  INBOUND_REGISTERED: '入库完成',
+  CORRECTION_PENDING: '纠错待审',
+  CORRECTION_DECIDED: '纠错结论',
+  RETURN_CREATED: '退货申请',
+  RETURN_COMPLETED: '退货完成',
+  STOCKTAKE_PENDING: '盘点待审',
+  STOCKTAKE_DECIDED: '盘点结论',
+}
+const typeLabel = (t: string | null | undefined): string =>
+  t ? (NOTIF_TYPE_LABELS[t] ?? '') : ''
+
 onMounted(() => {
   void fetchUnread()
   timer = setInterval(fetchUnread, 60_000)
@@ -138,6 +167,15 @@ onBeforeUnmount(() => {
         >
           <div class="cc-bell-item__head">
             <span class="cc-bell-item__dot" aria-hidden="true" />
+            <el-tag
+              v-if="typeLabel(item.type)"
+              size="small"
+              effect="plain"
+              class="cc-bell-item__type"
+              data-test="notification-type-tag"
+            >
+              {{ typeLabel(item.type) }}
+            </el-tag>
             <span class="cc-bell-item__title">{{ item.title }}</span>
             <span class="cc-bell-item__time">{{ formatTime(item.createdAt) }}</span>
           </div>
@@ -213,6 +251,9 @@ onBeforeUnmount(() => {
 }
 .cc-bell-item.is-read .cc-bell-item__dot {
   background: transparent;
+}
+.cc-bell-item__type {
+  flex-shrink: 0;
 }
 .cc-bell-item__title {
   font-weight: var(--font-weight-semibold);

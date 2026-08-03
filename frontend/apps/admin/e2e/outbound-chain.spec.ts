@@ -253,10 +253,12 @@ test.describe('P3 出库链', () => {
     await expect(row).toContainText('CK-', { timeout: 15_000 })
     await expect(row).toContainText('已打印')
 
-    // 登记出库
+    // 登记出库（P3b T3-FE：弹窗含托盘释放输入，默认建议值直接提交）
     await row.locator('[data-test="register-btn"]').click()
-    await expect(page.locator('.el-message-box')).toContainText('登记出库', { timeout: 10_000 })
-    await page.locator('.el-message-box__btns .el-button--primary').click()
+    const outRegDialog = page.locator('[data-test="outbound-register-dialog"]')
+    await expect(outRegDialog).toBeVisible({ timeout: 10_000 })
+    await expect(outRegDialog).toContainText('登记出库')
+    await outRegDialog.locator('[data-test="outbound-register-submit"]').click()
     await expect(page.locator('.el-message--success')).toContainText('已登记出库', { timeout: 15_000 })
 
     // 切到「已完成」页签验证

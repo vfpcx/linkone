@@ -211,10 +211,199 @@ export interface OpsArbitrationDecideRequest {
   remark: string
 }
 
+// ============ 退货单（return-requests · P3b T3-W1） ============
+
+/**
+ * 退货单状态（13 §2.1 状态机，无审批）：
+ * PENDING_ACCEPT 待受理 → WITHDRAWN 已撤回（终态，仅待受理可撤）
+ *                       | ACCEPTED 已受理（WK 锁单防撤回）→ COMPLETED 已退货（终态）
+ * 库存时点 D-7：登记时扣——待受理/已受理期间货仍可售、库存零变化。
+ */
+export type ReturnStatus = 'PENDING_ACCEPT' | 'WITHDRAWN' | 'ACCEPTED' | 'COMPLETED'
+
+/**
+ * 退货单视图（ReturnRequestVo；WA 列表 / WK 受理队列共用）。
+ * 权威来源：TenantReturnController / WholesalerReturnController（据实查证）。
+ * 13 v1.2 备注 10：租户侧 status=PENDING_ACCEPT/ACCEPTED 时每行附
+ * currentStock 与 suggestedPalletRelease（登记页免另拉库存接口）。
+ */
+export interface ReturnRequest {
+  id: SnowflakeId
+  /** 退货单号（RTN-） */
+  docNo: string
+  tenantId: SnowflakeId
+  wholesalerId: SnowflakeId
+  skuId: SnowflakeId
+  /** 退货件数（提交落值；登记可按实覆写并留痕） */
+  qty: number
+  /** 实际释放托盘（登记后回写封顶后的生效值；登记前 0） */
+  palletRelease: number | null
+  status: ReturnStatus | string
+  withdrawReason: string | null
+  waUserId: SnowflakeId | null
+  wkUserId: SnowflakeId | null
+  acceptedAt: string | null
+  completedAt: string | null
+  remark: string | null
+  createdAt: string
+  /** 当前在库件数（受理/登记链路附带；其余 null） */
+  currentStock: number | null
+  /** 默认释放托盘建议值（13 §2.4-2 公式；WK 可覆盖含 0） */
+  suggestedPalletRelease: number | null
+}
+
+/** WA 发起退货（POST /wholesaler/return-requests）：软校验在库，超量拒绝（50251） */
+export interface ReturnCreateRequest {
+  skuId: SnowflakeId
+  qty: number
+  /** 退货原因/备注（选填 ≤512） */
+  remark?: string
+}
+
+/** WA 撤回退货（POST /wholesaler/return-requests/{id}/withdraw；仅待受理，理由必填） */
+export interface ReturnWithdrawRequest {
+  reason: string
+}
+
+/**
+ * WK 退货登记（POST /tenant/return-requests/{id}/register · D-7 登记时扣）。
+ * 在库不足 → 50251（单据保持已受理，联系商户改单）。
+ */
+export interface ReturnRegisterRequest {
+  /** 实退件数（可空=按申请件数；覆写时后端自动留痕） */
+  actualQty?: number
+  /** 释放托盘覆盖值（可空=默认建议值；0 合法=托盘未腾空；落库前封顶） */
+  palletRelease?: number
+  /** 登记备注（选填 ≤512） */
+  remark?: string
+}
+
+// ============ 盘点单（count-sheets · P3b T3-W2） ============
+
+/**
+ * 盘点单状态（13 §2.2 状态机）：
+ * DRAFT 草稿（可编辑/删除）→ PENDING_APPROVAL 待审批 → APPROVED 已通过（终态不可逆）
+ *                                              | REJECTED 已驳回 →（编辑重提回）DRAFT
+ * 同商户在途（DRAFT/PENDING_APPROVAL）至多一张（50356）。
+ */
+export type CountSheetStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'REJECTED' | 'APPROVED'
+
+/** TA 审批结论 */
+export type CountSheetConclusion = 'APPROVED' | 'REJECTED'
+
+/**
+ * 盘点明细行视图（CountSheetItemVo）。
+ * 13 v1.3 备注 3：palletDelta NULL=盘亏默认比例建议值、非空=WK 覆盖（含 0）；
+ * 审批通过后回写生效带符号值（盘盈 +M / 盘亏 −实际释放）；
+ * appliedDiff 同样带符号（盘盈 +diff / 盘亏 −applied / 无差异 0），驳回恒 null。
+ */
+export interface CountSheetItem {
+  id: SnowflakeId
+  skuId: SnowflakeId
+  /** SKU 名称（详情链路填充，前端免二次拉取） */
+  skuName: string | null
+  /** 提交时刻账面快照（草稿期为预填当刻账面） */
+  systemQty: number
+  /** 实物数 ≥0 */
+  actualQty: number
+  /** 差异 = 实物 − 账面（正=盘盈、负=盘亏；不做在途还原折算） */
+  diff: number
+  /** 审批通过实际生效值（盘亏 D-10 封顶后带符号）；驳回/未决 null */
+  appliedDiff: number | null
+  /** 托盘覆盖值/生效值（null=按默认建议值） */
+  palletDelta: number | null
+  remark: string | null
+  /** 当前在库（详情链路只读快照——审批弹窗封顶预览 min(|盘亏|, currentStock)） */
+  currentStock: number | null
+  /** 盘亏默认释放托盘建议值（盘盈/无差异行为 null） */
+  suggestedPalletRelease: number | null
+}
+
+/**
+ * 在途提示条聚合（StocktakeInTransitHintVo · 13 v1.3 备注 9）：
+ * 出库在途=PENDING_ACCEPT/PRINTED、退货在途=ACCEPTED（待受理退货不计）。
+ * skuId 字符串键防 JS 精度丢失。
+ */
+export interface StocktakeInTransitHint {
+  outboundDocCount: number
+  outboundQtyTotal: number
+  returnDocCount: number
+  returnQtyTotal: number
+  skuOutboundQty: Record<string, number> | null
+  skuReturnQty: Record<string, number> | null
+}
+
+/** 盘点单视图（CountSheetVo；列表精简 / 详情含 items + inTransitHint） */
+export interface CountSheet {
+  id: SnowflakeId
+  /** 盘点单号（PD-） */
+  docNo: string
+  tenantId: SnowflakeId
+  wholesalerId: SnowflakeId
+  /** 商户名（详情链路填充） */
+  wholesalerName: string | null
+  status: CountSheetStatus | string
+  wkUserId: SnowflakeId | null
+  taUserId: SnowflakeId | null
+  decidedAt: string | null
+  rejectRemark: string | null
+  remark: string | null
+  attachments: string[] | null
+  createdAt: string
+  updatedAt: string | null
+  /** 明细（详情链路） */
+  items: CountSheetItem[] | null
+  /** 在途提示条（详情链路；已决单仍返回当刻值供追溯） */
+  inTransitHint: StocktakeInTransitHint | null
+}
+
+/** 盘点明细行入参（CountSheetItemDto；items 全量替换语义） */
+export interface CountSheetItemInput {
+  skuId: SnowflakeId
+  /** 实物数 ≥0 */
+  actualQty: number
+  /** 托盘覆盖值（省略=默认建议值；0 合法=托盘未腾空） */
+  palletDelta?: number
+  /** 差异理由 ≤512 */
+  remark?: string
+}
+
+/** WK 建盘点草稿（POST /tenant/count-sheets；items ≥1 行 ≤200 行、同单 SKU 不重复 50355） */
+export interface CountSheetCreateRequest {
+  wholesalerId: SnowflakeId
+  remark?: string
+  /** 现场照片 URL ≤5 */
+  attachments?: string[]
+  items: CountSheetItemInput[]
+}
+
+/** WK 编辑草稿/驳回重改（PUT /tenant/count-sheets/{id}；items 全量替换） */
+export interface CountSheetUpdateRequest {
+  remark?: string
+  attachments?: string[]
+  items: CountSheetItemInput[]
+}
+
+/** TA 审批（POST /tenant/count-sheets/{id}/decide；REJECTED 时 remark 必填） */
+export interface CountSheetDecideRequest {
+  conclusion: CountSheetConclusion
+  remark?: string
+}
+
+/**
+ * WK 登记出库入参（P3b T3-W1 改造 · D-8=A 出库处托盘补齐）。
+ * body 整体可选（旧调用不传行为兼容——按默认建议值释放）。
+ */
+export interface OutboundRegisterRequest {
+  /** 释放托盘覆盖值（可空=默认建议值；0 合法；落库前对在库托盘封顶） */
+  palletRelease?: number
+}
+
 // ============ 站内信（notifications） ============
 
 /**
- * 站内信类型（Notification 实体常量；OUTBOUND_* / COMPLAINT_* 已随 BE-W2 落地）
+ * 站内信类型（Notification 实体常量；OUTBOUND_* / COMPLAINT_* 已随 BE-W2 落地；
+ * INBOUND_*（正向链）/ CORRECTION_* 随 P3b T1、RETURN_* 随 T3-W1、STOCKTAKE_* 随 T3-W2 落地）
  */
 export type NotificationType =
   | 'INBOUND_PENDING_CONFIRM'
@@ -226,6 +415,17 @@ export type NotificationType =
   | 'OUTBOUND_WITHDRAW_REJECTED'
   | 'OUTBOUND_PROXY_CREATED'
   | 'COMPLAINT_CREATED'
+  | 'INQUIRY_VOIDED'
+  | 'INBOUND_SUBMITTED'
+  | 'INBOUND_ACCEPTED'
+  | 'INBOUND_REJECTED'
+  | 'INBOUND_REGISTERED'
+  | 'CORRECTION_PENDING'
+  | 'CORRECTION_DECIDED'
+  | 'RETURN_CREATED'
+  | 'RETURN_COMPLETED'
+  | 'STOCKTAKE_PENDING'
+  | 'STOCKTAKE_DECIDED'
 
 /** 站内信出参（NotificationVo） */
 export interface NotificationItem {

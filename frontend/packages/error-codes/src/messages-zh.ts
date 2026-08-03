@@ -134,6 +134,12 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_INBOUND_CORRECTION_PENDING_EXISTS]: '该单已有待审批的纠错申请',
   [ErrorCode.STATE_INBOUND_CORRECTION_INVALID]: '纠错件数无效',
 
+  // P3b T3 退货 / 盘点（50355-50360 · 13-p3b-design.md §4.2 userMessage 对齐）
+  [ErrorCode.STATE_STOCKTAKE_ITEMS_INVALID]: '盘点明细为空或存在重复商品',
+  [ErrorCode.STATE_STOCKTAKE_OPEN_EXISTS]: '该商户已有进行中的盘点单',
+  [ErrorCode.STATE_BATCH_FEATURE_NOT_READY]: '批次功能开发中，暂不可开启',
+  [ErrorCode.STATE_STOCK_NOT_ENOUGH]: '当前在库不足，无法完成本次操作',
+
   [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
   [ErrorCode.STATE_BILL_DISPATCHED]: '账单已下发，不能直接调整',
   [ErrorCode.STATE_BILL_PAID]: '账单已结清，无法继续操作',
