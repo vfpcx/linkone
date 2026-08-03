@@ -461,6 +461,27 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 
 ---
 
+## 附：T4-W1 据实现备注（2026-08-03，branch feat/p3b-batches，据实现编写）
+
+> 实现与本设计一致处不重复；以下为落地补充口径与偏差，T4-W2 / T4-FE 波次以此为准。
+
+1. **开工实测**：main@75cc6c6（含 T3-W2 全部）迁移最高 V21，V22 号无冲突启用；`batches` 纳入 TenantLine 白名单。
+2. **40205/40206 实为本波新增 Java 枚举**（§3.1 写「现有码」有误——05-error-codes.md 早已登记编号但 ErrorCode 枚举此前未落）：`VALIDATION_BUSINESS_005/006`，文案沿 05 表。50361-50364 按 §4.2 启用；50360 保留、语义转「专用端点外禁改」（通用设置接口守卫代码不动）。
+3. **`EXPIRY_CLEARANCE` 流水类型常量 T4-W1 先落**（`StockMovement.TYPE_EXPIRY_CLEARANCE`，FIFO 直扣公式 §3.2-2 引用）；写入方（QK 审批）随 T4-W2。
+4. **登记簿归属域**：批次全套落 `inventory` 域（`Batch/BatchMapper/BatchService[Impl]/BatchController`），流水 batch_id 回填由 BatchService 同域直连 StockMovementMapper（G-S1 合规）；document 域经 `BatchService` 后置钩子接入——**InventoryService 交易方法零改动**（零侵入经对照断言实测：开/关两档 INBOUND 流水除 batch_id 外逐字段一致）。
+5. **开关幂等口径**：目标状态=当前状态 → 空转返回（不计次、不生成默认批次、不动 batch_enabled_at、**无需 confirmed**）；仅真实翻转要求 confirmed=true（缺失 40003）并计入 24h 限 2（Redisson `RAtomicLong batch:toggle:{tenantId}`，首个计次落 24h TTL；计次在翻转成功后落——失败可立即重试，PricingService F2 冷却先例）。
+6. **同日再启用默认批次 uk 冲突（设计未载明）**：批次号追加序号后缀 `DEFAULT-{YYYYMMDD}-{n}`（n=同前缀既有行数+1）；CLOSED 旧默认批次不复活（实测断言）。
+7. **入库即临期**：登记时到效期−今日 ≤ 阈值 → 批次直落 `EXPIRING`（PRD §3.2「入库后立即进入临期列表」；过期批次凭 50364 凭据放行后同样落 EXPIRING，02:30 归零标记归 T4-W2）。D-12 首发通知**不在登记时发**，统一由 02:00 Job 消费 `newlyExpiringBatchIds`。
+8. **50364 判定时点**：正向链在**登记**时按单据自身 expiry_date 判（提交时策略 §7.2：不重校验当刻开关）；代建链提交=登记同刻判。50362 双层：提交预检（含同批提交内 (sku,batchNo) 重复）+ 登记 insert 撞 uk 权威兜底（整体回滚、单据保持 ACCEPTED，实测库存零残留）。
+9. **CORRECTION_IN/OUT batch_id**：纠错审批通过后由 `tagCorrectionMovement(movementId,…)` 后置回填（原单无批次/批次行缺失静默跳过不阻断）；applied=0 售罄无流水自然跳过。
+10. **FIFO 推算落地细节**：状态联动仅在 IN_STOCK/EXPIRING/SOLD_OUT 三态间迁移（回补可从 SOLD_OUT 复活为 IN_STOCK/EXPIRING）；PENDING_CLEARANCE 只覆写 remaining_qty 不降级（防 02:30 标记被 02:00 复算撤销）；CLEARED/CLOSED 不触。「首次入库时间」取登记簿 `batches.created_at`（一批一行，与首条 INBOUND 同刻）。「无批次在池量」查询侧现算不落库（`listForTenant` 下钻时返回，可为负=推算滞后窗口，UI 归 0 展示）。
+11. **T4-W2 契约（02:00/02:30 双 Job 直接调用）**：`BatchService.recalcTenant(Long tenantId) → BatchRecalcResultVo{tenantId, scannedBatches, soldOutCount, expiringCount, newlyExpiringBatchIds}`（每租户独立事务）与 `recalcAll()`（内部按 `TenantService.listBatchEnabledTenantIds()` 过滤、单租户异常吞并记日志）；02:00 Job=recalcAll + 逐 newlyExpiring 发 `BATCH_EXPIRING`（WK+WA）+ 落 expiring_notified_at；02:30 归零标记自行扫 `expiry_date<CURDATE() ∧ status∈(IN_STOCK,EXPIRING) ∧ remaining>0`。
+12. **T4-FE 契约**：批次端点四个按 §5.3 落地（toggle/tenant 列表+补录/wholesaler 只读）；列表返回 `BatchListVo{list:[BatchVo], unpooledQty?}`，`BatchVo` 含 `remainingDays`（expiry−today，可负）；**不含 skuName/wholesalerName**（FE 以现有 SKU/商户接口自行映射，与盘点详情带名策略不同——批次列表量大免 join）。补录仅 source=DEFAULT 且非 CLEARED/CLOSED（违者 50330 语义复用），50363 不泄漏存在性。
+13. **T1 收尾两项**：`InboundSubmitDto` 顶层 `attachments ≤5`（N2 白名单，随拆单落每张申请单，登记照片覆写）；状态机补 `ACCEPTED→REJECTED`（rejectByWk CAS from=当前状态，通知/文案沿用；REJECTED→ACCEPTED 红线不变）——存量 `InboundForwardChainScenarioTest` 两用例（矩阵/T1-ACC-01）按新矩阵适配。
+14. **测试**：新增 `BatchChainScenarioTest` 15 用例（默认批吸收快照/幂等/24h 限 2/缺凭据 40003/冻结+同日再启用后缀/登记簿零侵入对照/代建落簿/40205-40206-40003/50362 三路含 uk 兜底回滚/50364 两态+入库即 EXPIRING/FIFO 三场景：单批+GAIN 抵扣、跨批分摊 NULLS LAST 默认批垫底、切割点历史吸收不重复扣抵/幂等重跑/关后 recalc 空转/T1 附件三态/ACCEPTED 驳回+通知+红线回归）；全量 **318 绿**（基线 303 零回归）。
+
+---
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
@@ -469,3 +490,4 @@ BE 五波**串行**（迁移号+流水枚举+DocStateMachine 矩阵单线）；�
 | v1.1 | 2026-07-31 | 附「T1-BE 据实现备注」10 条（docNo 前缀 WK-/整批通知/CAS 败方两态/防绕行/纠错托盘 remark 快照过渡/24h SQL 方言/R13 口径/SKU 放宽范围/测试 270 绿） |
 | v1.2 | 2026-08-01 | 附「T3-W1 据实现备注」11 条（退货不足复用 50251 纠偏/R14 不接退货防清库死锁/通知两类偏差/托盘决议与出库分母口径/双写迁列+读侧列优先/代建出库托盘遗留点/D-13 传 0 放行/T3-FE 契约 currentStock·suggestedPalletRelease/测试 285 绿） |
 | v1.3 | 2026-08-02 | 附「T3-W2 据实现备注」12 条（V21 pallet_delta NULL 化偏差+生效值回写/DELETE 草稿补端点/pending_flag REJECTED=NULL 口径/审批 CAS 先行+skuId 升序防死锁/封顶差额双收件人/代建托盘遗留点收口/in-transit-hint 契约/明细 ≤200/测试 303 绿） |
+| v1.4 | 2026-08-03 | 附「T4-W1 据实现备注」14 条（40205/40206 实为新增枚举纠偏/批次落 inventory 域+零侵入对照实测/开关幂等与计次口径/同日再启用默认批次后缀/入库即 EXPIRING/50364 判定时点/纠错 batch_id 后置回填/推算三态联动与 PENDING_CLEARANCE 不降级/T4-W2 recalc 契约/T4-FE BatchListVo 契约/T1 收尾 attachments+ACCEPTED→REJECTED/测试 318 绿） |
