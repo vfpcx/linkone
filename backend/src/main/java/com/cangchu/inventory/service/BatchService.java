@@ -56,6 +56,54 @@ public interface BatchService {
     /** 全平台推算：对全部 batch_enabled=1 租户逐个 {@link #recalcTenant}（单租户失败记日志不阻断）。 */
     List<BatchRecalcResultVo> recalcAll();
 
+    // ==================== T4-W2：临期 Job 体 + 通知 + 预警（13 §3.3） ====================
+
+    /**
+     * 02:00 Job 体（BatchRecalcJob 调用，测试可直驱）：{@link #recalcAll} 后逐
+     * {@code newlyExpiringBatchIds} 发 BATCH_EXPIRING 站内信（库管+商户管理员各一条，D-12）。
+     * 去重锚点：条件更新 {@code expiring_notified_at IS NULL} 的赢者才发——重复跑/并发恰发一次，
+     * 状态不变不重发；单批次通知失败记日志不阻断。
+     */
+    List<BatchRecalcResultVo> runDailyRecalcAndNotify();
+
+    /**
+     * 02:30 Job 体（BatchExpiryMarkJob 调用，测试可直驱）：按 batch_enabled=1 租户扫
+     * {@code expiry_date < CURDATE() ∧ status ∈ (IN_STOCK, EXPIRING) ∧ remaining_qty > 0}
+     * → 标 PENDING_CLEARANCE 并通知库管发起清库（BATCH_EXPIRED）。SQL 内比数据库时间——
+     * 当日到期不标、昨日标；remaining=0 者由 02:00 推算落 SOLD_OUT 不清库。
+     * 单租户失败记日志不阻断。
+     *
+     * @return 本次标记的批次数
+     */
+    int markExpiredBatches();
+
+    /**
+     * WK 手动一键通知商户（13 §5.3）：仅 EXPIRING/PENDING_CLEARANCE 批次（否则 50330 语义）；
+     * 同批次 24h 限 1（条件更新 manual_notified_at 比对 SQL 数据库时间，超限 50367）；
+     * 站内信发商户管理员（BATCH_EXPIRING，不发短信）。
+     */
+    void notifyWholesalerManually(Long batchId, Long userId);
+
+    /** 临期预警列表（WK/TA，13 §5.3）：EXPIRING ∪ PENDING_CLEARANCE，剩余天数升序。 */
+    BatchListVo listExpiring(Long tenantId, Long userId);
+
+    /**
+     * TA 临期看板汇总（PRD §3.6-A）：临期/待清理批次数与推算件数、已清库累计、按 SKU 分组。
+     * 清库单待审批数由 Controller 经 ClearanceRequestService 编排填充（G-S1：不跨域直连）。
+     */
+    com.cangchu.inventory.vo.ExpiryDashboardVo expiryDashboard(Long tenantId, Long userId);
+
+    // ==================== T4-W2：清库联动出口（document 域经此接入，G-S1） ====================
+
+    /** 取本租户批次（清库单建单校验用；不存在/跨租户按不存在 50363）。 */
+    com.cangchu.inventory.vo.BatchVo getTenantBatch(Long tenantId, Long batchId);
+
+    /**
+     * 清库生效（QK 审批通过事务内调用）：remaining_qty=0、status=CLEARED、cleared_at=now。
+     * 无条件覆写——启→关冻结（CLOSED）期间的在途清库单按提交时策略走完（13 §3.5）。
+     */
+    void markCleared(Long batchId);
+
     /** 租户侧批次列表/下钻（WK/TA；wholesalerId+skuId 齐时附「无批次在池量」）。 */
     BatchListVo listForTenant(Long tenantId, Long userId, Long wholesalerId, Long skuId, String status);
 

@@ -50,6 +50,25 @@ public class BatchController {
                 requireTenantId(), StpUtil.getLoginIdAsLong(), wholesalerId, skuId, status));
     }
 
+    /**
+     * 临期预警列表（WK/TA，T4-W2）：EXPIRING ∪ PENDING_CLEARANCE，剩余天数升序；
+     * 行含 manualNotifiedAt 供一键通知按钮 24h 冷却展示。
+     */
+    @GetMapping("/api/v1/tenant/batches/expiring")
+    public R<BatchListVo> listExpiring() {
+        return R.ok(batchService.listExpiring(requireTenantId(), StpUtil.getLoginIdAsLong()));
+    }
+
+    /**
+     * WK 一键通知商户（T4-W2，D-12 手动侧）：仅临期/待清理批次；同批次 24h 限 1（50367）；
+     * 站内信不发短信。
+     */
+    @PostMapping("/api/v1/tenant/batches/{id}/notify-wholesaler")
+    public R<Void> notifyWholesaler(@PathVariable Long id) {
+        batchService.notifyWholesalerManually(id, StpUtil.getLoginIdAsLong());
+        return R.ok(null);
+    }
+
     /** 默认批次补录 production/expiry（WK/TA；仅 source=DEFAULT 且未终态）。 */
     @PutMapping("/api/v1/tenant/batches/{id}")
     public R<BatchVo> backfill(@PathVariable Long id, @RequestBody BatchBackfillDto dto) {

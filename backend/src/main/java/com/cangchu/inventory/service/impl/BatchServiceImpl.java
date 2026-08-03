@@ -20,6 +20,11 @@ import com.cangchu.inventory.vo.BatchListVo;
 import com.cangchu.inventory.vo.BatchRecalcResultVo;
 import com.cangchu.inventory.vo.BatchToggleVo;
 import com.cangchu.inventory.vo.BatchVo;
+import com.cangchu.inventory.vo.ExpiryDashboardVo;
+import com.cangchu.notify.entity.Notification;
+import com.cangchu.notify.service.NotificationService;
+import com.cangchu.product.service.SkuService;
+import com.cangchu.product.vo.SkuVo;
 import com.cangchu.tenant.service.TenantService;
 import com.cangchu.tenant.vo.TenantBatchConfigVo;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +73,8 @@ public class BatchServiceImpl implements BatchService {
     private final StockMovementMapper stockMovementMapper;
     private final TenantService tenantService;
     private final AuthService authService;
+    private final SkuService skuService;
+    private final NotificationService notificationService;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final RedissonClient redissonClient;
 
@@ -418,6 +425,243 @@ public class BatchServiceImpl implements BatchService {
                 .build();
     }
 
+    // ==================== T4-W2：临期 Job 体 + 通知（13 §3.3，D-12） ====================
+
+    @Override
+    public List<BatchRecalcResultVo> runDailyRecalcAndNotify() {
+        List<BatchRecalcResultVo> results = recalcAll();
+        for (BatchRecalcResultVo r : results) {
+            for (Long batchId : r.getNewlyExpiringBatchIds()) {
+                try {
+                    notifyExpiringOnce(batchId);
+                } catch (Exception e) {
+                    // 单批次通知失败不阻断（次日重跑仍是「新进入」集合，锚点未落会重试）
+                    log.error("[P3b][T4] 临期首发通知失败 batch={}（跳过继续）", batchId, e);
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * D-12 首发通知（每批次一次）：条件更新 expiring_notified_at IS NULL 的赢者才发——
+     * Job 重复跑/并发恰发一次；状态不变不重发（锚点已落者恒败）。收件人：库管全员 + 商户管理员全员
+     * （user_roles 推导先例），站内信不发短信，文案零角色码。
+     */
+    private void notifyExpiringOnce(Long batchId) {
+        Batch b = batchMapper.selectById(batchId);
+        if (b == null || !Batch.STATUS_EXPIRING.equals(b.getStatus())) {
+            // 推算后至通知前状态漂移（如清库/冻结）→ 放弃本次，锚点不落
+            return;
+        }
+        int won = batchMapper.update(null, new LambdaUpdateWrapper<Batch>()
+                .eq(Batch::getId, batchId)
+                .isNull(Batch::getExpiringNotifiedAt)
+                .set(Batch::getExpiringNotifiedAt, LocalDateTime.now())
+                .set(Batch::getUpdatedAt, LocalDateTime.now()));
+        if (won != 1) {
+            return;
+        }
+        String content = expiryBrief(b) + "，请及时关注（商户可降价促销或发起退货，仓库可安排清库准备）。";
+        notificationService.sendToAll(b.getTenantId(),
+                authService.listActiveWkUserIdsOfTenant(b.getTenantId()),
+                Notification.TYPE_BATCH_EXPIRING, "批次临期提醒", content,
+                Notification.REF_BATCH, b.getId());
+        notificationService.sendToAll(b.getTenantId(),
+                authService.listActiveWaUserIdsOfWholesaler(b.getWholesalerId()),
+                Notification.TYPE_BATCH_EXPIRING, "批次临期提醒", content,
+                Notification.REF_BATCH, b.getId());
+        log.info("[P3b][T4] 临期首发通知 batch={} batchNo={} tenant={}", b.getId(), b.getBatchNo(), b.getTenantId());
+    }
+
+    @Override
+    public int markExpiredBatches() {
+        int marked = 0;
+        for (Long tenantId : tenantService.listBatchEnabledTenantIds()) {
+            try {
+                // SQL 内比数据库时间（BND-S3-01 先例）：昨日及更早到期才标，当日到期不标
+                List<Batch> due = batchMapper.selectList(new LambdaQueryWrapper<Batch>()
+                        .eq(Batch::getTenantId, tenantId)
+                        .in(Batch::getStatus, Batch.STATUS_IN_STOCK, Batch.STATUS_EXPIRING)
+                        .gt(Batch::getRemainingQty, 0)
+                        .isNotNull(Batch::getExpiryDate)
+                        .apply("expiry_date < CURDATE()"));
+                for (Batch b : due) {
+                    int won = batchMapper.update(null, new LambdaUpdateWrapper<Batch>()
+                            .eq(Batch::getId, b.getId())
+                            .in(Batch::getStatus, Batch.STATUS_IN_STOCK, Batch.STATUS_EXPIRING)
+                            .set(Batch::getStatus, Batch.STATUS_PENDING_CLEARANCE)
+                            .set(Batch::getUpdatedAt, LocalDateTime.now()));
+                    if (won != 1) {
+                        continue;
+                    }
+                    marked++;
+                    notificationService.sendToAll(b.getTenantId(),
+                            authService.listActiveWkUserIdsOfTenant(b.getTenantId()),
+                            Notification.TYPE_BATCH_EXPIRED, "批次已过期，待清理",
+                            expiryBrief(b) + "，已标记为待清理，请尽快现场核数并发起清库单。",
+                            Notification.REF_BATCH, b.getId());
+                }
+            } catch (Exception e) {
+                log.error("[P3b][T4] 归零标记失败 tenant={}（跳过继续）", tenantId, e);
+            }
+        }
+        if (marked > 0) {
+            log.info("[P3b][T4] 归零标记完成：本次标记 {} 个批次为待清理", marked);
+        }
+        return marked;
+    }
+
+    @Override
+    public void notifyWholesalerManually(Long batchId, Long userId) {
+        Batch b = batchId != null ? batchMapper.selectById(batchId) : null;
+        if (b == null) {
+            throw new BizException(ErrorCode.BATCH_NOT_FOUND);
+        }
+        // 仅库管（13 §5.3：一键通知归 WK 临期列表操作）
+        if (!authService.hasRole(userId, "WK", b.getTenantId())) {
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅本仓库管员可发送临期通知");
+        }
+        if (!Batch.STATUS_EXPIRING.equals(b.getStatus()) && !Batch.STATUS_PENDING_CLEARANCE.equals(b.getStatus())) {
+            throw new BizException(ErrorCode.DOC_STATE_TRANSITION_INVALID, "仅临期或待清理批次可通知商户");
+        }
+        // 24h 限 1（50367）：条件更新 SQL 内比数据库时间，并发双点恰一成功
+        int won = batchMapper.update(null, new LambdaUpdateWrapper<Batch>()
+                .eq(Batch::getId, b.getId())
+                .and(w -> w.isNull(Batch::getManualNotifiedAt)
+                        .or()
+                        .apply("manual_notified_at <= NOW() - INTERVAL '24' HOUR"))
+                .set(Batch::getManualNotifiedAt, LocalDateTime.now())
+                .set(Batch::getUpdatedAt, LocalDateTime.now()));
+        if (won != 1) {
+            throw new BizException(ErrorCode.EXPIRY_NOTIFY_RATE_LIMITED);
+        }
+        notificationService.sendToAll(b.getTenantId(),
+                authService.listActiveWaUserIdsOfWholesaler(b.getWholesalerId()),
+                Notification.TYPE_BATCH_EXPIRING, "批次临期提醒",
+                expiryBrief(b) + "，请尽快处理（可降价促销或发起退货）。",
+                Notification.REF_BATCH, b.getId());
+        log.info("[P3b][T4] WK {} 手动通知商户 batch={} batchNo={}", userId, b.getId(), b.getBatchNo());
+    }
+
+    @Override
+    public BatchListVo listExpiring(Long tenantId, Long userId) {
+        requireWkOrTa(tenantId, userId);
+        List<Batch> list = batchMapper.selectList(new LambdaQueryWrapper<Batch>()
+                .eq(Batch::getTenantId, tenantId)
+                .in(Batch::getStatus, Batch.STATUS_EXPIRING, Batch.STATUS_PENDING_CLEARANCE)
+                .orderByAsc(Batch::getExpiryDate)
+                .orderByAsc(Batch::getCreatedAt));
+        return BatchListVo.builder()
+                .list(list.stream().map(this::toVo).toList())
+                .build();
+    }
+
+    @Override
+    public ExpiryDashboardVo expiryDashboard(Long tenantId, Long userId) {
+        if (!authService.hasRole(userId, "TA", tenantId)) {
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅租户管理员可查看临期看板");
+        }
+        List<Batch> attention = batchMapper.selectList(new LambdaQueryWrapper<Batch>()
+                .eq(Batch::getTenantId, tenantId)
+                .in(Batch::getStatus, Batch.STATUS_EXPIRING, Batch.STATUS_PENDING_CLEARANCE));
+        long expiringCount = 0;
+        long expiringQty = 0;
+        long expiredCount = 0;
+        long expiredQty = 0;
+        Map<Long, List<Batch>> bySku = new LinkedHashMap<>();
+        for (Batch b : attention) {
+            int remaining = b.getRemainingQty() != null ? b.getRemainingQty() : 0;
+            if (Batch.STATUS_EXPIRING.equals(b.getStatus())) {
+                expiringCount++;
+                expiringQty += remaining;
+            } else {
+                expiredCount++;
+                expiredQty += remaining;
+            }
+            bySku.computeIfAbsent(b.getSkuId(), k -> new ArrayList<>()).add(b);
+        }
+        List<ExpiryDashboardVo.SkuGroup> groups = new ArrayList<>(bySku.size());
+        for (Map.Entry<Long, List<Batch>> e : bySku.entrySet()) {
+            List<Batch> batches = e.getValue();
+            SkuVo sku = skuService.getById(e.getKey());
+            groups.add(ExpiryDashboardVo.SkuGroup.builder()
+                    .skuId(String.valueOf(e.getKey()))
+                    .skuName(sku != null ? sku.getName() : String.valueOf(e.getKey()))
+                    .wholesalerId(String.valueOf(batches.get(0).getWholesalerId()))
+                    .expiringBatchCount(batches.stream()
+                            .filter(b -> Batch.STATUS_EXPIRING.equals(b.getStatus())).count())
+                    .expiredBatchCount(batches.stream()
+                            .filter(b -> Batch.STATUS_PENDING_CLEARANCE.equals(b.getStatus())).count())
+                    .remainingQtyTotal(batches.stream()
+                            .mapToLong(b -> b.getRemainingQty() != null ? b.getRemainingQty() : 0).sum())
+                    .nearestExpiryDate(batches.stream()
+                            .map(Batch::getExpiryDate)
+                            .filter(java.util.Objects::nonNull)
+                            .min(Comparator.naturalOrder()).orElse(null))
+                    .build());
+        }
+        // 组间按最近到效期升序（最紧迫在前，与列表剩余天数升序同口径）
+        groups.sort(Comparator.comparing(ExpiryDashboardVo.SkuGroup::getNearestExpiryDate,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+        Long clearedCount = batchMapper.selectCount(new LambdaQueryWrapper<Batch>()
+                .eq(Batch::getTenantId, tenantId)
+                .eq(Batch::getStatus, Batch.STATUS_CLEARED));
+        TenantBatchConfigVo cfg = tenantService.getBatchConfig(tenantId);
+        return ExpiryDashboardVo.builder()
+                .thresholdDays(cfg.getExpiryThresholdDays() != null ? cfg.getExpiryThresholdDays() : 30)
+                .expiringBatchCount(expiringCount)
+                .expiringQtyTotal(expiringQty)
+                .expiredBatchCount(expiredCount)
+                .expiredQtyTotal(expiredQty)
+                .clearedBatchCount(clearedCount != null ? clearedCount : 0)
+                .bySku(groups)
+                .build();
+    }
+
+    // ==================== T4-W2：清库联动出口（document 域经此接入，G-S1） ====================
+
+    @Override
+    public BatchVo getTenantBatch(Long tenantId, Long batchId) {
+        Batch b = batchId != null ? batchMapper.selectById(batchId) : null;
+        if (b == null || !b.getTenantId().equals(tenantId)) {
+            // 不存在/跨租户按不存在（不泄漏存在性，50363）
+            throw new BizException(ErrorCode.BATCH_NOT_FOUND);
+        }
+        return toVo(b);
+    }
+
+    @Override
+    public void markCleared(Long batchId) {
+        LocalDateTime now = LocalDateTime.now();
+        batchMapper.update(null, new LambdaUpdateWrapper<Batch>()
+                .eq(Batch::getId, batchId)
+                .set(Batch::getRemainingQty, 0)
+                .set(Batch::getStatus, Batch.STATUS_CLEARED)
+                .set(Batch::getClearedAt, now)
+                .set(Batch::getUpdatedAt, now));
+    }
+
+    /** 通知文案摘要（零角色码；到效期/剩余天数/推算剩余）。 */
+    private String expiryBrief(Batch b) {
+        SkuVo sku = skuService.getById(b.getSkuId());
+        String skuName = sku != null ? sku.getName() : String.valueOf(b.getSkuId());
+        StringBuilder sb = new StringBuilder()
+                .append("批次 ").append(b.getBatchNo())
+                .append("（").append(skuName).append("）");
+        if (b.getExpiryDate() != null) {
+            long days = ChronoUnit.DAYS.between(LocalDate.now(), b.getExpiryDate());
+            sb.append(days >= 0
+                    ? "将于 " + b.getExpiryDate() + " 到效（剩余 " + days + " 天"
+                    : "已于 " + b.getExpiryDate() + " 过期（超期 " + (-days) + " 天");
+        } else {
+            sb.append("（到效期未录入");
+        }
+        int remaining = b.getRemainingQty() != null ? b.getRemainingQty() : 0;
+        sb.append("，推算剩余 ").append(remaining).append(" 件）");
+        return sb.toString();
+    }
+
     // ==================== 列表 / 补录（13 §5.3） ====================
 
     @Override
@@ -536,6 +780,7 @@ public class BatchServiceImpl implements BatchService {
                 .remainingQty(b.getRemainingQty())
                 .status(b.getStatus())
                 .source(b.getSource())
+                .manualNotifiedAt(b.getManualNotifiedAt())
                 .clearedAt(b.getClearedAt())
                 .createdAt(b.getCreatedAt())
                 .build();
