@@ -7,6 +7,10 @@
 -- attachments 实物照片必填 ≥1 ≤3（50366，R19 刚性不受拍照开关影响；PRD 总纲：清库凭证 ≤3 张）。
 -- H2(MODE=MySQL) 兼容写法沿 V11/V21/V22 先例；索引前缀 qk_ 防 H2 索引名全局冲突。
 
+-- 0) T4-W1 遗留纠偏（13 §3.1 蓝图笔误实测暴露）：batches.status VARCHAR(16) 容不下
+--    PENDING_CLEARANCE（17 字符），02:30 归零标记写入即溢出——拓宽为 VARCHAR(32) 与全仓状态列对齐。
+ALTER TABLE `batches` MODIFY COLUMN `status` VARCHAR(32) NOT NULL COMMENT 'IN_STOCK/SOLD_OUT/EXPIRING/PENDING_CLEARANCE/CLEARED/CLOSED';
+
 CREATE TABLE `clearance_requests` (
     `id`             BIGINT        NOT NULL COMMENT '雪花ID',
     `doc_no`         VARCHAR(64)   NOT NULL COMMENT '单据号 generate(CLEARANCE) → QK-…（A3 零改造）',
