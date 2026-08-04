@@ -29,6 +29,8 @@ import {
   Van,
   RefreshLeft,
   Checked,
+  AlarmClock,
+  Remove,
 } from '@element-plus/icons-vue'
 import { AppTopbar } from '@cangchu/ui-shared'
 import type {
@@ -41,6 +43,7 @@ import type {
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { tenantApi } from '@/api/tenant'
+import { batchApi } from '@/api/batch'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -93,6 +96,8 @@ const menus: MenuItem[] = [
   { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
   { key: '/ta/stocktake', label: '盘点', icon: Checked },
+  { key: '/ta/batches', label: '批次临期', icon: AlarmClock },
+  { key: '/ta/clearance', label: '清库', icon: Remove },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -112,7 +117,9 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/approvals' ||
     key === '/ta/outbound' ||
     key === '/ta/returns' ||
-    key === '/ta/stocktake'
+    key === '/ta/stocktake' ||
+    key === '/ta/batches' ||
+    key === '/ta/clearance'
   ) {
     router.push(key)
     return
@@ -279,7 +286,9 @@ const buildPayload = (confirmed: boolean): UpdateTenantSettingsRequest => ({
           accuracySource: (original.value?.address?.accuracySource ?? 'MAP_CLICK'),
         }
       : null,
-  batchEnabled: form.batchEnabled,
+  // batchEnabled 不随通用设置提交（D-13：通用接口传非 0 → 50360、传 0 会绕过冻结逻辑；
+  // 开关一律走专用端点 POST /tenant/settings/batch-toggle，见 onBatchToggleBeforeChange）
+  batchEnabled: undefined,
   photoMode: form.photoMode,
   capacityVisibility: form.capacityVisibility,
   capacityPrecision: form.capacityPrecision,
@@ -330,6 +339,46 @@ const onSubmit = async () => {
     // 全局 toast 已提示
   } finally {
     saving.value = false
+  }
+}
+
+// ============ 批次开关（专用端点，P3b T4-FE） ============
+// D-13/T4-W1：通用设置接口禁改 batchEnabled（50360），开关一律走
+// POST /tenant/settings/batch-toggle（真实翻转须 confirmed=true；24h ≤2 次 → 50361）。
+const batchToggling = ref(false)
+
+/** el-switch before-change：确认弹窗 + 专用端点成功后才翻转显示态 */
+const onBatchToggleBeforeChange = async (): Promise<boolean> => {
+  const enable = !form.batchEnabled
+  const tip = enable
+    ? '开启后将为现有库存生成默认批次占位（每个在库大于 0 的商品一条，保质期空，可在「批次临期」页补录到效期），新入库需登记批次号与保质期。'
+    : '关闭后批次登记簿将冻结（全部未终结批次标「已冻结」），临期预警停用，入库批次字段隐藏；已生成的清库单继续走完；再次启用将生成新的默认批次，不复活已冻结批次。'
+  try {
+    await ElMessageBox.confirm(
+      `${tip}\n\n批次开关 24 小时内最多操作 2 次，确认${enable ? '开启' : '关闭'}？`,
+      enable ? '开启批次管理' : '关闭批次管理',
+      { confirmButtonText: enable ? '确认开启' : '确认关闭', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return false
+  }
+  batchToggling.value = true
+  try {
+    const res = await batchApi.toggle({ enable, confirmed: true })
+    if (enable) {
+      ElMessage.success(
+        `批次管理已开启，已生成 ${res.defaultBatchCount} 条默认批次吸收现有库存（可在「批次临期」页补录到效期）`,
+      )
+    } else {
+      ElMessage.success(`批次管理已关闭，已冻结 ${res.closedBatchCount} 条批次`)
+    }
+    if (original.value) original.value.batchEnabled = res.batchEnabled === 1
+    return true
+  } catch {
+    // 50361 「24 小时内最多操作 2 次」等：全局 toast 已按 messages-zh 提示
+    return false
+  } finally {
+    batchToggling.value = false
   }
 }
 
@@ -437,13 +486,28 @@ onMounted(fetchSettings)
             <div class="switch-row">
               <div class="switch-row__label">
                 <span class="switch-row__name">批次管理</span>
-                <span class="switch-row__desc">关闭时入库不录批次/保质期，临期预警停用</span>
+                <span class="switch-row__desc">
+                  关闭时入库不录批次/保质期，临期预警停用；开关立即生效（不随本页保存），24 小时内最多操作 2 次
+                  <el-button
+                    v-if="form.batchEnabled"
+                    text
+                    type="primary"
+                    size="small"
+                    data-test="goto-batches"
+                    @click="handleMenuSelect('/ta/batches')"
+                  >
+                    批次临期页 →
+                  </el-button>
+                </span>
               </div>
               <el-switch
                 v-model="form.batchEnabled"
+                :loading="batchToggling"
+                :before-change="onBatchToggleBeforeChange"
                 active-text="启用"
                 inactive-text="关闭"
                 inline-prompt
+                data-test="batch-toggle-switch"
               />
             </div>
 

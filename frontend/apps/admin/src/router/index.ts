@@ -106,6 +106,18 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'TA', title: '盘点' },
   },
   {
+    path: '/ta/batches',
+    name: 'ta-batches',
+    component: () => import('@/views/ta/Batches.vue'),
+    meta: { role: 'TA', title: '批次临期' },
+  },
+  {
+    path: '/ta/clearance',
+    name: 'ta-clearance',
+    component: () => import('@/views/ta/Clearance.vue'),
+    meta: { role: 'TA', title: '清库' },
+  },
+  {
     path: '/ta/wholesaler-applications',
     name: 'ta-wholesaler-applications',
     component: () => import('@/views/ta/WholesalerApplications.vue'),
