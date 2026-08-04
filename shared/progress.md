@@ -2,6 +2,10 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-08-03
+- **P3b 全部交付 ✅（W5 终验收全绿）**：九开发波全合并（W0 设计/T1-BE·FE/T3-W1·W2·FE/T4-W1·W2·FE），后端 270→285→303→318→337 全绿递进，每波 Team Lead 独立复验后合并。W5：337×4 遍全绿、简码碰撞抖动根治（TestUniq 全局序列替换 10 处取模造数）、E2E 38/38（3.9m）、17 图视觉亲检、报告 11-p3b-delivery-report.md（遗留 L-1~L-7 + P3 检查单复核：Redis 已实测绑 127.0.0.1）。识破 mvnw 假成功坑（wrapper jar 缺失退出码误报 0，L-6）。
+- **环境**：Memurai 已装为 Windows 服务（8/2 机器重启曾致登录 500，根治）；8080/5173 保持最新 main 供真机复验。
+
 ## 2026-07-27
 - **缺陷批+refactor+硬化 三分支复验合并 ✅**（main 至 0b62e14 已推 origin）：
   - fix/p3-be-defects（10 commits）：B1 BLOCKER 行锁改真 FOR UPDATE（Team Lead 亲验代码）、N1-N5、FE-W1 两缺陷（通知收件人 7 处同根因全修）、角色码清扫 9 处、stock-preview 端点。独立复验 236 绿（concurrentWithdraw H2 抖动第二次出现，隔离复跑绿，判定环境 flake → W5 稳定化项）
