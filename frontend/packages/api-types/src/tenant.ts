@@ -368,6 +368,15 @@ export interface InboundRegisterRequest {
   qty: number
   /** 本次托盘数（可空，默认 0；>=0） */
   palletQty?: number
+  // ==================== P3b T4-W1 批次三字段（租户批次开关启用时必填，13 §3.2；代建=提交即登记按当刻开关校验） ====================
+  /** 批次号 ≤64（(商户,SKU,批次号) 唯一 50362） */
+  batchNo?: string
+  /** 生产日期 yyyy-MM-dd（≤今天 40205） */
+  productionDate?: string
+  /** 到效期 yyyy-MM-dd（>生产日期 40206；≤今天须 expiredConfirmed=true，否则 50364） */
+  expiryDate?: string
+  /** 过期批次强警告二次确认凭据（50364 回显后重发 true） */
+  expiredConfirmed?: boolean
 }
 
 /**
@@ -430,6 +439,11 @@ export interface InboundRequest {
   registeredAt?: string | null
   /** 同批提交共享 id（多行拆单打印聚合，「同批 N 单」标识） */
   batchSubmitId?: SnowflakeId | null
+  // ==================== P3b T4-W1 批次三字段（InboundRequestVo 扩展；开关关闭档恒 null） ====================
+  /** 批次号（提交/代建时录入；登记页回显 + 过期判定锚点） */
+  batchNo?: string | null
+  productionDate?: string | null
+  expiryDate?: string | null
   /** 提交人（WA 或被授权 WE） */
   waUserId?: SnowflakeId | null
   /** 备注（提交行备注 / 登记差异备注） */
@@ -453,6 +467,14 @@ export interface InboundSubmitRequest {
     palletQty?: number
     /** 行备注 ≤512 */
     remark?: string
+    // ==================== P3b T4-W1 批次三字段（商户批次开关启用时必填，13 §3.2；
+    // 同批提交内 (skuId,batchNo) 重复同样 50362；过期二次确认在 WK 登记侧 50364） ====================
+    /** 批次号 ≤64（(商户,SKU,批次号) 唯一 50362） */
+    batchNo?: string
+    /** 生产日期 yyyy-MM-dd（≤今天 40205） */
+    productionDate?: string
+    /** 到效期 yyyy-MM-dd（>生产日期 40206） */
+    expiryDate?: string
   }>
 }
 
@@ -480,6 +502,11 @@ export interface InboundForwardRegisterRequest {
   remark?: string
   /** 登记照片 ≤5 */
   attachments?: string[]
+  /**
+   * P3b T4-W1：过期批次强警告二次确认（13 备注 8：登记时按单据自身 expiryDate 判，
+   * 到效期 ≤ 今天且缺此凭据 → 50364；前端弹强警告确认后重发 true）
+   */
+  expiredConfirmed?: boolean
 }
 
 /** R3 纠错单状态 */

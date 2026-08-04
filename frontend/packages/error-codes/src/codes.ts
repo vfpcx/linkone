@@ -197,8 +197,25 @@ export enum ErrorCode {
   STATE_STOCKTAKE_ITEMS_INVALID = 50355,
   /** 同商户在途盘点单至多一张（DRAFT/PENDING_APPROVAL 防双重盈亏，T3-W2） */
   STATE_STOCKTAKE_OPEN_EXISTS = 50356,
-  /** D-13 批次禁改防御（T4-W1 前店铺设置拒改 batchEnabled） */
+  /** D-13 批次禁改防御（T4-W1 解除后语义转「专用端点 batch-toggle 外禁改」） */
   STATE_BATCH_FEATURE_NOT_READY = 50360,
+
+  // P3b T4 批次 / 临期 / 清库（50361-50367 · 13-p3b-design.md §4.2；
+  // 权威来源：backend ErrorCode.java 实测 v1.4/v1.5 备注）
+  /** 批次开关 24h ≤2 次（Redis 计数，T4-W1） */
+  STATE_BATCH_TOGGLE_RATE_LIMITED = 50361,
+  /** (商户, SKU, 批次号) 唯一冲突（提交预检 + 登记 uk 兜底，T4-W1） */
+  STATE_BATCH_NO_DUPLICATE = 50362,
+  /** 批次不存在 / 跨商户按不存在（不泄漏存在性，T4-W1） */
+  STATE_BATCH_NOT_FOUND = 50363,
+  /** 过期批次入库须二次确认（expiredConfirmed=true 重发，T4-W1） */
+  STATE_BATCH_EXPIRED_CONFIRM_REQUIRED = 50364,
+  /** 非待清理 / 推算剩余 0 / 同批次在途清库单已存在（T4-W2） */
+  STATE_CLEARANCE_BATCH_NOT_CLEARABLE = 50365,
+  /** 清库实物照片 ≥1 刚性（不受拍照开关影响，T4-W2） */
+  STATE_CLEARANCE_PHOTO_REQUIRED = 50366,
+  /** 手动一键通知同批次 24h 限 1（D-12，T4-W2） */
+  STATE_EXPIRY_NOTIFY_RATE_LIMITED = 50367,
 
   /** 库存不足（退货登记 D-7 / 出库 / 询价确认 共用；13 §4.2 复用不新占） */
   STATE_STOCK_NOT_ENOUGH = 50251,

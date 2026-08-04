@@ -38,6 +38,8 @@ import {
   Van,
   RefreshLeft,
   Checked,
+  AlarmClock,
+  Remove,
   Printer,
   Refresh,
 } from '@element-plus/icons-vue'
@@ -118,6 +120,8 @@ const menus: MenuItem[] = [
   { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
   { key: '/ta/stocktake', label: '盘点', icon: Checked },
+  { key: '/ta/batches', label: '批次临期', icon: AlarmClock },
+  { key: '/ta/clearance', label: '清库', icon: Remove },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -139,7 +143,9 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/approvals' ||
     key === '/ta/outbound' ||
     key === '/ta/returns' ||
-    key === '/ta/stocktake'
+    key === '/ta/stocktake' ||
+    key === '/ta/batches' ||
+    key === '/ta/clearance'
   ) {
     router.push(key)
     return
@@ -271,6 +277,10 @@ const form = reactive({
   skuId: '' as string,
   qty: undefined as number | undefined,
   palletQty: undefined as number | undefined,
+  // P3b T4-W1 批次三字段（商户批次开关启用时必填，13 §3.2；代建=提交即登记按当刻开关校验）
+  batchNo: '' as string,
+  productionDate: '' as string,
+  expiryDate: '' as string,
 })
 
 const rules: FormRules = {
@@ -311,7 +321,73 @@ const rules: FormRules = {
 const resetForm = () => {
   form.qty = undefined
   form.palletQty = undefined
+  form.batchNo = ''
+  form.productionDate = ''
+  form.expiryDate = ''
   formRef.value?.clearValidate()
+}
+
+// ============ 批次三字段（P3b T4-W1 · 13 §3.2） ============
+// 商户批次开关状态无 WK 可读端点（契约据实）：字段常显并标注「商户开启批次管理时必填」，
+// 必填校验以后端为权威（缺失 40003「缺少批次号/生产日期/到效期」toast 回显）。
+const todayStr = (): string => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** 批次字段客户端预检（填了任一项则三项齐；日期口径同后端 40205/40206） */
+const batchFieldError = computed<string>(() => {
+  const anyFilled = Boolean(form.batchNo.trim() || form.productionDate || form.expiryDate)
+  if (!anyFilled) return ''
+  if (!form.batchNo.trim()) return '已填批次信息：批次号必填'
+  if (form.batchNo.trim().length > 64) return '批次号最长 64 字'
+  if (!form.productionDate) return '已填批次信息：生产日期必填'
+  if (form.productionDate > todayStr()) return '生产日期不能晚于今天'
+  if (!form.expiryDate) return '已填批次信息：到效期必填'
+  if (form.expiryDate <= form.productionDate) return '到效期必须晚于生产日期'
+  return ''
+})
+
+/** 到效期警示：过期=强警告（登记需二次确认 50364）；临期（≤30 天）=黄条放行 */
+const batchExpiryState = computed<'expired' | 'near' | ''>(() => {
+  if (batchFieldError.value || !form.expiryDate) return ''
+  const today = todayStr()
+  if (form.expiryDate <= today) return 'expired'
+  const diff = Math.round(
+    (new Date(`${form.expiryDate}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) /
+      86400_000,
+  )
+  return diff <= 30 ? 'near' : ''
+})
+
+const buildRegisterPayload = (expiredConfirmed: boolean): InboundRegisterRequest => {
+  const payload: InboundRegisterRequest = {
+    wholesalerId: selectedWholesalerId.value,
+    skuId: form.skuId,
+    qty: Number(form.qty),
+  }
+  if (form.palletQty !== undefined && form.palletQty !== null) {
+    payload.palletQty = Number(form.palletQty)
+  }
+  if (form.batchNo.trim()) {
+    payload.batchNo = form.batchNo.trim()
+    payload.productionDate = form.productionDate
+    payload.expiryDate = form.expiryDate
+    if (expiredConfirmed) payload.expiredConfirmed = true
+  }
+  return payload
+}
+
+const doProxyRegister = async (expiredConfirmed: boolean): Promise<void> => {
+  const created = await inboundApi.register(buildRegisterPayload(expiredConfirmed))
+  const stockTip =
+    created.currentStock !== null && created.currentStock !== undefined
+      ? `，当前库存 ${created.currentStock}`
+      : ''
+  ElMessage.success(`入库登记成功（单号 ${created.docNo}）${stockTip}`)
+  resetForm()
+  await fetchRecords()
 }
 
 const onSubmit = async () => {
@@ -322,28 +398,32 @@ const onSubmit = async () => {
   }
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
+  if (batchFieldError.value) {
+    ElMessage.warning(batchFieldError.value)
+    return
+  }
 
   submitting.value = true
   try {
-    const payload: InboundRegisterRequest = {
-      wholesalerId: selectedWholesalerId.value,
-      skuId: form.skuId,
-      qty: Number(form.qty),
+    await doProxyRegister(false)
+  } catch (e) {
+    // 50364 过期强警告：二次确认后携 expiredConfirmed=true 重发（04 §3.1）
+    if (e instanceof ApiError && e.code === ErrorCode.STATE_BATCH_EXPIRED_CONFIRM_REQUIRED) {
+      try {
+        await ElMessageBox.confirm(
+          `该批次到效期为 ${form.expiryDate}，已过期。过期货物入库后将立即进入临期/待清理流程。确认仍要登记入库？`,
+          '过期批次强警告',
+          { confirmButtonText: '确认登记（已当面核实）', cancelButtonText: '取消', type: 'error' },
+        )
+        await doProxyRegister(true)
+      } catch (e2) {
+        if (e2 instanceof ApiError) {
+          // 二次提交仍失败（50362 等）：全局 toast 已提示
+        }
+        // 取消确认：静默返回，表单保留
+      }
     }
-    if (form.palletQty !== undefined && form.palletQty !== null) {
-      payload.palletQty = Number(form.palletQty)
-    }
-
-    const created = await inboundApi.register(payload)
-    const stockTip =
-      created.currentStock !== null && created.currentStock !== undefined
-        ? `，当前库存 ${created.currentStock}`
-        : ''
-    ElMessage.success(`入库登记成功（单号 ${created.docNo}）${stockTip}`)
-    resetForm()
-    await fetchRecords()
-  } catch {
-    // 全局 toast 已提示（40x 校验 / 50270-50274 状态类）
+    // 50362 批次号重复 / 40003 缺字段 / 40205/40206：全局 toast 已提示，表单保留供修改
   } finally {
     submitting.value = false
   }
@@ -582,30 +662,62 @@ const regValid = computed(() => {
   return true
 })
 
+/** 单据自带批次的过期态（P3b T4-W1：登记时按单据自身 expiryDate 判 50364） */
+const registerBatchExpired = computed<boolean>(() => {
+  const e = registerTarget.value?.expiryDate
+  if (!e) return false
+  const today = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return String(e).slice(0, 10) <= `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`
+})
+
+const doForwardRegister = async (expiredConfirmed: boolean): Promise<void> => {
+  const row = registerTarget.value
+  if (!row) return
+  const updated = await inboundApi.registerForward(String(row.id), {
+    actualQty: Number(registerForm.actualQty),
+    ...(registerForm.palletQty !== undefined && registerForm.palletQty !== null
+      ? { palletQty: Number(registerForm.palletQty) }
+      : {}),
+    ...(registerForm.remark.trim() ? { remark: registerForm.remark.trim() } : {}),
+    ...(registerForm.attachments.length ? { attachments: registerForm.attachments } : {}),
+    ...(expiredConfirmed ? { expiredConfirmed: true } : {}),
+  })
+  registerVisible.value = false
+  const stockTip =
+    updated.currentStock !== null && updated.currentStock !== undefined
+      ? `，当前库存 ${updated.currentStock}`
+      : ''
+  ElMessage.success(`申请 ${updated.docNo} 已登记入库（实登 ${updated.qty} 件）${stockTip}`)
+  await Promise.all([fetchWb(), fetchWbPendingCount()])
+}
+
 const onRegisterSubmit = async () => {
   const row = registerTarget.value
   if (!row || !regValid.value) return
   registerSubmitting.value = true
   try {
-    const updated = await inboundApi.registerForward(String(row.id), {
-      actualQty: Number(registerForm.actualQty),
-      ...(registerForm.palletQty !== undefined && registerForm.palletQty !== null
-        ? { palletQty: Number(registerForm.palletQty) }
-        : {}),
-      ...(registerForm.remark.trim() ? { remark: registerForm.remark.trim() } : {}),
-      ...(registerForm.attachments.length ? { attachments: registerForm.attachments } : {}),
-    })
-    registerVisible.value = false
-    const stockTip =
-      updated.currentStock !== null && updated.currentStock !== undefined
-        ? `，当前库存 ${updated.currentStock}`
-        : ''
-    ElMessage.success(`申请 ${updated.docNo} 已登记入库（实登 ${updated.qty} 件）${stockTip}`)
-    await Promise.all([fetchWb(), fetchWbPendingCount()])
+    await doForwardRegister(false)
   } catch (e) {
     // 50351 超界回显：弹窗保持打开，红条已由 regDiffExceeded 展示；服务端兜底命中时刷新单据
     if (e instanceof ApiError && e.code === ErrorCode.STATE_INBOUND_QTY_DIFF_EXCEEDED) {
       // 全局 toast 已提示「差异超 5%，请驳回后重新申请」，表单保留供改数
+    } else if (e instanceof ApiError && e.code === ErrorCode.STATE_BATCH_EXPIRED_CONFIRM_REQUIRED) {
+      // 50364 过期批次强警告（04 §3.1）：二次确认后携 expiredConfirmed=true 重发
+      try {
+        await ElMessageBox.confirm(
+          `该批次到效期为 ${String(row.expiryDate ?? '').slice(0, 10)}，已过期。` +
+            '过期货物入库后将立即进入临期/待清理流程。确认仍要登记入库？',
+          '过期批次强警告',
+          { confirmButtonText: '确认登记（已当面核实）', cancelButtonText: '取消', type: 'error' },
+        )
+        await doForwardRegister(true)
+      } catch (e2) {
+        if (e2 instanceof ApiError) {
+          if (await refreshOnStateConflict(e2)) registerVisible.value = false
+        }
+        // 取消确认：弹窗保留
+      }
     } else {
       if (await refreshOnStateConflict(e)) registerVisible.value = false
     }
@@ -1029,6 +1141,60 @@ onMounted(() => {
                 </el-button>
               </el-form-item>
             </div>
+
+            <!-- P3b T4-W1 批次三字段（商户开启批次管理时必填；关闭档留空即可，后端按当刻开关校验） -->
+            <div class="inbound-form__row">
+              <el-form-item label="批次号（开启批次管理时必填）" class="inbound-form__item">
+                <el-input
+                  v-model="form.batchNo"
+                  maxlength="64"
+                  placeholder="如 BATCH-A1；(商户,商品,批次号) 唯一"
+                  class="full-width"
+                  data-test="proxy-batch-no"
+                />
+              </el-form-item>
+              <el-form-item label="生产日期" class="inbound-form__item">
+                <el-date-picker
+                  v-model="form.productionDate"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  placeholder="不晚于今天"
+                  class="full-width"
+                  data-test="proxy-production-date"
+                />
+              </el-form-item>
+              <el-form-item label="到效期" class="inbound-form__item">
+                <el-date-picker
+                  v-model="form.expiryDate"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  placeholder="晚于生产日期"
+                  class="full-width"
+                  data-test="proxy-expiry-date"
+                />
+              </el-form-item>
+            </div>
+            <p v-if="batchFieldError" class="batch-error" data-test="proxy-batch-error">
+              {{ batchFieldError }}
+            </p>
+            <el-alert
+              v-else-if="batchExpiryState === 'expired'"
+              type="error"
+              :closable="false"
+              show-icon
+              class="batch-alert"
+              data-test="proxy-expired-alert"
+              title="该批次到效期不晚于今天（已过期）：登记时将弹出强警告，需二次确认方可入库"
+            />
+            <el-alert
+              v-else-if="batchExpiryState === 'near'"
+              type="warning"
+              :closable="false"
+              show-icon
+              class="batch-alert"
+              data-test="proxy-near-alert"
+              title="该批次临近到效期（≤30 天）：登记放行，入库后将立即进入临期列表"
+            />
           </el-form>
         </section>
 
@@ -1159,7 +1325,29 @@ onMounted(() => {
           <el-descriptions-item label="申请件数">
             {{ registerTarget.requestedQty ?? registerTarget.qty }} 件（只读）
           </el-descriptions-item>
+          <!-- P3b T4-W1：单据自带批次三字段（提交时录入，登记按此判过期 50364） -->
+          <template v-if="registerTarget.batchNo">
+            <el-descriptions-item label="批次号">
+              {{ registerTarget.batchNo }}
+            </el-descriptions-item>
+            <el-descriptions-item label="生产日期">
+              {{ String(registerTarget.productionDate ?? '').slice(0, 10) || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="到效期" :span="2">
+              {{ String(registerTarget.expiryDate ?? '').slice(0, 10) || '—' }}
+            </el-descriptions-item>
+          </template>
         </el-descriptions>
+
+        <el-alert
+          v-if="registerTarget.batchNo && registerBatchExpired"
+          type="error"
+          :closable="false"
+          show-icon
+          class="reg-alert"
+          data-test="register-expired-alert"
+          title="该批次到效期不晚于今天（已过期）：点击登记后将弹出强警告，需二次确认方可入库"
+        />
 
         <el-form label-position="top" @submit.prevent>
           <el-form-item label="实际入库件数（必填）" required>
@@ -1685,5 +1873,15 @@ onMounted(() => {
     border: none !important;
     box-shadow: none !important;
   }
+}
+
+/* ===== P3b T4 批次三字段 ===== */
+.batch-error {
+  margin: 0 0 var(--space-3);
+  color: var(--color-danger);
+  font-size: var(--font-size-caption);
+}
+.batch-alert {
+  margin-bottom: var(--space-3);
 }
 </style>

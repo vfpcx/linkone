@@ -41,6 +41,8 @@ import {
   Van,
   Plus,
   Checked,
+  AlarmClock,
+  Remove,
 } from '@element-plus/icons-vue'
 import {
   AppTopbar,
@@ -121,6 +123,8 @@ const menus: MenuItem[] = [
   { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
   { key: '/ta/stocktake', label: '盘点', icon: Checked },
+  { key: '/ta/batches', label: '批次临期', icon: AlarmClock },
+  { key: '/ta/clearance', label: '清库', icon: Remove },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
   { key: '/ta/messages', label: '站内信', icon: ChatLineSquare },
@@ -137,6 +141,8 @@ const IMPLEMENTED = new Set([
   '/ta/inbound',
   '/ta/outbound',
   '/ta/returns',
+  '/ta/batches',
+  '/ta/clearance',
   '/ta/approvals',
 ])
 

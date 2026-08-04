@@ -30,6 +30,11 @@ interface RowDraft {
   qty: number | undefined
   palletQty: number | undefined
   remark: string
+  // P3b T4-W1 批次三字段（商户开启批次管理时必填，13 §3.2；
+  // 开关状态无商户侧可读端点——字段常显标注，必填校验以后端 40003 为权威）
+  batchNo: string
+  productionDate: string
+  expiryDate: string
 }
 
 interface Props {
@@ -60,7 +65,15 @@ const visible = computed({
   set: (v: boolean) => emit('update:modelValue', v),
 })
 
-const emptyRow = (): RowDraft => ({ skuId: '', qty: undefined, palletQty: undefined, remark: '' })
+const emptyRow = (): RowDraft => ({
+  skuId: '',
+  qty: undefined,
+  palletQty: undefined,
+  remark: '',
+  batchNo: '',
+  productionDate: '',
+  expiryDate: '',
+})
 
 const rows = ref<RowDraft[]>([emptyRow()])
 const submitting = ref(false)
@@ -72,6 +85,7 @@ watch(
     rows.value = props.prefill
       ? [
           {
+            ...emptyRow(),
             skuId: props.prefill.skuId,
             qty: props.prefill.qty,
             palletQty: props.prefill.palletQty,
@@ -127,10 +141,58 @@ const rowError = (r: RowDraft): string => {
   ) {
     return '托盘数须为不小于 0 的整数'
   }
+  return batchError(r)
+}
+
+const todayStr = (): string => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** 批次三字段预检（填了任一项则三项齐；日期口径同后端 40205/40206） */
+const batchError = (r: RowDraft): string => {
+  const anyFilled = Boolean(r.batchNo.trim() || r.productionDate || r.expiryDate)
+  if (!anyFilled) return ''
+  if (!r.batchNo.trim()) return '已填批次信息：批次号必填'
+  if (r.batchNo.trim().length > 64) return '批次号最长 64 字'
+  if (!r.productionDate) return '已填批次信息：生产日期必填'
+  if (r.productionDate > todayStr()) return '生产日期不能晚于今天'
+  if (!r.expiryDate) return '已填批次信息：到效期必填'
+  if (r.expiryDate <= r.productionDate) return '到效期必须晚于生产日期'
   return ''
 }
 
-const allValid = computed(() => rows.value.every((r) => !rowError(r)))
+/** 到效期警示：过期=红（仓库登记时需二次确认 50364）；≤30 天=黄（放行，入库即临期） */
+const expiryState = (r: RowDraft): 'expired' | 'near' | '' => {
+  if (batchError(r) || !r.expiryDate) return ''
+  const today = todayStr()
+  if (r.expiryDate <= today) return 'expired'
+  const diff = Math.round(
+    (new Date(`${r.expiryDate}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) /
+      86400_000,
+  )
+  return diff <= 30 ? 'near' : ''
+}
+
+/** 同批提交内 (商品, 批次号) 重复预检（后端 50362 同口径） */
+const duplicateBatchKeys = computed<Set<string>>(() => {
+  const seen = new Set<string>()
+  const dup = new Set<string>()
+  for (const r of rows.value) {
+    if (!r.skuId || !r.batchNo.trim()) continue
+    const key = `${r.skuId}:${r.batchNo.trim()}`
+    if (seen.has(key)) dup.add(key)
+    seen.add(key)
+  }
+  return dup
+})
+const isDupBatch = (r: RowDraft): boolean =>
+  Boolean(r.skuId && r.batchNo.trim()) && duplicateBatchKeys.value.has(`${r.skuId}:${r.batchNo.trim()}`)
+
+const allValid = computed(
+  () => rows.value.every((r) => !rowError(r)) && duplicateBatchKeys.value.size === 0,
+)
 
 const onSubmit = async () => {
   if (!props.wholesalerId) {
@@ -161,6 +223,14 @@ const onSubmit = async () => {
         ? { palletQty: Number(r.palletQty) }
         : {}),
       ...(r.remark.trim() ? { remark: r.remark.trim() } : {}),
+      // P3b T4：批次三字段（商户开启批次管理时必填；留空由后端按当刻开关校验 40003）
+      ...(r.batchNo.trim()
+        ? {
+            batchNo: r.batchNo.trim(),
+            productionDate: r.productionDate,
+            expiryDate: r.expiryDate,
+          }
+        : {}),
     })),
   }
   submitting.value = true
@@ -251,8 +321,56 @@ const onSubmit = async () => {
           <el-input v-model="row.remark" maxlength="200" placeholder="选填 ≤200 字" />
         </div>
       </div>
+
+      <!-- P3b T4 批次三字段（商户开启批次管理时必填；关闭档留空即可） -->
+      <div class="submit-row__fields submit-row__batch">
+        <div class="submit-field submit-field--sku">
+          <span class="submit-field__label">批次号（商户开启批次管理时必填）</span>
+          <el-input
+            v-model="row.batchNo"
+            maxlength="64"
+            placeholder="如 BATCH-A1"
+            data-test="row-batch-no"
+          />
+        </div>
+        <div class="submit-field">
+          <span class="submit-field__label">生产日期</span>
+          <el-date-picker
+            v-model="row.productionDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="不晚于今天"
+            class="full-width"
+            data-test="row-production-date"
+          />
+        </div>
+        <div class="submit-field">
+          <span class="submit-field__label">到效期</span>
+          <el-date-picker
+            v-model="row.expiryDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="晚于生产日期"
+            class="full-width"
+            data-test="row-expiry-date"
+          />
+        </div>
+      </div>
       <p v-if="rowError(row)" class="submit-row__error" data-test="row-error">
         {{ rowError(row) }}
+      </p>
+      <p v-else-if="isDupBatch(row)" class="submit-row__error" data-test="row-dup-batch">
+        同批提交内同商品批次号重复（该批次号已存在，请更换）
+      </p>
+      <p
+        v-else-if="expiryState(row) === 'expired'"
+        class="submit-row__error"
+        data-test="row-expired-warn"
+      >
+        该批次已过期：仓库登记入库时将强警告并需库管员二次确认
+      </p>
+      <p v-else-if="expiryState(row) === 'near'" class="submit-row__warn" data-test="row-near-warn">
+        该批次临近到效期（≤30 天）：可提交，入库后将立即进入临期列表
       </p>
     </div>
 
@@ -341,6 +459,16 @@ const onSubmit = async () => {
   margin: var(--space-2) 0 0;
   color: var(--color-danger);
   font-size: var(--font-size-caption);
+}
+.submit-row__warn {
+  margin: var(--space-2) 0 0;
+  color: var(--color-warning);
+  font-size: var(--font-size-caption);
+}
+.submit-row__batch {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border-1);
 }
 
 .submit-hint {

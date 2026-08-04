@@ -32,6 +32,8 @@ import {
   Van,
   RefreshLeft,
   Checked,
+  AlarmClock,
+  Remove,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge, NavCountBadge } from '@cangchu/ui-shared'
 import type {
@@ -109,6 +111,8 @@ const menus = computed<MenuItem[]>(() => [
   { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
   { key: '/ta/stocktake', label: '盘点', icon: Checked },
+  { key: '/ta/batches', label: '批次临期', icon: AlarmClock },
+  { key: '/ta/clearance', label: '清库', icon: Remove },
   { key: '/ta/operations', label: '运营总览', icon: TrendCharts },
   { key: '/ta/approvals', label: '审批中心', icon: Document },
   { key: '/ta/bills', label: '账单总览', icon: Coin },
@@ -119,6 +123,8 @@ const ROUTABLE = new Set([
   '/ta/dashboard',
   '/ta/returns',
   '/ta/stocktake',
+  '/ta/batches',
+  '/ta/clearance',
   '/ta/settings',
   '/ta/employees',
   '/ta/wholesalers',
