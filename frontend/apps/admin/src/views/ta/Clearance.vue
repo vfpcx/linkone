@@ -676,43 +676,44 @@ onMounted(async () => {
             data-test="clearance-table"
             :empty-text="activeTab === TAB_PENDING ? '暂无待审批清库单' : '暂无清库单'"
           >
-            <el-table-column prop="docNo" label="清库单号" min-width="185">
+            <el-table-column prop="docNo" label="清库单号" min-width="165">
               <template #default="{ row }">
                 <span class="cell-name">{{ row.docNo }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="商品" min-width="140">
+            <el-table-column label="商品" min-width="110">
               <template #default="{ row }">{{ row.skuName || skuLabel(row.skuId) }}</template>
             </el-table-column>
-            <el-table-column label="商户" min-width="120">
+            <el-table-column label="商户" min-width="100">
               <template #default="{ row }">
                 {{ row.wholesalerName || wholesalerLabel(row.wholesalerId) }}
               </template>
             </el-table-column>
-            <el-table-column label="清库件数" width="90" align="right" prop="qty" />
-            <el-table-column label="原因" width="80">
+            <el-table-column label="清库件数" width="80" align="right" prop="qty" />
+            <el-table-column label="原因" width="70">
               <template #default="{ row }">{{ reasonLabel(row.reason) }}</template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" width="90">
               <template #default="{ row }">
                 <el-tag :type="statusMeta(row.status).type" effect="light" round>
                   {{ statusMeta(row.status).label }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="创建时间" width="160">
+            <el-table-column label="创建时间" width="150">
               <template #default="{ row }">
                 <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="备注 / 驳回理由" min-width="140">
+            <el-table-column label="备注 / 驳回理由" min-width="105">
               <template #default="{ row }">
                 <span :class="row.status === 'REJECTED' ? 'text-danger' : 'cell-muted'">
                   {{ row.status === 'REJECTED' ? row.rejectRemark || '—' : row.remark || '—' }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="230" fixed="right">
+            <!-- 不用 fixed：1280 宽下 fixed 悬浮列会盖住状态/时间列（视觉目检发现），自然滚动即可 -->
+            <el-table-column label="操作" width="225">
               <template #default="{ row }">
                 <!-- 草稿：提交 / 编辑 / 删除（WK） -->
                 <template v-if="row.status === 'DRAFT'">
@@ -968,10 +969,17 @@ onMounted(async () => {
           <el-descriptions-item label="当前在库">
             {{ decideDoc.currentStock ?? '—' }} 件
           </el-descriptions-item>
-          <el-descriptions-item label="封顶预览" data-test="cap-preview">
-            生效 {{ capPreview?.applied ?? 0 }} 件
-            <span v-if="(capPreview?.shortfall ?? 0) > 0" class="text-danger" data-test="cap-shortfall">
-              · 差额 {{ capPreview?.shortfall }} 件写入备注线下核查
+          <el-descriptions-item label="封顶预览">
+            <!-- data-test 落 span：el-descriptions-item 为 renderless 组件，attrs 不上 DOM -->
+            <span data-test="cap-preview">
+              生效 {{ capPreview?.applied ?? 0 }} 件
+              <span
+                v-if="(capPreview?.shortfall ?? 0) > 0"
+                class="text-danger"
+                data-test="cap-shortfall"
+              >
+                · 差额 {{ capPreview?.shortfall }} 件写入备注线下核查
+              </span>
             </span>
           </el-descriptions-item>
           <el-descriptions-item label="清库原因">

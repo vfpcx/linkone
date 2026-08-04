@@ -573,34 +573,35 @@ onMounted(() => {
             data-test="expiring-table"
             empty-text="暂无临期或待清理批次"
           >
-            <el-table-column label="商品" min-width="150">
+            <el-table-column label="商品" min-width="125">
               <template #default="{ row }">{{ skuLabel(row.skuId) }}</template>
             </el-table-column>
-            <el-table-column label="商户" min-width="120">
+            <el-table-column label="商户" min-width="100">
               <template #default="{ row }">{{ wholesalerLabel(row.wholesalerId) }}</template>
             </el-table-column>
-            <el-table-column prop="batchNo" label="批次号" min-width="140" />
-            <el-table-column label="推算剩余" width="95" align="right">
+            <el-table-column prop="batchNo" label="批次号" min-width="115" />
+            <el-table-column label="推算剩余" width="90" align="right">
               <template #default="{ row }">{{ row.remainingQty }} 件*</template>
             </el-table-column>
-            <el-table-column label="到效期" width="110">
+            <el-table-column label="到效期" width="100">
               <template #default="{ row }">{{ formatDate(row.expiryDate) }}</template>
             </el-table-column>
-            <el-table-column label="剩余天数" width="105">
+            <el-table-column label="剩余天数" width="95">
               <template #default="{ row }">
                 <span :class="remainClass(row as Batch)" data-test="remaining-days">
                   {{ remainText(row as Batch) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="95">
+            <el-table-column label="状态" width="85">
               <template #default="{ row }">
                 <el-tag :type="statusMeta(row.status).type" effect="light" round>
                   {{ statusMeta(row.status).label }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="235" fixed="right">
+            <!-- 不用 fixed：1280 宽下 fixed 悬浮列会盖住状态列（视觉目检发现），自然滚动即可 -->
+            <el-table-column label="操作" width="230">
               <template #default="{ row }">
                 <el-button
                   v-if="isWk && canClear(row as Batch)"
@@ -691,41 +692,41 @@ onMounted(() => {
               data-test="registry-table"
               empty-text="暂无批次（开启批次管理并入库后产生）"
             >
-              <el-table-column prop="batchNo" label="批次号" min-width="150" />
-              <el-table-column label="商品" min-width="140">
+              <el-table-column prop="batchNo" label="批次号" min-width="120" />
+              <el-table-column label="商品" min-width="110">
                 <template #default="{ row }">{{ skuLabel(row.skuId) }}</template>
               </el-table-column>
-              <el-table-column label="商户" min-width="120">
+              <el-table-column label="商户" min-width="95">
                 <template #default="{ row }">{{ wholesalerLabel(row.wholesalerId) }}</template>
               </el-table-column>
-              <el-table-column label="累计入库" width="90" align="right" prop="initialQty" />
-              <el-table-column label="推算剩余" width="95" align="right">
+              <el-table-column label="累计入库" width="80" align="right" prop="initialQty" />
+              <el-table-column label="推算剩余" width="85" align="right">
                 <template #default="{ row }">{{ row.remainingQty }} 件*</template>
               </el-table-column>
-              <el-table-column label="生产日期" width="110">
+              <el-table-column label="生产日期" width="100">
                 <template #default="{ row }">{{ formatDate(row.productionDate) }}</template>
               </el-table-column>
-              <el-table-column label="到效期" width="110">
+              <el-table-column label="到效期" width="100">
                 <template #default="{ row }">{{ formatDate(row.expiryDate) }}</template>
               </el-table-column>
-              <el-table-column label="剩余天数" width="105">
+              <el-table-column label="剩余天数" width="90">
                 <template #default="{ row }">
                   <span :class="remainClass(row as Batch)">{{ remainText(row as Batch) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="状态" width="95">
+              <el-table-column label="状态" width="85">
                 <template #default="{ row }">
                   <el-tag :type="statusMeta(row.status).type" effect="light" round>
                     {{ statusMeta(row.status).label }}
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="来源" width="95">
+              <el-table-column label="来源" width="85">
                 <template #default="{ row }">
                   <span class="cell-muted">{{ sourceLabel(row.source) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="110" fixed="right">
+              <el-table-column label="操作" width="105">
                 <template #default="{ row }">
                   <el-button
                     v-if="canBackfill(row as Batch)"
