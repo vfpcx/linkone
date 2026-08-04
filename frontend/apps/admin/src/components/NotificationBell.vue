@@ -112,6 +112,10 @@ const NOTIF_TYPE_LABELS: Record<string, string> = {
   RETURN_COMPLETED: '退货完成',
   STOCKTAKE_PENDING: '盘点待审',
   STOCKTAKE_DECIDED: '盘点结论',
+  BATCH_EXPIRING: '批次临期',
+  BATCH_EXPIRED: '批次过期',
+  CLEARANCE_PENDING: '清库待审',
+  CLEARANCE_DECIDED: '清库结论',
 }
 const typeLabel = (t: string | null | undefined): string =>
   t ? (NOTIF_TYPE_LABELS[t] ?? '') : ''

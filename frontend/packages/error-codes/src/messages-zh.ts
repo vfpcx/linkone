@@ -138,6 +138,15 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_STOCKTAKE_ITEMS_INVALID]: '盘点明细为空或存在重复商品',
   [ErrorCode.STATE_STOCKTAKE_OPEN_EXISTS]: '该商户已有进行中的盘点单',
   [ErrorCode.STATE_BATCH_FEATURE_NOT_READY]: '批次功能开发中，暂不可开启',
+
+  // P3b T4 批次 / 临期 / 清库（50361-50367 · 13-p3b-design.md §4.2 userMessage 对齐）
+  [ErrorCode.STATE_BATCH_TOGGLE_RATE_LIMITED]: '批次开关 24 小时内最多操作 2 次',
+  [ErrorCode.STATE_BATCH_NO_DUPLICATE]: '该批次号已存在，请更换',
+  [ErrorCode.STATE_BATCH_NOT_FOUND]: '批次不存在',
+  [ErrorCode.STATE_BATCH_EXPIRED_CONFIRM_REQUIRED]: '该批次已过期，入库需二次确认',
+  [ErrorCode.STATE_CLEARANCE_BATCH_NOT_CLEARABLE]: '该批次无需清库',
+  [ErrorCode.STATE_CLEARANCE_PHOTO_REQUIRED]: '清库须上传实物照片',
+  [ErrorCode.STATE_EXPIRY_NOTIFY_RATE_LIMITED]: '24 小时内已通知过该批次',
   [ErrorCode.STATE_STOCK_NOT_ENOUGH]: '当前在库不足，无法完成本次操作',
 
   [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
