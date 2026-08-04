@@ -112,4 +112,12 @@ public interface BatchService {
 
     /** 默认批次补录 production/expiry（WK/TA；仅 source=DEFAULT 且未终态，50363/40205/40206）。 */
     com.cangchu.inventory.vo.BatchVo backfillDefaultBatch(Long batchId, BatchBackfillDto dto, Long userId);
+
+    /**
+     * 租户批次配置只读（P3b 收口 L-1，11 报告遗留）：{batchEnabled, batchEnabledAt, expiryThresholdDays}。
+     * 鉴权=登录用户在该租户下持任一 ACTIVE 角色即可读（WA/WE 经商户绑定亦携 tenant_id，
+     * user_roles 登录态推导为唯一可信来源）；供商户端按开关隐藏关闭档批次字段、租户端独立拉取阈值。
+     * 纯读 tenant_settings（经 TenantService.getBatchConfig，G-S1），无副作用。
+     */
+    com.cangchu.tenant.vo.TenantBatchConfigVo getConfigForMember(Long tenantId, Long userId);
 }

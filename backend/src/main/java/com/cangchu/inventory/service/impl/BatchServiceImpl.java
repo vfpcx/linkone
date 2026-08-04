@@ -759,6 +759,21 @@ public class BatchServiceImpl implements BatchService {
     }
 
     /** S4：WK 或 TA 可查看/补录（InboundCorrectionServiceImpl.listByTenant 先例）。 */
+    @Override
+    public TenantBatchConfigVo getConfigForMember(Long tenantId, Long userId) {
+        if (tenantId == null) {
+            throw new BizException(ErrorCode.TENANT_NOT_FOUND, "未找到租户");
+        }
+        // P3b 收口 L-1：存在性鉴权——该租户下任一 ACTIVE 角色即可读（TA/WK/ST 直绑租户，
+        // WA/WE 经商户绑定亦携 tenant_id；user_roles 登录态推导为唯一可信来源，不取客户端声明）
+        boolean member = authService.listActiveRoles(userId).stream()
+                .anyMatch(r -> tenantId.equals(r.getTenantId()));
+        if (!member) {
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅该仓相关人员可查看批次配置");
+        }
+        return tenantService.getBatchConfig(tenantId);
+    }
+
     private void requireWkOrTa(Long tenantId, Long userId) {
         if (!authService.hasRole(userId, "WK", tenantId) && !authService.hasRole(userId, "TA", tenantId)) {
             throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅本仓库管员或租户管理员可操作批次");
