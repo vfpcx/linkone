@@ -189,3 +189,7 @@ P3/P3b 铺的计费锚点（biz_time / reversal_of_id / pallet_delta / batch_id 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-08-04 | 首版：P4 范围提取 + 五锚点当日实测核查（全通过，1 处口径修订）+ 发现 US-TA-04 契约断裂活缺陷 + 10 项 DECISION 推荐 + 6 波切分 |
+
+## 拍板记录（2026-08-04，Team Lead 依用户执行准则裁决）
+
+10 项 DECISION 全部按本文推荐采纳：D-P4-1=A（SKU 粒度出账，修订 05 §1.1）、D-P4-2=A（快照驱动）、D-P4-3=A、D-P4-4（billing_dim 只读镜像+Settings 契约修复+首版 effective_from=首存日不补历史）、D-P4-5=A、D-P4-6（补 PENDING_PAYMENT+confirmed_at job）、D-P4-7=A（WS 简码兜底同构零迁移）、D-P4-8=A、**D-P4-9=A（ST 不建独立 H5，US-ST-06 验收降档为「账单列表/详情/回款登记三核心操作移动可用」——动了 P0 验收口径，已在交付纪要向用户显著标注，可否决）**、D-P4-10（联动做三项，争议账单 OPS 闭环留 P5）。波序按六波切分执行。
