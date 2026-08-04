@@ -7,6 +7,7 @@ import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.account.vo.LoginVo;
+import com.cangchu.common.TestUniq;
 import com.cangchu.common.response.R;
 import com.cangchu.tenant.dto.TenantApplyDto;
 import com.cangchu.tenant.entity.Tenant;
@@ -325,7 +326,7 @@ class Wave6DefectFixScenarioTest {
     private Tenant insertTenant(String name, String status) {
         Tenant t = new Tenant();
         t.setId(snowflakeIdUtil.nextId());
-        t.setTenantSimpleCode("W" + (snowflakeIdUtil.nextId() % 1000000L));
+        t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setName(name);
         t.setContactUserId(1L);
         t.setContactPhone("13800000000");

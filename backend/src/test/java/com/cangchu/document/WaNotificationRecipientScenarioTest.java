@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.common.TestUniq;
 import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.InboundDisputeDto;
@@ -94,7 +95,7 @@ class WaNotificationRecipientScenarioTest {
         long taUserId = snowflakeIdUtil.nextId();
         Tenant t = new Tenant();
         t.setId(tenantId);
-        t.setTenantSimpleCode("T" + (tenantId % 1_000_000));
+        t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setName("仓-" + tenantId);
         t.setContactUserId(taUserId);
         t.setContactPhone("1" + String.format("%010d", tenantId % 10_000_000_000L));

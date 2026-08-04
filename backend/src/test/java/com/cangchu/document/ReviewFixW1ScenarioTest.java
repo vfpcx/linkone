@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.common.TestUniq;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.tenant.TenantContext;
@@ -87,7 +88,7 @@ class ReviewFixW1ScenarioTest {
         long taUserId = snowflakeIdUtil.nextId();
         Tenant t = new Tenant();
         t.setId(tenantId);
-        t.setTenantSimpleCode("T" + (tenantId % 1_000_000));
+        t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setName("仓-" + tenantId);
         t.setContactUserId(taUserId);
         t.setContactPhone("1" + String.format("%010d", tenantId % 10_000_000_000L));

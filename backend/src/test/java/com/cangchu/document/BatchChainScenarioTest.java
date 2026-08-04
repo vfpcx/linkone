@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.common.TestUniq;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.tenant.TenantContext;
@@ -119,8 +120,8 @@ class BatchChainScenarioTest {
         long taUserId = snowflakeIdUtil.nextId();
         Tenant t = new Tenant();
         t.setId(tenantId);
-        // 前缀区隔（B≠T）：共享内存库下与其他测试类 "T"+id%1e6 的 simple_code 唯一索引零碰撞（列宽 8）
-        t.setTenantSimpleCode("B" + (tenantId % 10_000_000L));
+        // W5 抖动①稳定化：全局单调序列简码（TestUniq），根除雪花低位取模的生日悖论碰撞
+        t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setName("仓-" + tenantId);
         t.setContactUserId(taUserId);
         t.setContactPhone("1" + String.format("%010d", tenantId % 10_000_000_000L));
