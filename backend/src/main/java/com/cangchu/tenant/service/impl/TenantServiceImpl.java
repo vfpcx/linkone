@@ -273,6 +273,13 @@ public class TenantServiceImpl implements TenantService {
             throw new BizException(ErrorCode.BATCH_FEATURE_NOT_READY);
         }
 
+        // P4 W1 契约断裂修复（14 §2.3）：billingDim 幽灵字段废弃——收到即忽略并 warn（不报错，
+        // 兼容旧客户端）；计费维度镜像仅由计费规则保存事务写入（updateBillingDimMirror）。
+        if (dto.getBillingDim() != null) {
+            log.warn("[P4][deprecated] PUT /tenant/me 收到已废弃字段 billingDim={}（租户 {}），已忽略——"
+                    + "计费维度请改用 POST /api/v1/tenant/billing-rules", dto.getBillingDim(), tenantId);
+        }
+
         // 更新 Store
         Store store = storeMapper.selectOne(new LambdaQueryWrapper<Store>().eq(Store::getTenantId, tenantId));
         if (store == null) {
@@ -948,14 +955,18 @@ public class TenantServiceImpl implements TenantService {
         throw new BizException(ErrorCode.SYSTEM_INTERNAL_001);
     }
 
-    /** 判断是否有开关字段变更 */
+    /** 判断是否有开关字段变更（P4 W1：billingDim 已废弃不再触发设置写入，14 §2.3） */
     private boolean hasAnySwitch(StoreSettingsDto dto) {
         return dto.getBatchEnabled() != null || dto.getPhotoMode() != null
-                || dto.getBillingDim() != null || dto.getExpiryThresholdDays() != null
+                || dto.getExpiryThresholdDays() != null
                 || dto.getDisplayImageSource() != null;
     }
 
-    /** 应用开关值到 settings */
+    /**
+     * 应用开关值到 settings。
+     * P4 W1（14 §2.3 契约断裂修复）：billingDim 收到即忽略并 log warn（不报错，兼容旧客户端）——
+     * billing_dim 自 V24 起为只读镜像，仅由 {@link #updateBillingDimMirror} 在规则保存事务内写入。
+     */
     private void applySettingsDto(TenantSettings settings, StoreSettingsDto dto, boolean isInsert) {
         if (dto.getBatchEnabled() != null) settings.setBatchEnabled(dto.getBatchEnabled());
         else if (isInsert) settings.setBatchEnabled(0);
@@ -963,8 +974,7 @@ public class TenantServiceImpl implements TenantService {
         if (dto.getPhotoMode() != null) settings.setPhotoMode(dto.getPhotoMode());
         else if (isInsert) settings.setPhotoMode("NONE");
 
-        if (dto.getBillingDim() != null) settings.setBillingDim(dto.getBillingDim());
-        else if (isInsert) settings.setBillingDim("QTY");
+        if (isInsert) settings.setBillingDim("QTY");
 
         if (dto.getExpiryThresholdDays() != null) settings.setExpiryThresholdDays(dto.getExpiryThresholdDays());
         else if (isInsert) settings.setExpiryThresholdDays(30);
@@ -1013,6 +1023,42 @@ public class TenantServiceImpl implements TenantService {
             // 启用（含再启用）：切割时点覆写为本次启用时刻；停用保留旧值作历史锚点
             settings.setBatchEnabledAt(enabledAt);
         }
+        settings.setUpdatedBy(operatorUserId);
+        settings.setUpdatedAt(LocalDateTime.now());
+        tenantSettingsMapper.updateById(settings);
+    }
+
+    // ==================== P4 W1 计费维度镜像（14 §2.1-3） ====================
+
+    @Override
+    public String getTenantName(Long tenantId) {
+        // 只读跨域出口（G-S1/G-S2）：billing 域通知文案取仓库名；未命中返回 null（调用方降级）
+        Tenant tenant = tenantMapper.selectById(tenantId);
+        return tenant != null ? tenant.getName() : null;
+    }
+
+    @Override
+    @Transactional
+    public void updateBillingDimMirror(Long tenantId, String billingDim, Long operatorUserId) {
+        TenantSettings settings = tenantSettingsMapper.selectOne(
+                new LambdaQueryWrapper<TenantSettings>().eq(TenantSettings::getTenantId, tenantId));
+        if (settings == null) {
+            // settings 行缺失按默认值补建（setBatchEnabled 先例）
+            settings = new TenantSettings();
+            settings.setId(snowflakeIdUtil.nextId());
+            settings.setTenantId(tenantId);
+            settings.setBatchEnabled(0);
+            settings.setPhotoMode("NONE");
+            settings.setBillingDim(billingDim);
+            settings.setExpiryThresholdDays(30);
+            settings.setDisplayImageSource("STANDARD");
+            settings.setUpdatedBy(operatorUserId);
+            settings.setCreatedAt(LocalDateTime.now());
+            settings.setUpdatedAt(LocalDateTime.now());
+            tenantSettingsMapper.insert(settings);
+            return;
+        }
+        settings.setBillingDim(billingDim);
         settings.setUpdatedBy(operatorUserId);
         settings.setUpdatedAt(LocalDateTime.now());
         tenantSettingsMapper.updateById(settings);

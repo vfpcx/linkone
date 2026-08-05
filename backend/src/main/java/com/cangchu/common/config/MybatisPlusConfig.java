@@ -62,7 +62,9 @@ public class MybatisPlusConfig {
             // P3b T4-W1（13 §4.1 V22）：批次登记簿纳入兜底隔离
             "batches",
             // P3b T4-W2（13 §4.1 V23）：清库单纳入兜底隔离
-            "clearance_requests"
+            "clearance_requests",
+            // P4 W1（14 §4 V24）：计费规则版本链纳入兜底隔离
+            "billing_rules"
     );
 
     @Bean

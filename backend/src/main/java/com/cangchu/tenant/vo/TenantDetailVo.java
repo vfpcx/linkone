@@ -37,6 +37,7 @@ public class TenantDetailVo {
     // 5 开关
     private Integer batchEnabled;
     private String photoMode;
+    /** 计费维度只读镜像（P4 W1，14 §2.3）：QTY/PALLET/BOTH——由计费规则保存事务同步，此处仅供展示 */
     private String billingDim;
     private Integer expiryThresholdDays;
     private String displayImageSource;

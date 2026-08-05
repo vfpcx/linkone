@@ -34,6 +34,11 @@ public class StoreSettingsDto {
     // TA 级开关
     private Integer batchEnabled;
     private String photoMode;
+    /**
+     * @deprecated P4 W1（14 §2.3 契约断裂修复）：计费维度改由计费规则 API 版本化管理，
+     * billing_dim 转只读镜像。本字段仅为旧客户端兼容保留——后端收到即忽略并 log warn，不落库。
+     */
+    @Deprecated
     private String billingDim;
     private Integer expiryThresholdDays;
     private String displayImageSource;

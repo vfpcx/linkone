@@ -226,6 +226,8 @@ class TenantControllerTest {
         dto.setName("已更新的仓库-" + ta.phone);
         dto.setBatchEnabled(0);
         dto.setPhotoMode("REQUIRED");
+        // P4 W1（14 §2.3 契约断裂修复）：billingDim 幽灵字段废弃——通用设置接口收到即忽略，
+        // 镜像仅由计费规则保存事务写入；此处仍携带以断言「忽略不落库+不报错」的兼容行为
         dto.setBillingDim("PALLET");
         dto.setExpiryThresholdDays(45);
         dto.setLng(new java.math.BigDecimal("120.1552000"));
@@ -246,7 +248,8 @@ class TenantControllerTest {
         TenantDetailVo updated = getResp.getBody().getData();
         assertThat(updated.getBatchEnabled()).isEqualTo(0);
         assertThat(updated.getPhotoMode()).isEqualTo("REQUIRED");
-        assertThat(updated.getBillingDim()).isEqualTo("PALLET");
+        // billingDim 忽略不落库：维持默认镜像 QTY（改写须走 POST /api/v1/tenant/billing-rules）
+        assertThat(updated.getBillingDim()).isEqualTo("QTY");
         assertThat(updated.getExpiryThresholdDays()).isEqualTo(45);
     }
 

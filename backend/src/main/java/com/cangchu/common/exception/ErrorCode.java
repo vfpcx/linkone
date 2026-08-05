@@ -204,7 +204,12 @@ public enum ErrorCode {
     // 清库封顶（同 D-10 口径家族第 4 处）非错误路径：审批时在库不足按剩余封顶生效+差额备注，不驳回。
     CLEARANCE_BATCH_NOT_CLEARABLE(50365, "该批次无需清库"),
     CLEARANCE_PHOTO_REQUIRED(50366, "清库须上传实物照片"),
-    EXPIRY_NOTIFY_RATE_LIMITED(50367, "24 小时内已通知过该批次");
+    EXPIRY_NOTIFY_RATE_LIMITED(50367, "24 小时内已通知过该批次"),
+
+    // ==================== P4 W1 计费规则 (14-p4-design §5，P4 段 50323 + 50370-50389；50384+ 预留) ====================
+    // 50370-50378/50380-50383 归 W3 账单生命周期启用；W1 仅启用规则校验一枚。
+    // confirmed 二次确认凭据缺失复用 40003（batch-toggle 先例）；并发关旧行 CAS 失败复用 50331。
+    BILLING_RULE_INVALID(50379, "计费规则无效（至少启用一种维度并填写单价）");
 
     private final int code;
     private final String message;

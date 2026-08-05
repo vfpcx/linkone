@@ -143,4 +143,19 @@ public interface TenantService {
 
     /** 只读：全平台批次功能已启用的租户 id（T4-W2 双 Job 按此过滤；Job 无 TenantContext 全平台扫描先例）。 */
     List<Long> listBatchEnabledTenantIds();
+
+    // ==================== P4 W1 计费维度镜像（14 §2.1-3，供 billing 域规则保存事务编排调用） ====================
+
+    /**
+     * 只读：取租户名称（P4 W1：计费规则变更通知文案「{仓库名}更新了仓储计费规则…」，
+     * 替代跨域直连 TenantMapper，符合 G-S1/G-S2）。租户不存在返回 {@code null}（调用方降级）。
+     */
+    String getTenantName(Long tenantId);
+
+    /**
+     * 写 tenant_settings.billing_dim 只读镜像（仅供 BillingRuleService 规则保存事务同步调用）。
+     * 自 P4 W1 起该列不再接受通用设置接口写入（StoreSettingsDto.billingDim 忽略），值域扩
+     * {@code QTY/PALLET/BOTH}；读侧（TenantDetailVo/storefront）零改动。settings 行缺失时按默认值补建。
+     */
+    void updateBillingDimMirror(Long tenantId, String billingDim, Long operatorUserId);
 }
