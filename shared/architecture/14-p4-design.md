@@ -421,3 +421,10 @@ W0 定稿 ──▶ W1(V24 规则+契约修复) ──▶ W2(V25 引擎+快照) 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-08-05 | 首版（W0 定稿）：五锚点消费统一回放公式（≤D−1 一式）+ 快照缓存三用途 + billing_rules 版本链与 §2.6 契约修复方案 + 账单 6 态状态机（补 PENDING_PAYMENT/砍 GENERATING·CANCELLED）+ BL- 月度单号（W{id} 兜底）+ R13/R14 联动三项 + V24–V26 迁移 + 错误码 50323/50370–50389 + 六波拆分与闸门 |
+
+## 据实现备注（W1，Team Lead 代录）
+
+1. 规则并发冲突扩展复用 50331（关旧行 CAS 失败/同日双写撞 uk），文案「计费规则已被并发修改」
+2. 首版保存也发 BILLING_RULE_CHANGED（商户需知悉计费开始；仓库名缺失降级「您入驻的仓库」）
+3. 单价护栏：≥0、≤4 位小数、<10^10（DECIMAL(14,4) 防溢出），超限 50379
+4. W2 规则段读取接口已就位：BillingRuleService#listRuleChain(tenantId, untilInclusive)→升序段链，effectiveTo=null 为当前段
