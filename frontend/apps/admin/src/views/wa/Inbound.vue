@@ -51,6 +51,7 @@ import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
 import { waInboundApi } from '@/api/waInbound'
 import { skuApi } from '@/api/sku'
+import { batchApi } from '@/api/batch'
 import { accountApi } from '@/api/account'
 import NotificationBell from '@/components/NotificationBell.vue'
 import InboundDisputeDialog from './InboundDisputeDialog.vue'
@@ -315,6 +316,26 @@ const fetchSkus = async () => {
   }
 }
 
+// ============ 店铺批次开关（P3b 收口 L-1：关闭档提交表单隐藏批次三字段） ============
+/** 本账号绑定租户（WA/WE 条目经商户绑定携 tenant_id） */
+const myTenantId = computed(() => {
+  const entry = auth.roles?.find((r) => (r.role === 'WA' || r.role === 'WE') && r.tenantId)
+  return entry?.tenantId ? String(entry.tenantId) : ''
+})
+
+/** null=未知（拉取失败/未拉到）→ 表单保守显示，必填校验以后端 40003 为权威 */
+const batchEnabled = ref<boolean | null>(null)
+
+const fetchBatchConfig = async () => {
+  if (!myTenantId.value) return
+  try {
+    const cfg = await batchApi.config(myTenantId.value)
+    batchEnabled.value = cfg.batchEnabled === 1
+  } catch {
+    // 42001/网络异常：保持 null（保守显示批次字段）
+  }
+}
+
 // ============ 提交入库申请（含 R2 一键复制重建） ============
 const submitVisible = ref(false)
 const submitPrefill = ref<{
@@ -474,6 +495,7 @@ const onDisputeSubmit = async (payload: InboundDisputeRequest) => {
 onMounted(() => {
   void fetchList()
   void fetchSkus()
+  void fetchBatchConfig()
   tickTimer = setInterval(() => {
     nowTick.value = Date.now()
   }, 1000)
@@ -799,6 +821,7 @@ onBeforeUnmount(() => {
       :skus="skus"
       :store-name="storeNameDisplay"
       :prefill="submitPrefill"
+      :batch-enabled="batchEnabled"
       @submitted="onSubmitted"
     />
 

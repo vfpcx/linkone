@@ -83,6 +83,20 @@ export interface BatchToggleResult {
   closedBatchCount: number
 }
 
+/**
+ * 租户批次配置只读（GET /wholesaler/tenants/{tenantId}/batch-config · P3b 收口 L-1）。
+ * 权威：BatchController.batchConfig / TenantBatchConfigVo（据实查证 2026-08-05）；
+ * 该租户下持任一 ACTIVE 角色（含商户侧 WA/WE）可读，越权 42001。
+ */
+export interface TenantBatchConfig {
+  /** 1=批次功能已启用 */
+  batchEnabled: number
+  /** 最近启用时刻（FIFO 推算切割时点；从未启用为 null） */
+  batchEnabledAt: string | null
+  /** 临期阈值天数（默认 30） */
+  expiryThresholdDays: number
+}
+
 /** 默认批次补录（PUT /tenant/batches/{id}；仅 source=DEFAULT 且非 CLEARED/CLOSED） */
 export interface BatchBackfillRequest {
   /** ≤今天（40205）；可空=不改 */

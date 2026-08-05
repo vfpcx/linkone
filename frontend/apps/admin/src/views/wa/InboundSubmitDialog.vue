@@ -31,7 +31,8 @@ interface RowDraft {
   palletQty: number | undefined
   remark: string
   // P3b T4-W1 批次三字段（商户开启批次管理时必填，13 §3.2；
-  // 开关状态无商户侧可读端点——字段常显标注，必填校验以后端 40003 为权威）
+  // 收口 L-1：开关经 batch-config 端点由父级下发（batchEnabled prop），
+  // 关闭档隐藏字段；必填校验仍以后端 40003 为权威）
   batchNo: string
   productionDate: string
   expiryDate: string
@@ -47,11 +48,18 @@ interface Props {
   storeName?: string
   /** 复制重建预填行（R2 驳回后带出原字段） */
   prefill?: { skuId: string; qty: number; palletQty?: number; remark?: string } | null
+  /**
+   * 店铺批次开关（P3b 收口 L-1：GET /wholesaler/tenants/{tenantId}/batch-config，父级拉取）。
+   * false=关闭档隐藏批次三字段；true=显示且标注必填；null=配置未知（拉取失败）保守显示，
+   * 必填校验仍以后端 40003 为权威。
+   */
+  batchEnabled?: boolean | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   storeName: '',
   prefill: null,
+  batchEnabled: null,
 })
 
 const emit = defineEmits<{
@@ -322,10 +330,12 @@ const onSubmit = async () => {
         </div>
       </div>
 
-      <!-- P3b T4 批次三字段（商户开启批次管理时必填；关闭档留空即可） -->
-      <div class="submit-row__fields submit-row__batch">
+      <!-- P3b T4 批次三字段（收口 L-1：batchEnabled=false 关闭档隐藏；unknown 保守显示） -->
+      <div v-if="batchEnabled !== false" class="submit-row__fields submit-row__batch">
         <div class="submit-field submit-field--sku">
-          <span class="submit-field__label">批次号（商户开启批次管理时必填）</span>
+          <span class="submit-field__label">
+            {{ batchEnabled === true ? '批次号 *' : '批次号（商户开启批次管理时必填）' }}
+          </span>
           <el-input
             v-model="row.batchNo"
             maxlength="64"
