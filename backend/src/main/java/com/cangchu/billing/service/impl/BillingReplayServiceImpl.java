@@ -44,24 +44,21 @@ public class BillingReplayServiceImpl implements BillingReplayService {
     @Override
     public Map<Long, List<BillingReplayCalculator.DayPosition>> replayDailyPositions(
             Long tenantId, Long wholesalerId, LocalDate from, LocalDate to) {
-        // untilExclusive = to：D=to 的计费量只消费 bizDate ≤ to−1（公式内生，多取无害少取致错）
-        List<Movement> movements = loadMovements(tenantId, wholesalerId, to);
-        return BillingReplayCalculator.dailyPositions(movements, from, to);
+        // 取全量流水：日期边界由公式内生（≤D−1 前缀折算），且争议对锚点归一需要配对流水在场
+        return BillingReplayCalculator.dailyPositions(loadMovements(tenantId, wholesalerId), from, to);
     }
 
     @Override
     public Map<Long, BillingReplayCalculator.NetPosition> replayNet(
             Long tenantId, Long wholesalerId, LocalDate untilInclusive) {
-        List<Movement> movements = loadMovements(tenantId, wholesalerId,
-                untilInclusive != null ? untilInclusive.plusDays(1) : null);
-        return BillingReplayCalculator.netAsOf(movements, untilInclusive);
+        return BillingReplayCalculator.netAsOf(loadMovements(tenantId, wholesalerId), untilInclusive);
     }
 
     @Override
     public MonthlyReplayVo replayMonthly(Long tenantId, Long wholesalerId, YearMonth month) {
         LocalDate monthEnd = month.atEndOfMonth();
         List<Segment> chain = loadRuleChain(tenantId, monthEnd);
-        List<Movement> movements = loadMovements(tenantId, wholesalerId, monthEnd);
+        List<Movement> movements = loadMovements(tenantId, wholesalerId);
         List<StorageLine> lines = BillingReplayCalculator.monthlyStorageLines(movements, chain, month);
 
         LocalDate periodStart = null;
@@ -128,9 +125,11 @@ public class BillingReplayServiceImpl implements BillingReplayService {
 
     // ==================== 私有 ====================
 
-    private List<Movement> loadMovements(Long tenantId, Long wholesalerId, LocalDate untilExclusive) {
-        return inventoryService.listMovementsForBilling(tenantId, wholesalerId, untilExclusive).stream()
-                .map(v -> new Movement(v.skuId(), v.type(), v.qty(), v.bizDate(), v.palletDelta()))
+    /** 全量取流水（G-S1 出口）：日期边界由计算器公式内生；id/reversalOfId 供争议对锚点归一 */
+    private List<Movement> loadMovements(Long tenantId, Long wholesalerId) {
+        return inventoryService.listMovementsForBilling(tenantId, wholesalerId, null).stream()
+                .map(v -> new Movement(v.skuId(), v.type(), v.qty(), v.bizDate(), v.palletDelta(),
+                        v.id(), v.reversalOfId()))
                 .toList();
     }
 

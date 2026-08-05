@@ -24,10 +24,11 @@ import java.util.TreeMap;
  * billablePallet(D) = max( Σ pallet_delta(m) where bizDate(m) ≤ D−1, 0 )
  * </pre>
  *
- * <p>「≤ D−1」一式实现全部基准日口径（05 §1.2）：入库/盘盈/仲裁恢复/纠错补录次日 0:00 起算；
- * 出库/退货/盘亏/清库/异议冲销/纠错冲销当日仍计、次日不计；同日入出 0 件·天；
- * DISPUTE_REVERSAL(异议日)+DISPUTE_RESTORE(biz_time=原入库时间戳) 配对自动呈现连续计费，
- * 无需按 reversal_of_id 特判（RESTORE reversal_of_id=null 防御缺口天然容错，G7）。
+ * <p>「≤ D−1」一式实现全部基准日口径（05 §1.2）：入库/盘盈/纠错补录次日 0:00 起算；
+ * 出库/退货/盘亏/清库/异议冲销/纠错冲销当日仍计、次日不计；同日入出 0 件·天。
+ * 争议对（DISPUTE_REVERSAL+RESTORE）经 {@link #normalizeDisputeAnchors} 锚点归一后呈现
+ * 「原入库次日起连续计费、争议期成对抵消」（09 §2.4；14 §1.1「无需特判」表述据实现修正，
+ * 见该方法注释）；RESTORE 配对缺失照常按自身 biz_time 计入（G7 防御容错）。
  * V20 前存量流水 pallet_delta 恒 0 ⇒ 托盘·天自然以规则生效时 Σpallet_delta 现值为基线（D-P4-5=A）。
  *
  * <p>纯函数（输入=流水列表+规则段链，输出=逐日/逐段聚合），供 Job 与测试直驱
@@ -41,8 +42,16 @@ public final class BillingReplayCalculator {
 
     // ==================== 值对象 ====================
 
-    /** 回放输入流水（五锚点已折算：bizDate=biz_time 所在自然日） */
-    public record Movement(Long skuId, String type, int qty, LocalDate bizDate, int palletDelta) {
+    /**
+     * 回放输入流水（五锚点已折算：bizDate=biz_time 所在自然日）。
+     * id/reversalOfId 仅供争议对锚点归一（{@link #normalizeDisputeAnchors}）；测试可用五参构造省略。
+     */
+    public record Movement(Long skuId, String type, int qty, LocalDate bizDate, int palletDelta,
+                           Long id, Long reversalOfId) {
+
+        public Movement(Long skuId, String type, int qty, LocalDate bizDate, int palletDelta) {
+            this(skuId, type, qty, bizDate, palletDelta, null, null);
+        }
     }
 
     /** 规则段（listRuleChain 升序段链映射；to=null 为当前段开区间） */
@@ -224,10 +233,41 @@ public final class BillingReplayCalculator {
         return null;
     }
 
+    /**
+     * 争议对锚点归一（W2 据实现偏差，替代 14 §1.1「无需 reversal_of_id 特判」表述）：
+     * DISPUTE_RESTORE（biz_time=原入库时间戳）与配对 DISPUTE_REVERSAL（biz_time=异议时刻）
+     * <b>锚点异日</b>，直接代入 Σ 公式会使 [入库次日, 异议日] 窗口双计（inbound+RESTORE 同日叠加而
+     * REVERSAL 尚未扣减）——与 09 §2.4「原入库次日起连续计费、无中断」及 G6 等式矛盾（逐日可证）。
+     * 修正：可解析配对的 RESTORE 按<b>配对冲销的 bizDate</b> 归一（成对同日恰好逐日抵消 ⇒
+     * 连续计费 ✅、驳回·保留冲销分支不受影响 ✅、Σ 总量不变 ⇒ 对账哨兵不受影响 ✅）。
+     * 配对缺失（reversal_of_id=null / 悬空）保持原 biz_time 照常计入（G7 防御容错，不抛异常）。
+     */
+    public static List<Movement> normalizeDisputeAnchors(List<Movement> movements) {
+        Map<Long, LocalDate> reversalDates = new LinkedHashMap<>();
+        for (Movement m : movements) {
+            if (StockMovement.TYPE_DISPUTE_REVERSAL.equals(m.type()) && m.id() != null) {
+                reversalDates.put(m.id(), m.bizDate());
+            }
+        }
+        if (reversalDates.isEmpty()) {
+            return movements;
+        }
+        List<Movement> normalized = new ArrayList<>(movements.size());
+        for (Movement m : movements) {
+            LocalDate pairDate = StockMovement.TYPE_DISPUTE_RESTORE.equals(m.type()) && m.reversalOfId() != null
+                    ? reversalDates.get(m.reversalOfId()) : null;
+            normalized.add(pairDate != null && !pairDate.equals(m.bizDate())
+                    ? new Movement(m.skuId(), m.type(), m.qty(), pairDate, m.palletDelta(), m.id(), m.reversalOfId())
+                    : m);
+        }
+        return normalized;
+    }
+
     // ==================== 私有 ====================
 
-    /** 按 SKU 聚成逐日增量表：date → [Σsigned·qty, Σpallet_delta]（前缀和物料） */
-    private static Map<Long, TreeMap<LocalDate, long[]>> deltasBySku(List<Movement> movements) {
+    /** 按 SKU 聚成逐日增量表：date → [Σsigned·qty, Σpallet_delta]（前缀和物料；入口统一锚点归一） */
+    private static Map<Long, TreeMap<LocalDate, long[]>> deltasBySku(List<Movement> rawMovements) {
+        List<Movement> movements = normalizeDisputeAnchors(rawMovements);
         Map<Long, TreeMap<LocalDate, long[]>> bySku = new LinkedHashMap<>();
         for (Movement m : movements) {
             TreeMap<LocalDate, long[]> deltas = bySku.computeIfAbsent(m.skuId(), k -> new TreeMap<>());
