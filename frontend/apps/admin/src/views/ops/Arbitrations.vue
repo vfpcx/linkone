@@ -327,7 +327,8 @@ onMounted(() => {
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="发起时间" width="170">
+            <!-- L-7：默认列宽 170 在 1280 视口下秒位被裁（「12:08:」后截断），放宽至 190 -->
+            <el-table-column label="发起时间" width="190">
               <template #default="{ row }">
                 <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
