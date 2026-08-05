@@ -1,9 +1,28 @@
 #!/bin/sh
-BASEDIR=$(dirname "$0")
+# Maven Wrapper 启动脚本（P3b 收口 L-6：jar 缺失时快速失败非零退出，杜绝历轮「误绿」；
+# exec 直启 java 保证 Maven 退出码原样透传）
+BASEDIR=$(cd "$(dirname "$0")" && pwd) || exit 1
 export JAVA_HOME="${JAVA_HOME:-/c/Program Files/Android/openjdk/jdk-21.0.8}"
-"$JAVA_HOME/bin/java" \
-  -classpath "$BASEDIR/.mvn/wrapper/maven-wrapper.jar" \
+WRAPPER_JAR="$BASEDIR/.mvn/wrapper/maven-wrapper.jar"
+WRAPPER_PROPERTIES="$BASEDIR/.mvn/wrapper/maven-wrapper.properties"
+if [ ! -f "$JAVA_HOME/bin/java" ] && [ ! -f "$JAVA_HOME/bin/java.exe" ]; then
+  echo "ERROR: JAVA_HOME 无效（$JAVA_HOME），请设置指向 JDK 21+" >&2
+  exit 1
+fi
+if [ ! -f "$WRAPPER_JAR" ]; then
+  # 自愈：按 properties 里的 wrapperUrl 重下（官方 mvnw 同款兜底）；失败则非零退出
+  WRAPPER_URL=$(sed -n 's/^wrapperUrl=//p' "$WRAPPER_PROPERTIES" 2>/dev/null)
+  if [ -n "$WRAPPER_URL" ] && command -v curl >/dev/null 2>&1; then
+    echo "maven-wrapper.jar 缺失，自动下载：$WRAPPER_URL" >&2
+    curl -sfL -o "$WRAPPER_JAR" "$WRAPPER_URL" || { echo "ERROR: wrapper jar 下载失败" >&2; exit 1; }
+  else
+    echo "ERROR: $WRAPPER_JAR 缺失且无法自动下载（缺 wrapperUrl 或 curl）" >&2
+    exit 1
+  fi
+fi
+exec "$JAVA_HOME/bin/java" \
+  -classpath "$WRAPPER_JAR" \
   -Dmaven.multiModuleProjectDirectory="$BASEDIR" \
-  -Dmaven.wrapper.properties="$BASEDIR/.mvn/wrapper/maven-wrapper.properties" \
+  -Dmaven.wrapper.properties="$WRAPPER_PROPERTIES" \
   org.apache.maven.wrapper.MavenWrapperMain \
   "$@"
