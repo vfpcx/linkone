@@ -146,6 +146,15 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         if (!ok) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
+        // P3b 收口 L-2：撤回同事务通知库管（与发起通知①同收件人推导，多账号全发；文案零角色码）
+        WholesalerVo wholesaler = wholesalerService.getById(req.getWholesalerId());
+        String wholesalerName = wholesaler != null ? wholesaler.getName() : String.valueOf(req.getWholesalerId());
+        notificationService.sendToAll(req.getTenantId(),
+                authService.listActiveWkUserIdsOfTenant(req.getTenantId()),
+                Notification.TYPE_RETURN_WITHDRAWN, "退货申请已撤回",
+                "商户「" + wholesalerName + "」已撤回退货申请 " + req.getDocNo() + "（" + req.getQty()
+                        + " 件），无需再受理。撤回理由：" + dto.getReason().trim(),
+                Notification.REF_RETURN, req.getId());
         // D-7 架构红利：登记前撤回本就没扣库存 → 无回补流水
         log.info("[P3b][RTN] user {} 撤回退货 doc={}", userId, req.getDocNo());
         return toVo(returnRequestMapper.selectById(returnId), null, null);

@@ -448,6 +448,31 @@ class InboundForwardChainScenarioTest {
     }
 
     @Test
+    @DisplayName("L-2①：R1 撤回 → 库管站内信（多账号全发；content 含单号+理由零角色码；refId=申请单）；失败路径零通知")
+    void withdrawNotifiesWk() {
+        Ctx c = seedAll();
+        long wk2 = seedRole(null, "WK", c.tenantId(), null, null);
+        InboundRequestVo vo = submitOne(c, 10);
+
+        // 缺理由失败路径 → 零撤回通知
+        expectBiz(() -> inboundRequestService.withdrawByWa(vo.getId(), withdrawDto("  "), c.waUserId()));
+        assertThat(countNotifications(c.wkUserId(), Notification.TYPE_INBOUND_WITHDRAWN)).isZero();
+
+        inboundRequestService.withdrawByWa(vo.getId(), withdrawDto("填错件数"), c.waUserId());
+        // 多账号全发（user_roles 推导先例，13 §1.4 同源）；受理锁单 50350 堵状态机，本通知补信息差
+        assertThat(countNotifications(c.wkUserId(), Notification.TYPE_INBOUND_WITHDRAWN)).isEqualTo(1);
+        assertThat(countNotifications(wk2, Notification.TYPE_INBOUND_WITHDRAWN)).isEqualTo(1);
+        Notification n = notificationMapper.selectOne(new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getRecipientUserId, c.wkUserId())
+                .eq(Notification::getType, Notification.TYPE_INBOUND_WITHDRAWN));
+        assertThat(n.getRefType()).isEqualTo(Notification.REF_INBOUND);
+        assertThat(n.getRefId()).isEqualTo(vo.getId());
+        assertThat(n.getContent()).contains(vo.getDocNo()).contains("填错件数").doesNotContain("WA");
+        // 撤回零库存不变量保持
+        assertZeroStock(c);
+    }
+
+    @Test
     @DisplayName("T1-ACC-01 受理：SUBMITTED→ACCEPTED 通知 WA，零库存；受理后仍可驳回（T4-W1 补，仍零库存）")
     void acceptLocksDoc() {
         Ctx c = seedAll();
