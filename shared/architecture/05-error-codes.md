@@ -249,6 +249,7 @@
 > 新增——账号存在但全部角色被禁用（如 R17 禁用的单角色 WE）登录时语义拒绝，不再兜底 TA 放行（WEM-S5-01）。
 
 > 预留：50323 起留给 P4 billing 的退驻账单未结清校验（决策 O-5 占位，代码中 TODO 标注）。
+> **已兑现（2026-08-05）**：50323 = `WITHDRAW_BILL_NOT_SETTLED`，P4 全段分配见「P4 计费与结算」节。
 
 ### P3 单据异常链（50330–50349，12-p3-design §6.2 分配段，BE-W1 落地）
 
@@ -305,14 +306,44 @@
 | 50367 | `EXPIRY_NOTIFY_RATE_LIMITED` | 200 | 24 小时内已通知过该批次 | D-12：WK 手动一键通知同批次 24h 限 1（manual_notified_at 比对；T4-W2） | 次日再通知 |
 | 50368–50369 | 预留 | — | — | T4 后续增补 | — |
 
-### STATE_BILL（50300–50399）账单状态
+### P4 计费与结算（50323 + 50370–50389，14-p4-design §5 分配段，W0 定稿）
+
+> 依 §「P3 单据异常链」勘误注「P4 账单状态码改用其它空段另行分配」：蓝图 STATE_BILL 50301–50304
+> 与实占 50300–50306 重叠**作废**（见下节标注）；P4 段 = **50323**（O-5 承诺位，兑现「50323 起预留
+> P4 billing」）+ **50370–50389** 新段。50324–50329 维持预留缓冲。账单状态机不可达/CAS 一律复用
+> 50330/50331（DocKind.BILL 矩阵）；附件校验复用 50340、confirmed 凭据缺失复用 40003、
+> 调整超小计复用 40204、越权复用 42001/42004/42101。
 
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
 |---|---|---|---|---|---|
-| 50301 | `STATE_BILL_001` | 200 | 账单尚未生成 | Bill not generated yet | 等待月初定时任务 |
-| 50302 | `STATE_BILL_002` | 200 | 账单已下发，不能直接调整 | Cannot adjust dispatched bill | 先撤回 |
-| 50303 | `STATE_BILL_003` | 200 | 账单已结清，无法继续操作 | Bill fully paid | — |
-| 50304 | `STATE_BILL_004` | 200 | 该账单存在未处理申诉 | Bill has pending disputes | 先处理申诉 |
+| 50323 | `WITHDRAW_BILL_NOT_SETTLED` | 200 | 退驻前须结清账单（存在未结清账单） | R13 前置第 3 项：status≠PAID 账单存在（发起/审批双检，O-5 兑现；W3） | 结清账单后重试 |
+| 50370 | `BILL_NOT_FOUND` | 200 | 账单不存在 | 不存在/跨租户/跨商户/未下发对 WA 均按不存在（不泄漏存在性；W3） | 刷新列表 |
+| 50371 | `BILL_NOT_ADJUSTABLE` | 200 | 当前状态不可调整，请先撤回下发 | 调整/冲销仅待核对（04 §6.2；已结清先 R12 再 R10；W3） | 先 R11 撤回 |
+| 50372 | `BILL_NOT_WITHDRAWABLE` | 200 | 账单已有回款或已被确认，无法撤回 | R11：仅 DISPATCHED ∧ paid=0 ∧ confirmed_at NULL（W3） | — |
+| 50373 | `BILL_PAYMENT_EXCEEDS` | 200 | 登记金额超出剩余应收 | 原蓝图 60201 语义移段（不允许超收；W3） | 核对金额 |
+| 50374 | `BILL_ALREADY_SETTLED` | 200 | 账单已结清，无需重复登记 | 原蓝图 60202 语义移段（W3） | — |
+| 50375 | `BILL_PAYMENT_NOT_REVERSIBLE` | 200 | 该回款记录已冲销或不存在 | R12 重复冲销/不存在按不存在（W3） | 刷新详情 |
+| 50376 | `BILL_DISPUTE_NOT_PENDING` | 200 | 该申诉已处理 | resolve 时非 PENDING/不存在（W3） | 刷新队列 |
+| 50377 | `BILL_DISPUTE_INVALID` | 200 | 申诉条目无效 | disputedItemIds 非本账单条目/格式非法（W3） | — |
+| 50378 | `BILL_DISPUTE_WINDOW_CLOSED` | 200 | 申诉期已过（账单下发后 7 天内可提） | 原蓝图 60204 语义移段；dispatch_at+7d SQL 数据库时间（W3） | 线下联系 ST |
+| 50379 | `BILLING_RULE_INVALID` | 200 | 计费规则无效（至少启用一种维度并填写单价） | W1 规则校验：无维度/启用维缺单价/单价<0 | — |
+| 50380 | `BILLING_RULE_MISSING` | 200 | 计费规则未设置，无法生成账单 | 手动出账无生效规则（月度 Job 侧静默跳过记 WARN；W3） | TA 先设置规则 |
+| 50381 | `BILL_DISPUTED_LOCKED` | 200 | 账单争议中，操作受限 | R14 DISPUTED 位冻结全部写操作（OPS 仲裁闭环 P5，D-P4-10；W3） | 等待平台处理 |
+| 50382 | `BILL_DISPUTE_PENDING_EXISTS` | 200 | 该账单已有待处理申诉 | pending_flag 部分唯一 uk_bd_bill_pending 兜底（V13 先例；W3） | 等待 ST 处理 |
+| 50383 | `BILL_ITEM_NOT_REVERSIBLE` | 200 | 该条目不可冲销或已被冲销 | R10：仅 STORAGE/ADJUSTMENT 且未被冲销过（W3） | — |
+| 50384–50389 | 预留 | — | — | P4 后续增补 | — |
+
+### STATE_BILL（50300–50399）账单状态 ~~（蓝图段，已作废）~~
+
+> **作废（2026-08-05，14-p4-design §5）**：本蓝图段与代码实占 50300–50306（P2 各批次）重叠，
+> P4 落地未启用；50301–50304 语义由 P4 段承接（50302→50371、50303→50374 等），勿再引用。
+
+| code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
+|---|---|---|---|---|---|
+| 50301 | `STATE_BILL_001` | 200 | ~~账单尚未生成~~ | 作废：未生成对 WA 按 50370 不泄漏 | — |
+| 50302 | `STATE_BILL_002` | 200 | ~~账单已下发，不能直接调整~~ | 作废 → 50371 | — |
+| 50303 | `STATE_BILL_003` | 200 | ~~账单已结清，无法继续操作~~ | 作废 → 50374/50371 | — |
+| 50304 | `STATE_BILL_004` | 200 | ~~该账单存在未处理申诉~~ | 作废：申诉不冻结账单（14-p4-design §3.3），无对应码 | — |
 
 ---
 
@@ -341,15 +372,19 @@
 | 60105 | `BUSINESS_PRICE_005` | 200 | 议价价格低于成本价 | Bargained price below cost | WA 二次确认 |
 | 60106 | `BUSINESS_PRICE_006` | 200 | 客户专属价已存在并生效 | Customer price already active | 提示覆盖 |
 
-### BUSINESS_BILLING（60200–60299）账单
+### BUSINESS_BILLING（60200–60299）账单 ~~（蓝图段，P4 落地移段/不启用）~~
+
+> **处置（2026-08-05，14-p4-design §5）**：60201→50373、60202→50374、60204→50378 语义移段；
+> 60203 不占码（生成失败=Job 吞异常记日志 + 次日手动补跑，幂等键保护）；
+> 60205 不启用（R12 归 ST 二次确认凭据 confirmed，不引 OPS）。本段勿再引用。
 
 | code | errorCode | HTTP | 用户提示 | 开发提示 | 处理建议 |
 |---|---|---|---|---|---|
-| 60201 | `BUSINESS_BILLING_001` | 200 | 已收款金额超出账单应收 | Payment exceeds bill amount | — |
-| 60202 | `BUSINESS_BILLING_002` | 200 | 此账单已结清，无需重复登记 | Bill already paid | — |
-| 60203 | `BUSINESS_BILLING_003` | 200 | 账单生成失败，请联系 OPS | Bill generation failed | 重试 / 报警 |
-| 60204 | `BUSINESS_BILLING_004` | 200 | 申诉期已过 | Dispute window closed | PRD §账单申诉 7 天 |
-| 60205 | `BUSINESS_BILLING_005` | 200 | 已收款冲销需 OPS 二次确认 | Payment reverse requires OPS confirm | — |
+| 60201 | `BUSINESS_BILLING_001` | 200 | ~~已收款金额超出账单应收~~ | 作废 → 50373 | — |
+| 60202 | `BUSINESS_BILLING_002` | 200 | ~~此账单已结清，无需重复登记~~ | 作废 → 50374 | — |
+| 60203 | `BUSINESS_BILLING_003` | 200 | ~~账单生成失败，请联系 OPS~~ | 作废：不占码（Job 日志+幂等补跑） | — |
+| 60204 | `BUSINESS_BILLING_004` | 200 | ~~申诉期已过~~ | 作废 → 50378 | — |
+| 60205 | `BUSINESS_BILLING_005` | 200 | ~~已收款冲销需 OPS 二次确认~~ | 作废：R12 归 ST（confirmed 凭据），不引 OPS | — |
 
 ### BUSINESS_DOCUMENT（60300–60399）单据业务
 
@@ -515,6 +550,7 @@ axios.interceptors.response.use(res => {
 |---|---|---|
 | v1 | 2026-06-02 | 首版，七大类 ≥ 116 个错误码 |
 | v1.x | 2026-07-30 | P3b 段登记（13-p3b-design §4.2，D-14 拍板）：新增 50350–50369 溢出段（实分配 15 枚：50350–50356 / 50360–50367，余预留）；50343–50349 改标缓冲段 |
+| v1.x | 2026-08-05 | P4 段登记（14-p4-design §5，W0 定稿）：50323（O-5 兑现）+ 50370–50389（实分配 14 枚：50370–50383，余预留）；蓝图 STATE_BILL 50301–50304 与 BUSINESS_BILLING 60201–60205 标注作废/移段（60201→50373、60202→50374、60204→50378） |
 
 ---
 
