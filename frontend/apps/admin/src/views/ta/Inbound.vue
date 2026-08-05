@@ -66,6 +66,7 @@ import { wholesalerApi } from '@/api/wholesaler'
 import { skuApi } from '@/api/sku'
 import { inboundApi } from '@/api/inbound'
 import { inventoryApi } from '@/api/inventory'
+import { batchApi } from '@/api/batch'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -328,8 +329,27 @@ const resetForm = () => {
 }
 
 // ============ 批次三字段（P3b T4-W1 · 13 §3.2） ============
-// 商户批次开关状态无 WK 可读端点（契约据实）：字段常显并标注「商户开启批次管理时必填」，
-// 必填校验以后端为权威（缺失 40003「缺少批次号/生产日期/到效期」toast 回显）。
+// 收口 L-1：开关经 GET /wholesaler/tenants/{tenantId}/batch-config 读取（本仓任一 ACTIVE 角色可读），
+// false=关闭档隐藏三字段；null=未知（拉取失败）保守常显；
+// 必填校验仍以后端为权威（缺失 40003「缺少批次号/生产日期/到效期」toast 回显）。
+const myTenantId = computed(() => {
+  const fromInfo = auth.tenantInfo?.tenantId
+  if (fromInfo) return String(fromInfo)
+  const entry = auth.roles?.find((r) => (r.role === 'WK' || r.role === 'TA') && r.tenantId)
+  return entry?.tenantId ? String(entry.tenantId) : ''
+})
+
+const batchEnabled = ref<boolean | null>(null)
+
+const fetchBatchConfig = async () => {
+  if (!myTenantId.value) return
+  try {
+    const cfg = await batchApi.config(myTenantId.value)
+    batchEnabled.value = cfg.batchEnabled === 1
+  } catch {
+    // 42001/网络异常：保持 null（保守显示批次字段）
+  }
+}
 const todayStr = (): string => {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
@@ -836,6 +856,7 @@ const onCorrectionSubmit = async () => {
 onMounted(() => {
   void fetchWholesalers()
   void fetchWb()
+  void fetchBatchConfig()
 })
 </script>
 
@@ -1142,9 +1163,12 @@ onMounted(() => {
               </el-form-item>
             </div>
 
-            <!-- P3b T4-W1 批次三字段（商户开启批次管理时必填；关闭档留空即可，后端按当刻开关校验） -->
-            <div class="inbound-form__row">
-              <el-form-item label="批次号（开启批次管理时必填）" class="inbound-form__item">
+            <!-- P3b T4-W1 批次三字段（收口 L-1：batchEnabled=false 关闭档隐藏；unknown 保守显示） -->
+            <div v-if="batchEnabled !== false" class="inbound-form__row">
+              <el-form-item
+                :label="batchEnabled === true ? '批次号 *' : '批次号（开启批次管理时必填）'"
+                class="inbound-form__item"
+              >
                 <el-input
                   v-model="form.batchNo"
                   maxlength="64"

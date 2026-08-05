@@ -13,6 +13,8 @@
  *  - PUT  /api/v1/tenant/batches/{id}            默认批次补录（仅 source=DEFAULT 且未终态；
  *      生产日期 ≤今天 40205 / 到效期 >生产日期 40206 / 50363 不泄漏存在性）
  *  - GET  /api/v1/wholesaler/batches?skuId=&status=  WA/WE 只读下钻
+ *  - GET  /api/v1/wholesaler/tenants/{tenantId}/batch-config  批次配置只读（P3b 收口 L-1；
+ *      该仓任一 ACTIVE 角色可读，越权 42001；供表单按开关隐藏批次三字段）
  *
  * 展示口径（PRD §3.3）：所有推算剩余旁标「推算值 · 截至今日 02:00」。
  */
@@ -25,6 +27,7 @@ import type {
   BatchToggleRequest,
   BatchToggleResult,
   ExpiryDashboard,
+  TenantBatchConfig,
 } from '@cangchu/api-types'
 
 export const batchApi = {
@@ -75,6 +78,13 @@ export const batchApi = {
       method: 'PUT',
       url: `/tenant/batches/${id}`,
       data,
+    }),
+
+  /** 租户批次配置只读（该仓任一 ACTIVE 角色；P3b 收口 L-1） */
+  config: (tenantId: string) =>
+    request<TenantBatchConfig>({
+      method: 'GET',
+      url: `/wholesaler/tenants/${tenantId}/batch-config`,
     }),
 
   /** 商户侧批次下钻/临期卡（WA/WE 只读） */

@@ -35,6 +35,7 @@ import {
   Warning as WarningIcon,
   Van,
   RefreshLeft,
+  AlarmClock,
 } from '@element-plus/icons-vue'
 import { AppTopbar } from '@cangchu/ui-shared'
 import type {
@@ -50,6 +51,7 @@ import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
 import { waInboundApi } from '@/api/waInbound'
 import { skuApi } from '@/api/sku'
+import { batchApi } from '@/api/batch'
 import { accountApi } from '@/api/account'
 import NotificationBell from '@/components/NotificationBell.vue'
 import InboundDisputeDialog from './InboundDisputeDialog.vue'
@@ -96,6 +98,7 @@ const menus = [
   { key: '/wa/inbound', label: '入库确认', icon: Box },
   { key: '/wa/outbound', label: '出库单', icon: Van },
   { key: '/wa/returns', label: '退货', icon: RefreshLeft },
+  { key: '/wa/batches', label: '批次临期', icon: AlarmClock },
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
   { key: '/wa/staff', label: '员工管理', icon: User },
   { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },
@@ -313,6 +316,26 @@ const fetchSkus = async () => {
   }
 }
 
+// ============ 店铺批次开关（P3b 收口 L-1：关闭档提交表单隐藏批次三字段） ============
+/** 本账号绑定租户（WA/WE 条目经商户绑定携 tenant_id） */
+const myTenantId = computed(() => {
+  const entry = auth.roles?.find((r) => (r.role === 'WA' || r.role === 'WE') && r.tenantId)
+  return entry?.tenantId ? String(entry.tenantId) : ''
+})
+
+/** null=未知（拉取失败/未拉到）→ 表单保守显示，必填校验以后端 40003 为权威 */
+const batchEnabled = ref<boolean | null>(null)
+
+const fetchBatchConfig = async () => {
+  if (!myTenantId.value) return
+  try {
+    const cfg = await batchApi.config(myTenantId.value)
+    batchEnabled.value = cfg.batchEnabled === 1
+  } catch {
+    // 42001/网络异常：保持 null（保守显示批次字段）
+  }
+}
+
 // ============ 提交入库申请（含 R2 一键复制重建） ============
 const submitVisible = ref(false)
 const submitPrefill = ref<{
@@ -472,6 +495,7 @@ const onDisputeSubmit = async (payload: InboundDisputeRequest) => {
 onMounted(() => {
   void fetchList()
   void fetchSkus()
+  void fetchBatchConfig()
   tickTimer = setInterval(() => {
     nowTick.value = Date.now()
   }, 1000)
@@ -589,10 +613,8 @@ onBeforeUnmount(() => {
                 <span class="cell-name">{{ row.docNo }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="SKU" min-width="150">
-              <template #default="{ row }">
-                <span class="cell-muted">{{ row.skuId }}</span>
-              </template>
+            <el-table-column label="商品" min-width="170" show-overflow-tooltip>
+              <template #default="{ row }">{{ skuLabel(row.skuId) }}</template>
             </el-table-column>
             <el-table-column label="数量" width="90" align="right">
               <template #default="{ row }">{{ row.qty }}</template>
@@ -799,6 +821,7 @@ onBeforeUnmount(() => {
       :skus="skus"
       :store-name="storeNameDisplay"
       :prefill="submitPrefill"
+      :batch-enabled="batchEnabled"
       @submitted="onSubmitted"
     />
 

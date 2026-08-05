@@ -312,10 +312,10 @@ onMounted(() => {
                 <span class="cell-muted">{{ row.refDocNo }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="涉事商户" min-width="130">
+            <el-table-column label="涉事商户" min-width="120">
               <template #default="{ row }">{{ row.wholesalerName || '—' }}</template>
             </el-table-column>
-            <el-table-column label="客诉理由" min-width="180" show-overflow-tooltip>
+            <el-table-column label="客诉理由" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="cell-muted">{{ row.reason }}</span>
               </template>
@@ -327,7 +327,9 @@ onMounted(() => {
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="发起时间" width="170">
+            <!-- L-7：170 宽秒位被裁 → 放宽 190；根因是 fixed 悬浮操作列在 1280 下盖住本列，
+                 沿 ta/Batches 先例去掉 fixed（自然滚动），并微缩商户/理由 min-width 使默认视口不滚动 -->
+            <el-table-column label="发起时间" width="190">
               <template #default="{ row }">
                 <span class="cell-muted">{{ formatTime(row.createdAt) }}</span>
               </template>
@@ -339,7 +341,7 @@ onMounted(() => {
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="110" fixed="right">
+            <el-table-column label="操作" width="110">
               <template #default="{ row }">
                 <el-button
                   v-if="row.status === 'PENDING'"
