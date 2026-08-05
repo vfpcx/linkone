@@ -64,7 +64,10 @@ public class MybatisPlusConfig {
             // P3b T4-W2（13 §4.1 V23）：清库单纳入兜底隔离
             "clearance_requests",
             // P4 W1（14 §4 V24）：计费规则版本链纳入兜底隔离
-            "billing_rules"
+            "billing_rules",
+            // P4 W2（14 §4 V25）：每日计费快照纳入兜底隔离
+            // （DailySnapshotJob 系统态无 TenantContext → 不注入，符合 72h Job 先例）
+            "daily_snapshots"
     );
 
     @Bean

@@ -818,6 +818,38 @@ public class InventoryServiceImpl implements InventoryService {
         return inventoryMapper.selectList(qw).stream().map(this::toVo).toList();
     }
 
+    // ==================== P4 W2 计费回放只读出口（14 §1.1，G-S1） ====================
+
+    @Override
+    public List<com.cangchu.inventory.dto.BillingMovementView> listMovementsForBilling(
+            Long tenantId, Long wholesalerId, java.time.LocalDate untilExclusive) {
+        List<StockMovement> rows = stockMovementMapper.selectList(new LambdaQueryWrapper<StockMovement>()
+                .eq(StockMovement::getTenantId, tenantId)
+                .eq(StockMovement::getWholesalerId, wholesalerId)
+                .orderByAsc(StockMovement::getBizTime, StockMovement::getId));
+        return rows.stream()
+                .map(m -> new com.cangchu.inventory.dto.BillingMovementView(
+                        m.getSkuId(), m.getType(),
+                        m.getQty() != null ? m.getQty() : 0,
+                        // 读侧防御：biz_time 空的存量行回退 created_at（V15 默认=created_at 口径）
+                        m.getBizTime() != null ? m.getBizTime() : m.getCreatedAt(),
+                        m.getPalletDelta() != null ? m.getPalletDelta() : 0,
+                        m.getCreatedAt()))
+                // bizDate < untilExclusive（即 ≤ D−1）在 Java 侧过滤，与空值回退口径保持一致
+                .filter(v -> untilExclusive == null || v.bizDate().isBefore(untilExclusive))
+                .toList();
+    }
+
+    @Override
+    public List<com.cangchu.inventory.dto.BillingPairView> listMovementPairsForBilling() {
+        // 系统态去重枚举（Job 无 TenantContext → TenantLine 不注入，全租户可见，先例同 72h Job）
+        return stockMovementMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<StockMovement>()
+                        .select("DISTINCT tenant_id", "wholesaler_id"))
+                .stream()
+                .map(m -> new com.cangchu.inventory.dto.BillingPairView(m.getTenantId(), m.getWholesalerId()))
+                .toList();
+    }
+
     // ==================== 私有 ====================
 
     private void validateCtx(Long wholesalerId, Long tenantId, Long skuId, Integer qty) {
