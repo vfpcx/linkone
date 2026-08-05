@@ -71,6 +71,8 @@ public class Notification {
     public static final String TYPE_CLEARANCE_PENDING = "CLEARANCE_PENDING";
     /** P3b T4-W2：清库审批结论（通过含照片凭证→商户；结论→发起库管） */
     public static final String TYPE_CLEARANCE_DECIDED = "CLEARANCE_DECIDED";
+    /** P4 W1：计费规则保存/变更（R20）→ 全部在驻批发商管理员（14 §2.1-4，type 零 DDL 先例） */
+    public static final String TYPE_BILLING_RULE_CHANGED = "BILLING_RULE_CHANGED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
