@@ -162,6 +162,12 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'WA', title: '退货' },
   },
   {
+    path: '/wa/batches',
+    name: 'wa-batches',
+    component: () => import('@/views/wa/Batches.vue'),
+    meta: { role: 'WA', title: '批次临期' },
+  },
+  {
     path: '/wa/apply',
     name: 'wa-apply',
     component: () => import('@/views/wa/Apply.vue'),

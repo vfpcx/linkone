@@ -25,6 +25,7 @@ import {
   Box,
   Van,
   RefreshLeft,
+  AlarmClock,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type {
@@ -78,6 +79,7 @@ const menus = [
   { key: '/wa/inbound', label: '入库确认', icon: Box },
   { key: '/wa/outbound', label: '出库单', icon: Van },
   { key: '/wa/returns', label: '退货', icon: RefreshLeft },
+  { key: '/wa/batches', label: '批次临期', icon: AlarmClock },
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
   { key: '/wa/staff', label: '员工管理', icon: User },
   { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },
