@@ -40,6 +40,7 @@ import com.cangchu.tenant.entity.Wholesaler;
 import com.cangchu.tenant.mapper.TenantMapper;
 import com.cangchu.tenant.mapper.WholesalerMapper;
 import com.cangchu.tenant.service.TenantService;
+import com.cangchu.tenant.vo.TenantBatchConfigVo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
@@ -708,5 +709,48 @@ class BatchChainScenarioTest {
                 .isEqualTo(ErrorCode.DOC_STATE_TRANSITION_INVALID.getCode());
         // 全程零库存
         assertThat(inventoryService.queryInventory(c.wholesalerId(), c.skuId())).isEmpty();
+    }
+
+    // ==================== P3b 收口 L-1：batch-config 可读端点 ====================
+
+    @Test
+    @DisplayName("L-1①：租户成员可读批次配置——关闭档默认值（0/null/30）；开启后 WA/WK 均读到 1+切割时点")
+    void batchConfigReadableByTenantMembers() {
+        Ctx c = seedAll();
+        // 关闭档：WA（商户侧）可读，拿默认值 → 前端据此隐藏批次字段
+        asWa(c);
+        TenantBatchConfigVo off = batchService.getConfigForMember(c.tenantId(), c.waUserId());
+        assertThat(off.getBatchEnabled()).isZero();
+        assertThat(off.getBatchEnabledAt()).isNull();
+        assertThat(off.getExpiryThresholdDays()).isEqualTo(30);
+
+        // 开启后：WA / WK 均读到 batchEnabled=1 + 切割时点，与 TenantService 权威值一致
+        enableBatch(c);
+        asWa(c);
+        TenantBatchConfigVo waView = batchService.getConfigForMember(c.tenantId(), c.waUserId());
+        assertThat(waView.getBatchEnabled()).isEqualTo(1);
+        assertThat(waView.getBatchEnabledAt()).isNotNull();
+        asWk(c);
+        TenantBatchConfigVo wkView = batchService.getConfigForMember(c.tenantId(), c.wkUserId());
+        assertThat(wkView.getBatchEnabled()).isEqualTo(1);
+        assertThat(wkView.getBatchEnabledAt()).isEqualToIgnoringNanos(enabledAt(c));
+        assertThat(wkView.getExpiryThresholdDays()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("L-1②：非该租户成员 → 42001（存在性鉴权，user_roles 推导不取客户端声明）")
+    void batchConfigRejectsNonMembers() {
+        Ctx c = seedAll();
+        Ctx other = seedAll();
+        // 他租户 WA / WK 越权读 → 42001
+        asWa(other);
+        assertThat(errCode(() -> batchService.getConfigForMember(c.tenantId(), other.waUserId())))
+                .isEqualTo(ErrorCode.PERMISSION_ROLE_001.getCode());
+        asWk(other);
+        assertThat(errCode(() -> batchService.getConfigForMember(c.tenantId(), other.wkUserId())))
+                .isEqualTo(ErrorCode.PERMISSION_ROLE_001.getCode());
+        // tenantId 缺失防御
+        assertThat(errCode(() -> batchService.getConfigForMember(null, c.waUserId())))
+                .isEqualTo(ErrorCode.TENANT_NOT_FOUND.getCode());
     }
 }

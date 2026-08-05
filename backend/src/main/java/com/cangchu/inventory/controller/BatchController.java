@@ -13,6 +13,7 @@ import com.cangchu.inventory.vo.BatchListVo;
 import com.cangchu.inventory.vo.ExpiryDashboardVo;
 import com.cangchu.inventory.vo.BatchToggleVo;
 import com.cangchu.inventory.vo.BatchVo;
+import com.cangchu.tenant.vo.TenantBatchConfigVo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -88,6 +89,15 @@ public class BatchController {
     @PutMapping("/api/v1/tenant/batches/{id}")
     public R<BatchVo> backfill(@PathVariable Long id, @RequestBody BatchBackfillDto dto) {
         return R.ok(batchService.backfillDefaultBatch(id, dto, StpUtil.getLoginIdAsLong()));
+    }
+
+    /**
+     * 租户批次配置只读（P3b 收口 L-1）：该租户下持任一 ACTIVE 角色（含商户侧 WA/WE）即可读；
+     * 返回 {batchEnabled, batchEnabledAt, expiryThresholdDays}，供前端按开关隐藏关闭档批次字段。
+     */
+    @GetMapping("/api/v1/wholesaler/tenants/{tenantId}/batch-config")
+    public R<TenantBatchConfigVo> batchConfig(@PathVariable Long tenantId) {
+        return R.ok(batchService.getConfigForMember(tenantId, StpUtil.getLoginIdAsLong()));
     }
 
     /** 商户侧批次下钻/临期卡（WA/WE 只读）。 */

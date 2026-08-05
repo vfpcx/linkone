@@ -38,6 +38,7 @@ import com.cangchu.notify.service.NotificationService;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.tenant.service.TenantService;
+import com.cangchu.tenant.service.WholesalerService;
 import com.cangchu.tenant.vo.WholesalerVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -76,6 +77,8 @@ public class InboundRequestServiceImpl implements InboundRequestService {
     // G-S1/G-S2 还债：他域数据只走对方 Service（不再直连 WholesalerMapper/SkuMapper/TenantMapper）
     private final SkuService skuService;
     private final TenantService tenantService;
+    // P3b 收口 L-2：撤回通知需商户名称（getById 不带 ACTIVE 前置——撤回不应被商户下架状态堵死）
+    private final WholesalerService wholesalerService;
     // G-S1/G-S2 还债：user_roles 归 account 域，requireWkRole 经 AuthService 鉴权。
     private final AuthService authService;
     private final DocumentNumberService documentNumberService;
@@ -550,6 +553,16 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             }
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
+        // P3b 收口 L-2：撤回同事务通知库管（收件人以 user_roles 推导，多账号全发；文案零角色码）——
+        // 受理锁单 50350 只堵状态机不堵信息差，已看到待受理列表的库管须知悉免白跑备货
+        WholesalerVo wholesaler = wholesalerService.getById(req.getWholesalerId());
+        String wholesalerName = wholesaler != null ? wholesaler.getName() : String.valueOf(req.getWholesalerId());
+        notificationService.sendToAll(req.getTenantId(),
+                authService.listActiveWkUserIdsOfTenant(req.getTenantId()),
+                Notification.TYPE_INBOUND_WITHDRAWN, "入库申请已撤回",
+                "商户「" + wholesalerName + "」已撤回入库申请 " + req.getDocNo() + "（" + req.getQty()
+                        + " 件），无需再受理备货。撤回理由：" + dto.getReason().trim(),
+                Notification.REF_INBOUND, req.getId());
         log.info("[P3b][R1] user {} 撤回入库申请 doc={}", userId, req.getDocNo());
         return toVo(inboundRequestMapper.selectById(inboundId), null);
     }

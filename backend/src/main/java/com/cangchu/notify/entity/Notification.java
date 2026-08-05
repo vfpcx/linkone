@@ -51,6 +51,8 @@ public class Notification {
     public static final String TYPE_INBOUND_REJECTED = "INBOUND_REJECTED";
     /** P3b T1：登记完成（直落已入库）→ 通知商户 */
     public static final String TYPE_INBOUND_REGISTERED = "INBOUND_REGISTERED";
+    /** P3b 收口 L-2：商户撤回入库申请（R1 仅 SUBMITTED 档）→ 通知库管免白跑备货 */
+    public static final String TYPE_INBOUND_WITHDRAWN = "INBOUND_WITHDRAWN";
     /** P3b T1：R3 纠错待审 → 通知租户管理员（审批中心） */
     public static final String TYPE_CORRECTION_PENDING = "CORRECTION_PENDING";
     /** P3b T1：R3 纠错结论 → 通知发起库管 */
@@ -59,6 +61,8 @@ public class Notification {
     public static final String TYPE_RETURN_CREATED = "RETURN_CREATED";
     /** P3b T3-W1：退货登记完成 → 通知商户（含实退件数、释放托盘） */
     public static final String TYPE_RETURN_COMPLETED = "RETURN_COMPLETED";
+    /** P3b 收口 L-2：商户撤回退货申请（待受理档，D-7 登记前未扣库存）→ 通知库管免白跑 */
+    public static final String TYPE_RETURN_WITHDRAWN = "RETURN_WITHDRAWN";
     /** P3b T3-W2：盘点提交待审 → 通知租户管理员（审批中心角标先例） */
     public static final String TYPE_STOCKTAKE_PENDING = "STOCKTAKE_PENDING";
     /** P3b T3-W2：盘点审批结论（通过含封顶差额/驳回）→ 通知发起库管；封顶差额另发 TA（D-10） */

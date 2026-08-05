@@ -805,4 +805,30 @@ class ReturnChainScenarioTest {
         assertThat(docStatus).isIn(ReturnRequest.STATUS_COMPLETED, ReturnRequest.STATUS_ACCEPTED);
         assertPalletInvariant(c);
     }
+
+    // ==================== P3b 收口 L-2：撤回 → 库管站内信 ====================
+
+    @Test
+    @DisplayName("L-2②：撤回退货 → 库管站内信（多账号全发；content 含单号+理由零角色码；refId=退货单）；失败路径零通知")
+    void withdrawNotifiesWk() {
+        Ctx c = seedAll();
+        long wk2 = seedRole(null, "WK", c.tenantId(), null, null);
+        seedStock(c, 20, 2);
+        ReturnRequestVo vo = createReturn(c, 8, null);
+
+        // 缺理由失败路径 → 零通知（同事务回滚语义）
+        expectBiz(() -> returnRequestService.withdrawByWa(vo.getId(), withdrawDto("  "), c.waUserId()));
+        assertThat(countNotifications(c.wkUserId(), Notification.TYPE_RETURN_WITHDRAWN)).isZero();
+
+        returnRequestService.withdrawByWa(vo.getId(), withdrawDto("填错件数"), c.waUserId());
+        // 多账号全发（user_roles 推导先例）
+        assertThat(countNotifications(c.wkUserId(), Notification.TYPE_RETURN_WITHDRAWN)).isEqualTo(1);
+        assertThat(countNotifications(wk2, Notification.TYPE_RETURN_WITHDRAWN)).isEqualTo(1);
+        Notification n = notificationMapper.selectOne(new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getRecipientUserId, c.wkUserId())
+                .eq(Notification::getType, Notification.TYPE_RETURN_WITHDRAWN));
+        assertThat(n.getRefType()).isEqualTo(Notification.REF_RETURN);
+        assertThat(n.getRefId()).isEqualTo(vo.getId());
+        assertThat(n.getContent()).contains(vo.getDocNo()).contains("填错件数").doesNotContain("WK");
+    }
 }
