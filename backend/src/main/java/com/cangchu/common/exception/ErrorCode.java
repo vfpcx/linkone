@@ -14,6 +14,8 @@ public enum ErrorCode {
     VALIDATION_BASIC_003(40003, "缺少必填参数"),
     VALIDATION_FORMAT_001(40101, "手机号格式不正确"),
     VALIDATION_FORMAT_002(40102, "密码强度不足（6-20位，含字母数字）"),
+    // P4 W3（05-error-codes §VALIDATION_FORMAT 既定编号，回款/调整金额格式）
+    VALIDATION_FORMAT_003(40103, "金额格式不正确（≤ 2 位小数）"),
     VALIDATION_BUSINESS_001(40201, "数量必须大于0"),
     // P4 W3（05-error-codes §VALIDATION_BUSINESS 既定编号，账单调整超小计）
     VALIDATION_BUSINESS_004(40204, "折扣金额不能大于小计"),
