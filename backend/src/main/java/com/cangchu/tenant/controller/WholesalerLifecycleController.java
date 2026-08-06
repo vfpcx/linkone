@@ -40,7 +40,7 @@ public class WholesalerLifecycleController {
         return R.ok(lifecycleService.applyWithdraw(userId, dto));
     }
 
-    /** R13：退驻前置自查（只读三态清单：stockCleared / openDocs / billing 灰态占位） */
+    /** R13：退驻前置自查（只读三态清单：stockCleared / openDocs / billing 真值（P4 W3）） */
     @GetMapping("/api/v1/wholesaler/withdraw/precheck")
     public R<Map<String, Object>> precheckWithdraw() {
         Long userId = StpUtil.getLoginIdAsLong();

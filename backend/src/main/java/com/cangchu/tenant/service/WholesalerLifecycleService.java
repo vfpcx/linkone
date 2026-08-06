@@ -23,7 +23,7 @@ public interface WholesalerLifecycleService {
     /**
      * R13：WA 发起退驻申请。
      * 前置校验：商户 ACTIVE（WITHDRAWN→50202 / 其它→50318）；库存清零（否则 50312）；
-     * 无未结单据（询价/出库非终态，否则 50314）；账单结清——P4 BillingService 占位（决策 O-5）；
+     * 无未结单据（询价/出库非终态，否则 50314）；账单结清（P4 W3 兑现 O-5：存在 status != PAID 账单含争议中 → 50323，发起/审批双检）；
      * 无未决退驻申请（否则 50316）。
      *
      * @return { applicationId, wholesalerId, status }
@@ -35,7 +35,7 @@ public interface WholesalerLifecycleService {
      *
      * @return { wholesalerId, status, stockCleared: boolean,
      *           openDocs: { cleared: boolean, count: long },
-     *           billing: { cleared: null } —— P4 占位恒 null（前端灰态） }
+     *           billing: { cleared: boolean, count: long } —— P4 W3 真值（O-5 兑现） }
      */
     Map<String, Object> precheckWithdraw(Long userId);
 
@@ -86,7 +86,7 @@ public interface WholesalerLifecycleService {
      * R14：TA 单方即时强制下架（reason 必填；ACTIVE→OFFLINE，CAS）。
      * 副作用：店铺隐藏（同上）+ 踢 token（WA+WE）；新业务拒绝老业务放行的分界在 document 域
      * 校验点落地（新询价 50313、未确认询价不可确认；已确认/已出库允许走完）。
-     * 不可原地恢复：无任何端点提供 OFFLINE→ACTIVE。未结账单转"争议中"——P4 billing 占位。
+     * 不可原地恢复：无任何端点提供 OFFLINE→ACTIVE。未结账单同事务批量转"争议中"（P4 W3 兑现，14 §3.5-2）。
      *
      * @return { wholesalerId, status }
      */
