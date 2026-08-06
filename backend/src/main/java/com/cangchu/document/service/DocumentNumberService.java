@@ -18,4 +18,16 @@ public interface DocumentNumberService {
      * @return docNo，形如 {@code WK-<简码>-yyyyMMdd-0001}
      */
     String generate(DocType docType, String tenantSimpleCode);
+
+    /**
+     * 月度账单号（P4 W3，14 §3.4 / D-P4-7=A）：{@code BL-{简码归一}-W{wholesalerId}-{yyyyMM}}，
+     * 例 {@code BL-T8801-W17-202607}。无日序列、无 Redis 计数——(t,ws,月) 天然唯一，
+     * uk_bill_no + uk_bill_idempotent 双层兜底（G-5.1 同构）。WS 段 = W{id} 兜底
+     * （wholesalers 无简码列，零迁移；ArbitrationServiceImpl "T"+tenantId 先例）。
+     *
+     * @param tenantSimpleCode 租户简码（normalize 归一，同 {@link #generate}）
+     * @param wholesalerId     批发商 id（WS 段兜底简码）
+     * @param month            账期月
+     */
+    String generateBillNo(String tenantSimpleCode, Long wholesalerId, java.time.YearMonth month);
 }

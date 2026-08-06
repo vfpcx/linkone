@@ -37,7 +37,9 @@ public final class DocStateMachine {
         /** 盘点单（13-p3b §2.2 矩阵，T3-W2 启用；TA 全量审批，D23 无自动通过） */
         STOCKTAKE,
         /** 清库单（13-p3b §3.4 矩阵，T4-W2 启用；与盘点同构，TA 审批） */
-        CLEARANCE
+        CLEARANCE,
+        /** 月度账单（14-p4 §3.1 六态矩阵，P4 W3 启用；DISPUTED 无出边，OPS 仲裁闭环 P5） */
+        BILL
     }
 
     /**
@@ -139,12 +141,47 @@ public final class DocStateMachine {
                     com.cangchu.document.entity.ClearanceRequest.STATUS_DRAFT),
             com.cangchu.document.entity.ClearanceRequest.STATUS_APPROVED, Set.of());
 
+    /**
+     * 账单迁移矩阵（14-p4 §3.1，P4 W3；PRD 6 态 + D-P4-6 补 PENDING_PAYMENT）：
+     * DRAFT → DISPATCHED（下发）；
+     * DISPATCHED → DRAFT（R11 撤回：paid=0 ∧ 未确认，否则 50372）| PENDING_PAYMENT（WA 确认 /
+     * 00:50 Job 满 1 日自动）| DISPUTED（R14，设计扩边：已下发未确认同属未结，冻结更安全）；
+     * PENDING_PAYMENT → PARTIAL_PAID | PAID | DISPUTED；
+     * PARTIAL_PAID → PAID | PENDING_PAYMENT（R12 全额冲回）| DISPUTED；
+     * PAID → PARTIAL_PAID | PENDING_PAYMENT（R12：冲后 paid>0 / =0）；
+     * DISPUTED → ∅（P4 无出边，P5 OPS 仲裁闭环解冻）。
+     * 红线：DRAFT→PENDING_PAYMENT ❌（必须经下发）、DRAFT→DISPUTED ❌（未对外不标；
+     * 商户 OFFLINE 时生成后同 Job 事务内二迁移 DRAFT→DISPATCHED→…不走此边，直接
+     * DRAFT→DISPATCHED ❌ 也不可——生成直落 DISPUTED 走「插入即 DISPUTED」不经矩阵，14 §3.1 偏差注明）。
+     * 重复回款登记停留 PARTIAL_PAID 不是状态迁移（出库补打同构）。
+     */
+    private static final Map<String, Set<String>> BILL_TRANSITIONS = Map.of(
+            com.cangchu.billing.entity.Bill.STATUS_DRAFT, Set.of(
+                    com.cangchu.billing.entity.Bill.STATUS_DISPATCHED),
+            com.cangchu.billing.entity.Bill.STATUS_DISPATCHED, Set.of(
+                    com.cangchu.billing.entity.Bill.STATUS_DRAFT,
+                    com.cangchu.billing.entity.Bill.STATUS_PENDING_PAYMENT,
+                    com.cangchu.billing.entity.Bill.STATUS_DISPUTED),
+            com.cangchu.billing.entity.Bill.STATUS_PENDING_PAYMENT, Set.of(
+                    com.cangchu.billing.entity.Bill.STATUS_PARTIAL_PAID,
+                    com.cangchu.billing.entity.Bill.STATUS_PAID,
+                    com.cangchu.billing.entity.Bill.STATUS_DISPUTED),
+            com.cangchu.billing.entity.Bill.STATUS_PARTIAL_PAID, Set.of(
+                    com.cangchu.billing.entity.Bill.STATUS_PAID,
+                    com.cangchu.billing.entity.Bill.STATUS_PENDING_PAYMENT,
+                    com.cangchu.billing.entity.Bill.STATUS_DISPUTED),
+            com.cangchu.billing.entity.Bill.STATUS_PAID, Set.of(
+                    com.cangchu.billing.entity.Bill.STATUS_PARTIAL_PAID,
+                    com.cangchu.billing.entity.Bill.STATUS_PENDING_PAYMENT),
+            com.cangchu.billing.entity.Bill.STATUS_DISPUTED, Set.of());
+
     private static final Map<DocKind, Map<String, Set<String>>> TABLES = Map.of(
             DocKind.OUTBOUND, OUTBOUND_TRANSITIONS,
             DocKind.INBOUND, INBOUND_TRANSITIONS,
             DocKind.RETURN, RETURN_TRANSITIONS,
             DocKind.STOCKTAKE, STOCKTAKE_TRANSITIONS,
-            DocKind.CLEARANCE, CLEARANCE_TRANSITIONS);
+            DocKind.CLEARANCE, CLEARANCE_TRANSITIONS,
+            DocKind.BILL, BILL_TRANSITIONS);
 
     private DocStateMachine() {
     }

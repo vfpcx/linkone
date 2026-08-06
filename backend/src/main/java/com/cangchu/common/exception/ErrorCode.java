@@ -15,6 +15,8 @@ public enum ErrorCode {
     VALIDATION_FORMAT_001(40101, "手机号格式不正确"),
     VALIDATION_FORMAT_002(40102, "密码强度不足（6-20位，含字母数字）"),
     VALIDATION_BUSINESS_001(40201, "数量必须大于0"),
+    // P4 W3（05-error-codes §VALIDATION_BUSINESS 既定编号，账单调整超小计）
+    VALIDATION_BUSINESS_004(40204, "折扣金额不能大于小计"),
     // P3b T4-W1（05-error-codes §VALIDATION_BUSINESS 既定编号，13 §3.1 批次三字段校验）
     VALIDATION_BUSINESS_005(40205, "生产日期不能晚于今天"),
     VALIDATION_BUSINESS_006(40206, "保质期日期不能早于生产日期"),
@@ -207,9 +209,25 @@ public enum ErrorCode {
     EXPIRY_NOTIFY_RATE_LIMITED(50367, "24 小时内已通知过该批次"),
 
     // ==================== P4 W1 计费规则 (14-p4-design §5，P4 段 50323 + 50370-50389；50384+ 预留) ====================
-    // 50370-50378/50380-50383 归 W3 账单生命周期启用；W1 仅启用规则校验一枚。
     // confirmed 二次确认凭据缺失复用 40003（batch-toggle 先例）；并发关旧行 CAS 失败复用 50331。
-    BILLING_RULE_INVALID(50379, "计费规则无效（至少启用一种维度并填写单价）");
+    BILLING_RULE_INVALID(50379, "计费规则无效（至少启用一种维度并填写单价）"),
+
+    // ==================== P4 W3 账单生命周期 (14-p4-design §5；BILL 矩阵不可达/CAS 复用 50330/50331，====================
+    // 调整超小计复用 40204、附件白名单复用 50340、越权复用 42001/42004/42101；幂等重复=先查后写返回既有单不抛码)
+    WITHDRAW_BILL_NOT_SETTLED(50323, "退驻前须结清账单（存在未结清账单）"),
+    BILL_NOT_FOUND(50370, "账单不存在"),
+    BILL_NOT_ADJUSTABLE(50371, "当前状态不可调整，请先撤回下发"),
+    BILL_NOT_WITHDRAWABLE(50372, "账单已有回款或已被确认，无法撤回"),
+    BILL_PAYMENT_EXCEEDS(50373, "登记金额超出剩余应收"),
+    BILL_ALREADY_SETTLED(50374, "账单已结清，无需重复登记"),
+    BILL_PAYMENT_NOT_REVERSIBLE(50375, "该回款记录已冲销或不存在"),
+    BILL_DISPUTE_NOT_PENDING(50376, "该申诉已处理"),
+    BILL_DISPUTE_INVALID(50377, "申诉条目无效"),
+    BILL_DISPUTE_WINDOW_CLOSED(50378, "申诉期已过（账单下发后 7 天内可提）"),
+    BILLING_RULE_MISSING(50380, "计费规则未设置，无法生成账单"),
+    BILL_DISPUTED_LOCKED(50381, "账单争议中，操作受限"),
+    BILL_DISPUTE_PENDING_EXISTS(50382, "该账单已有待处理申诉"),
+    BILL_ITEM_NOT_REVERSIBLE(50383, "该条目不可冲销或已被冲销");
 
     private final int code;
     private final String message;
