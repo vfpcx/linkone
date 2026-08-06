@@ -169,4 +169,23 @@ public interface InventoryService {
      * 列出某商户当前有货（qty>0）的库存（供 B2 store-front 聚合在售）。
      */
     List<InventoryVo> listInStockSkusFor(Long wholesalerId);
+
+    // ==================== P4 W2 计费回放只读出口（14 §1.1，G-S1：billing 域不直连 Mapper） ====================
+
+    /**
+     * 计费回放流水（只读）：某 (tenant, wholesaler) 全部流水的五锚点视图
+     * （type/qty/biz_time/pallet_delta/sku_id）+ created_at（跨月差额扫描）。
+     * biz_time 为 null 的存量行回退 created_at（V15 默认=created_at 口径的读侧防御）。
+     *
+     * @param untilExclusive 只取 bizDate &lt; 该日的流水（即 ≤ untilExclusive−1，
+     *                       对应回放公式「≤ D−1」的 D=untilExclusive）；null=全量
+     */
+    List<com.cangchu.inventory.dto.BillingMovementView> listMovementsForBilling(
+            Long tenantId, Long wholesalerId, java.time.LocalDate untilExclusive);
+
+    /**
+     * 存在流水的 (tenant, wholesaler) 去重组合（只读）：DailySnapshotJob 全量枚举范围。
+     * 系统态调用（无 TenantContext 不过滤，72h Job 先例）。
+     */
+    List<com.cangchu.inventory.dto.BillingPairView> listMovementPairsForBilling();
 }
