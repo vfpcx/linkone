@@ -428,3 +428,10 @@ W0 定稿 ──▶ W1(V24 规则+契约修复) ──▶ W2(V25 引擎+快照) 
 2. 首版保存也发 BILLING_RULE_CHANGED（商户需知悉计费开始；仓库名缺失降级「您入驻的仓库」）
 3. 单价护栏：≥0、≤4 位小数、<10^10（DECIMAL(14,4) 防溢出），超限 50379
 4. W2 规则段读取接口已就位：BillingRuleService#listRuleChain(tenantId, untilInclusive)→升序段链，effectiveTo=null 为当前段
+
+## 据实现备注（W2，Team Lead 代录）
+
+1. **§1.1 修正**：「争议对无需 reversal_of_id 特判」不成立——REVERSAL(异议时刻)与 RESTORE(原入库时间戳)锚点异日致 [入库次日,异议日] 双计。实现以 normalizeDisputeAnchors 将可配对 RESTORE 归一到冲销 bizDate（Σ 总量不变，驳回分支不受影响）；BillingMovementView 扩 id/reversalOfId
+2. 补 POST /tenant/st/snapshots/recalc（≤昨日、跨度≤92 天）；下钻两端点落 /st/snapshots/**，W3 daily-breakdown 直接复用
+3. InventoryService 增补 listMovementPairsForBilling（Job 系统态枚举 (t,ws)）
+4. W3 月汇总接口已就位：BillingReplayService#replayMonthly/findBackdatedMonths/computeCrossMonthAdjustment
