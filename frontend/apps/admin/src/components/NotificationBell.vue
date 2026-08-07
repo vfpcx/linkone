@@ -116,6 +116,16 @@ const NOTIF_TYPE_LABELS: Record<string, string> = {
   BATCH_EXPIRED: '批次过期',
   CLEARANCE_PENDING: '清库待审',
   CLEARANCE_DECIDED: '清库结论',
+  // P4 计费结算 8+1 类（14-p4 §3.6 通知矩阵 + W3 据实现备注 4 BILL_DISPUTED_MARKED）
+  BILL_GENERATED: '账单生成',
+  BILL_DISPATCHED: '账单下发',
+  BILL_WITHDRAWN: '账单撤回',
+  PAYMENT_REGISTERED: '回款登记',
+  PAYMENT_REVERSED: '回款冲销',
+  BILL_DISPUTE_SUBMITTED: '账单申诉',
+  BILL_DISPUTE_RESOLVED: '申诉结果',
+  BILLING_RULE_CHANGED: '计费规则变更',
+  BILL_DISPUTED_MARKED: '账单转入争议',
 }
 const typeLabel = (t: string | null | undefined): string =>
   t ? (NOTIF_TYPE_LABELS[t] ?? '') : ''

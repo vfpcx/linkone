@@ -26,6 +26,7 @@ import {
   Van,
   RefreshLeft,
   AlarmClock,
+  Coin,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type {
@@ -80,6 +81,10 @@ const menus = [
   { key: '/wa/outbound', label: '出库单', icon: Van },
   { key: '/wa/returns', label: '退货', icon: RefreshLeft },
   { key: '/wa/batches', label: '批次临期', icon: AlarmClock },
+  // P4：账单仅批发商管理员可见（员工整域无入口，05 §5.4）
+  ...(auth.roles?.some((r) => r.role === 'WA')
+    ? [{ key: '/wa/bills', label: '账单', icon: Coin }]
+    : []),
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
   { key: '/wa/staff', label: '员工管理', icon: User },
   { key: '/wa/withdraw', label: '退驻申请', icon: WarningIcon },

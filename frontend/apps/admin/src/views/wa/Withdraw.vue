@@ -11,7 +11,9 @@
  *  - 错误码：50312 库存 / 50314 未结单 / 50316 重复申请（段 50310-50329 回填清单）/ 50202 已退驻
  *  - 视觉：沿用 Apply.vue 的 WA 顶栏 + 左侧菜单 shell + 卡片
  *
- * 自查三态：✅ 通过 / ❌ 未通过（任一 ❌ 提交置灰）/ ⊘ 账单灰态占位（billing.cleared 恒 null）。
+ * 自查三态：✅ 通过 / ❌ 未通过（任一 ❌ 提交置灰）。
+ * P4 W4：第 3 项「账单结清」由灰态占位转真值 {cleared, count}（14-p4 §3.5-1，50323 双检）；
+ * 尾款口径（PRD 13-p4 §7.1）：退驻当月产生的仓储费将于次月 1 日出账，请关注尾款账单。
  * 60 天恢复倒计时 = auditedAt（审批通过时刻）+ 60 天，前端自行计算（后端不下发截止时间）。
  * precheck 请求失败时降级："提交时由后端复核"，允许提交，错误码回填清单。
  */
@@ -27,12 +29,12 @@ import {
   Refresh,
   CircleCheckFilled,
   CircleCloseFilled,
-  RemoveFilled,
   QuestionFilled,
   Box,
   Van,
   RefreshLeft,
   AlarmClock,
+  Coin,
 } from '@element-plus/icons-vue'
 import { AppTopbar, StatusBadge } from '@cangchu/ui-shared'
 import type { WaWithdrawApplication, WaWithdrawPrecheck } from '@cangchu/api-types'
@@ -84,6 +86,10 @@ const menus = [
   { key: '/wa/outbound', label: '出库单', icon: Van },
   { key: '/wa/returns', label: '退货', icon: RefreshLeft },
   { key: '/wa/batches', label: '批次临期', icon: AlarmClock },
+  // P4：账单仅批发商管理员可见（员工整域无入口，05 §5.4）
+  ...(auth.roles?.some((r) => r.role === 'WA')
+    ? [{ key: '/wa/bills', label: '账单', icon: Coin }]
+    : []),
   { key: '/wa/apply', label: '入驻申请', icon: Shop },
   { key: '/wa/staff', label: '员工管理', icon: User },
   { key: '/wa/withdraw', label: '退驻申请', icon: Warning },
@@ -145,15 +151,18 @@ const fetchPrecheck = async () => {
 }
 
 const openDocsCount = computed(() => precheck.value?.openDocs.count ?? 0)
+const unsettledBillCount = computed(() => precheck.value?.billing?.count ?? 0)
 
 const stockPass = computed(() => !!precheck.value && precheck.value.stockCleared)
 const docsPass = computed(() => !!precheck.value && precheck.value.openDocs.cleared)
+/** P4 W4 真值：存在未结清账单（含争议中）→ ❌（后端 50323 发起/审批双检兜底） */
+const billingPass = computed(() => !!precheck.value && !!precheck.value.billing?.cleared)
 
 /** 任一 ❌ 未通过则置灰；precheck 不可用时放行（后端复核） */
 const canSubmit = computed(() => {
   if (precheckLoading.value) return false
   if (precheckUnavailable.value) return true
-  return stockPass.value && docsPass.value
+  return stockPass.value && docsPass.value && billingPass.value
 })
 
 // ============ 发起退驻 ============
@@ -411,15 +420,32 @@ onMounted(async () => {
                   </div>
                 </li>
 
-                <!-- 账单结清（O-5 占位灰态） -->
-                <li class="checklist__item is-placeholder">
-                  <el-icon class="checklist__icon is-skip"><RemoveFilled /></el-icon>
+                <!-- 账单结清（P4 W4 真值 · O-5 兑现，50323 双检） -->
+                <li class="checklist__item" data-test="withdraw-billing-check">
+                  <el-icon v-if="billingPass" class="checklist__icon is-pass">
+                    <CircleCheckFilled />
+                  </el-icon>
+                  <el-icon v-else-if="precheck" class="checklist__icon is-fail">
+                    <CircleCloseFilled />
+                  </el-icon>
+                  <el-icon v-else class="checklist__icon is-skip"><QuestionFilled /></el-icon>
                   <div class="checklist__body">
-                    <span class="checklist__label">账单已结清</span>
-                    <span class="checklist__desc">本期不校验（计费上线后启用）</span>
+                    <span class="checklist__label">
+                      {{ !precheck || billingPass ? '账单已结清' : '存在未结清账单' }}
+                    </span>
+                    <span v-if="precheck && !billingPass" class="checklist__desc">
+                      未结清账单 {{ unsettledBillCount }} 张（含争议中），请联系仓库结算员结清后再发起
+                    </span>
+                    <span v-else class="checklist__desc">
+                      {{ !precheck ? '—' : '本商户账单已全部结清' }}
+                    </span>
                   </div>
                 </li>
               </ul>
+              <!-- 尾款提示（PRD §7.1 防「都结清了怎么还有账单」误解） -->
+              <p class="checklist-tail-hint" data-test="withdraw-tail-hint">
+                ※ 退驻当月产生的仓储费将于次月 1 日出账，请关注尾款账单
+              </p>
             </section>
 
             <section class="card consequence-card">
@@ -729,6 +755,11 @@ onMounted(async () => {
   padding: 0;
   display: flex;
   flex-direction: column;
+}
+.checklist-tail-hint {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-fg-4);
 }
 .checklist__item {
   display: flex;
