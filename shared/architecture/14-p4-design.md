@@ -435,3 +435,12 @@ W0 定稿 ──▶ W1(V24 规则+契约修复) ──▶ W2(V25 引擎+快照) 
 2. 补 POST /tenant/st/snapshots/recalc（≤昨日、跨度≤92 天）；下钻两端点落 /st/snapshots/**，W3 daily-breakdown 直接复用
 3. InventoryService 增补 listMovementPairsForBilling（Job 系统态枚举 (t,ws)）
 4. W3 月汇总接口已就位：BillingReplayService#replayMonthly/findBackdatedMonths/computeCrossMonthAdjustment
+
+## 据实现备注（W3，Team Lead 代录）
+
+1. 应收 0 直落 PAID、OFFLINE 直落 DISPUTED 均为插入即终态（非矩阵迁移边）
+2. REVERSAL 归桶：subtotal=ΣSTORAGE+其冲销、adjust=ΣADJUSTMENT+其冲销（跨月影子基准不被 R10 污染）
+3. R11 撤回清空 dispatch_at/user（WA 端按不存在 50370，靠 BILL_WITHDRAWN 通知知会）
+4. 新增通知 BILL_DISPUTED_MARKED（R14→ST）；AuthService.listActiveStUserIdsOfTenant
+5. 出账对象=月内流水∨月首 billable>0∨跨月待结转；0 元账单照出（PAID）
+6. precheck.billing 已转真值 {cleared,count}（W4 前端灰态改真值）
