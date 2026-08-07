@@ -185,6 +185,19 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/wa/Staff.vue'),
     meta: { role: 'WA', title: '员工管理' },
   },
+  // P4 账单（US-WA-08 · 仅批发商管理员；员工整域不可见，waOnly 守卫直连拦截）
+  {
+    path: '/wa/bills',
+    name: 'wa-bills',
+    component: () => import('@/views/wa/Bills.vue'),
+    meta: { role: 'WA', title: '账单', waOnly: true },
+  },
+  {
+    path: '/wa/bills/:id',
+    name: 'wa-bill-detail',
+    component: () => import('@/views/wa/BillDetail.vue'),
+    meta: { role: 'WA', title: '账单详情', waOnly: true },
+  },
 
   // OPS 工作台（P2 · 黑名单为 OPS 端第一个真实页面）
   {
@@ -212,13 +225,35 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'OPS', title: '客诉仲裁' },
   },
 
-  // ST 工作台占位（后续 Agent 实现）
+  // ST 结算员业务面（P4 W4 · 占位转真实；requireStOrTa——仓库老板兼岗同享）
   {
     path: '/st/dashboard',
     name: 'st-dashboard',
-    component: () => import('@/views/PlaceholderDashboard.vue'),
-    meta: { role: 'ST', title: '结算员工作台' },
+    component: () => import('@/views/st/Dashboard.vue'),
+    meta: { role: 'ST', title: '结算工作台' },
   },
+  {
+    path: '/st/bills',
+    name: 'st-bills',
+    component: () => import('@/views/st/Bills.vue'),
+    meta: { role: 'ST', title: '账单' },
+  },
+  {
+    path: '/st/bills/:id',
+    name: 'st-bill-detail',
+    component: () => import('@/views/st/BillDetail.vue'),
+    meta: { role: 'ST', title: '账单详情' },
+  },
+  {
+    path: '/st/disputes',
+    name: 'st-disputes',
+    component: () => import('@/views/st/Disputes.vue'),
+    meta: { role: 'ST', title: '申诉处理' },
+  },
+
+  // TA 兼岗入口：账单总览菜单 → 结算账单管理（权限并集，05 §5.2；
+  // 独立 bills-overview 聚合端点未落地，随后端补口后再拆独立总览页）
+  { path: '/ta/bills', redirect: '/st/bills' },
 
   // 根重定向
   { path: '/', redirect: '/login' },
@@ -263,6 +298,16 @@ router.beforeEach((to) => {
     if (!isOps) {
       ElMessage.warning('无权访问平台运营页面')
       return auth.primaryRouter || '/ta/dashboard'
+    }
+  }
+
+  // P4 账单：批发商员工整域不可见（05 §5.4）——直连提示「无权访问」并弹回。
+  // 后端 WholesalerBillController 对员工同样 42004 双保险。
+  if (to.meta?.waOnly) {
+    const isWaAdmin = auth.roles?.some((r) => r.role === 'WA')
+    if (!isWaAdmin) {
+      ElMessage.warning('无权访问')
+      return auth.primaryRouter || '/wa/inquiry'
     }
   }
   return true

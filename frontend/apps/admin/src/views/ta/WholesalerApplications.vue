@@ -120,6 +120,7 @@ const menus = computed<MenuItem[]>(() => [
 ])
 
 const ROUTABLE = new Set([
+  '/ta/bills',
   '/ta/dashboard',
   '/ta/returns',
   '/ta/stocktake',
