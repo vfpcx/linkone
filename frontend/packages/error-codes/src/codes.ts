@@ -220,10 +220,40 @@ export enum ErrorCode {
   /** 库存不足（退货登记 D-7 / 出库 / 询价确认 共用；13 §4.2 复用不新占） */
   STATE_STOCK_NOT_ENOUGH = 50251,
 
-  STATE_BILL_NOT_GENERATED = 50301,
-  STATE_BILL_DISPATCHED = 50302,
-  STATE_BILL_PAID = 50303,
-  STATE_BILL_HAS_DISPUTE = 50304,
+  // ============ P4 计费结算（14-p4-design §5 · 50323 + 50370-50389 段） ============
+  // 注：蓝图 STATE_BILL 50301-50304 与后端实占（50300-50306 为价格域）重叠作废（14-p4 B2），
+  // 原四枚幽灵枚举已删除；P4 账单码统一落 50370+。
+  /** R13 退驻前置第 3 项：存在未结清账单（含争议中）；落 50310-50329 段被
+   * isWithdrawPreconditionFailed 覆盖 → 退驻页自动刷新自查清单 */
+  STATE_WITHDRAW_BILL_NOT_SETTLED = 50323,
+  /** 不存在/跨租户/跨商户/未下发对批发商 → 均按不存在（不泄漏存在性） */
+  STATE_BILL_NOT_FOUND = 50370,
+  /** 调整/冲销仅待核对（已下发须先撤回；已结清须先回款冲销） */
+  STATE_BILL_NOT_ADJUSTABLE = 50371,
+  /** R11 撤回：仅已下发 ∧ 0 回款 ∧ 未确认 */
+  STATE_BILL_NOT_WITHDRAWABLE = 50372,
+  /** 回款登记金额超剩余应收（不允许超收） */
+  STATE_BILL_PAYMENT_EXCEEDS = 50373,
+  /** 已结清重复登记 */
+  STATE_BILL_ALREADY_SETTLED = 50374,
+  /** R12 回款记录已冲销或不存在 */
+  STATE_BILL_PAYMENT_NOT_REVERSIBLE = 50375,
+  /** 申诉处理时非待处理 */
+  STATE_BILL_DISPUTE_NOT_PENDING = 50376,
+  /** 申诉条目不属本账单 */
+  STATE_BILL_DISPUTE_INVALID = 50377,
+  /** 申诉期已过（账单下发后 7 天内可提） */
+  STATE_BILL_DISPUTE_WINDOW_CLOSED = 50378,
+  /** 计费规则校验失败（至少启用一维并填写单价；单价 ≥0/≤4 位小数/上限护栏） */
+  STATE_BILLING_RULE_INVALID = 50379,
+  /** 手动出账时无生效规则 */
+  STATE_BILLING_RULE_MISSING = 50380,
+  /** R14 争议中账单冻结全部写操作 */
+  STATE_BILL_DISPUTED_LOCKED = 50381,
+  /** 同账单已有待处理申诉 */
+  STATE_BILL_DISPUTE_PENDING_EXISTS = 50382,
+  /** R10 条目不可冲销或已被冲销 */
+  STATE_BILL_ITEM_NOT_REVERSIBLE = 50383,
 
   // ============ BUSINESS (60xxx) ============
   BUSINESS_INSUFFICIENT_STOCK = 60001,

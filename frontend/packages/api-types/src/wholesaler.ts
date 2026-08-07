@@ -126,9 +126,13 @@ export interface WaWithdrawPrecheck {
     cleared: boolean
     count: number
   }
-  /** 账单结清（P4 前恒 null，前端渲染灰态 ⊘） */
+  /**
+   * 账单结清（P4 W3 起为真值 {cleared, count}——14-p4 §3.5-1 O-5 兑现；
+   * cleared=false 时 count>0 为未结清账单张数（含争议中），发起/审批双检 50323）
+   */
   billing: {
-    cleared: null
+    cleared: boolean
+    count: number
   }
 }
 

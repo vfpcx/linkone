@@ -67,11 +67,13 @@ export interface TenantSettings {
   capacityVisibility: CapacityVisibility
   capacityPrecision: CapacityPrecision
 
-  // 计费维度
-  billingByQty: boolean
-  billingByPallet: boolean
-  pricePerQtyDay?: number
-  pricePerPalletDay?: number
+  /**
+   * 计费维度只读镜像（P4 W1 起由 billing_rules 保存事务写入；QTY/PALLET/BOTH）。
+   * ⚠️ 只读展示用——单价与开关一律走 GET/POST /tenant/billing-rules（14-p4 §2.2/§2.3）。
+   * 原 billingByQty/billingByPallet/pricePerQtyDay/pricePerPalletDay 四个幽灵字段
+   * （从未被后端消费，§2.6 活缺陷）已随 W4 契约修复删除。
+   */
+  billingDim?: 'QTY' | 'PALLET' | 'BOTH' | string
   expiryThresholdDays?: number       // 临期阈值（仅批次启用时有效）
 
   // 容量
