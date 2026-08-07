@@ -578,8 +578,10 @@ class WithdrawOfflineScenarioTest {
         assertThat(Integer.parseInt(openDocs.get("count").toString())).isZero();
         @SuppressWarnings("unchecked")
         Map<String, Object> billing = (Map<String, Object>) data.get("billing");
-        assertThat(billing).containsKey("cleared");
-        assertThat(billing.get("cleared")).as("billing P4 占位恒 null").isNull();
+        // P4 W3（14 §3.5-1，O-5 兑现）：灰态占位 {cleared:null} 转真值 {cleared:bool, count}
+        // ——WDR-07 用例按设计适配；未结账单拦截场景见 BillPermissionLinkageScenarioTest R13-01/02
+        assertThat(billing.get("cleared")).as("billing P4 W3 真值（无账单即已结清）").isEqualTo(true);
+        assertThat(Long.parseLong(billing.get("count").toString())).isZero();
     }
 
     @Test

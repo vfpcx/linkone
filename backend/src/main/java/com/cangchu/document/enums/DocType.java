@@ -26,7 +26,9 @@ public enum DocType {
     /** 盘点单（T3 波预留） */
     STOCKTAKE("PD"),
     /** 清库单（T4 波预留） */
-    CLEARANCE("QK");
+    CLEARANCE("QK"),
+    /** 月度账单（P4 W3 启用，14 §3.4；月粒度无日序列，走 generateBillNo 月度分支） */
+    BILL("BL");
 
     private final String prefix;
 

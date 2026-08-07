@@ -71,6 +71,13 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
     private final com.cangchu.document.service.CountSheetService countSheetService;
     /** P3b T4-W2（13 §7.1）：清库单在途计入 R13 未结（document 域出口） */
     private final com.cangchu.document.service.ClearanceRequestService clearanceRequestService;
+    /**
+     * P4 W3（14 §3.5，D-P4-10）：R13 账单结清双检（O-5 兑现，50323）+ R14 未结账单标 DISPUTED
+     * （billing 域出口）。@Lazy 断开 tenant↔billing 构造环（billing 域反向依赖 WholesalerService）。
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.cangchu.billing.service.BillingService billingService;
     private final SkuService skuService;
     private final PricingService pricingService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -140,9 +147,11 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
         openDocs.put("cleared", pc.openDocsCount() == 0);
         openDocs.put("count", pc.openDocsCount());
 
+        // P4 W3（14 §3.5-1，O-5 兑现）：billing 灰态占位转真值 {cleared: bool, count: int}
         Map<String, Object> billing = new LinkedHashMap<>();
-        // TODO(P4 billing，决策 O-5)：BillingService 落地后返回真实 cleared；恒 null=前端灰态占位
-        billing.put("cleared", null);
+        long unsettled = billingService.countUnsettled(wholesaler.getId());
+        billing.put("cleared", unsettled == 0);
+        billing.put("count", unsettled);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("wholesalerId", wholesaler.getId().toString());
@@ -366,8 +375,12 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
 
         // 副作用：店铺隐藏由 storefront 仅列 ACTIVE 商户实现（状态翻转即隐藏）；
         // 新业务拒绝/老业务放行分界在 document 域校验点（submitByRt/confirmByWa → 50313）。
-        // TODO(P4 billing，任务占位)：该商户未结账单转「争议中」状态（PRD 04 §1.8 已下架→争议中），
-        //   待 BillingService 落地后在此调用 billingService.markDisputedByWholesaler(wholesalerId)。
+        // P4 W3（14 §3.5-2 兑现）：该商户 DISPATCHED/PENDING_PAYMENT/PARTIAL_PAID 账单同事务
+        // 批量 CAS→DISPUTED（DRAFT 未对外不标；下架后新生成账单由生成侧直落 DISPUTED），通知结算员。
+        int disputedBills = billingService.markDisputedByWholesaler(wholesalerId);
+        if (disputedBills > 0) {
+            log.info("[P2][R14] 商户 {} 强制下架联动：{} 张未结账单转入争议中", wholesalerId, disputedBills);
+        }
 
         // 踢 token：WA 与全部 WE 一并踢（WDR-S1-02），提交后执行（回滚不误踢）
         kickWholesalerUsersAfterCommit(wholesalerId, "R14 强制下架");
@@ -437,9 +450,10 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
         if (pc.openDocsCount() > 0) {
             throw new BizException(ErrorCode.WITHDRAW_OPEN_DOCS_EXIST);
         }
-        // TODO(P4 billing，决策 O-5)：账单全部结清校验——BillingService 尚未落地（P4），
-        //   待其就绪后在此调用 billingService.assertAllSettled(wholesalerId)，
-        //   未结清抛对应错误码（预留 50319 段）。本期仅库存+单据两项硬校验。
+        // P4 W3（14 §3.5-1，O-5 兑现）：账单全部结清校验——存在 status != PAID 账单（含
+        // DISPUTED）抛 50323；applyWithdraw 发起与 auditWithdraw 审批通过双检（50312/50314 同构）。
+        // 尾款口径（§3.2）：R13 只校验已生成账单，退驻当月费用次月 1 日才出账（ST 操作说明已注明）。
+        billingService.assertAllSettled(wholesalerId);
     }
 
     /**

@@ -77,6 +77,22 @@ public class Notification {
     public static final String TYPE_CLEARANCE_DECIDED = "CLEARANCE_DECIDED";
     /** P4 W1：计费规则保存/变更（R20）→ 全部在驻批发商管理员（14 §2.1-4，type 零 DDL 先例） */
     public static final String TYPE_BILLING_RULE_CHANGED = "BILLING_RULE_CHANGED";
+    /** P4 W3：月账单生成 → 本仓库全部结算员（14 §3.6；应收 0 直落已结清的也发——生成可追溯） */
+    public static final String TYPE_BILL_GENERATED = "BILL_GENERATED";
+    /** P4 W3：账单下发 → 批发商管理员（站内信真发+短信 mock） */
+    public static final String TYPE_BILL_DISPATCHED = "BILL_DISPATCHED";
+    /** P4 W3：R11 账单撤回 → 批发商管理员 */
+    public static final String TYPE_BILL_WITHDRAWN = "BILL_WITHDRAWN";
+    /** P4 W3：回款登记 → 批发商管理员（含金额与累计进度） */
+    public static final String TYPE_PAYMENT_REGISTERED = "PAYMENT_REGISTERED";
+    /** P4 W3：R12 回款冲销 → 批发商管理员（含原因） */
+    public static final String TYPE_PAYMENT_REVERSED = "PAYMENT_REVERSED";
+    /** P4 W3：WA 申诉提交 → 本仓库全部结算员 */
+    public static final String TYPE_BILL_DISPUTE_SUBMITTED = "BILL_DISPUTE_SUBMITTED";
+    /** P4 W3：申诉处理结果 → 批发商管理员 */
+    public static final String TYPE_BILL_DISPUTE_RESOLVED = "BILL_DISPUTE_RESOLVED";
+    /** P4 W3：R14 强制下架未结账单标争议中 → 本仓库全部结算员 */
+    public static final String TYPE_BILL_DISPUTED_MARKED = "BILL_DISPUTED_MARKED";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
@@ -92,6 +108,12 @@ public class Notification {
     public static final String REF_BATCH = "BATCH";
     /** P3b T4-W2：清库单跳转 */
     public static final String REF_CLEARANCE = "CLEARANCE";
+    /** P4 W3：账单跳转 */
+    public static final String REF_BILL = "BILL";
+    /** P4 W3：回款记录跳转（落账单详情回款区） */
+    public static final String REF_PAYMENT = "PAYMENT";
+    /** P4 W3：账单申诉跳转 */
+    public static final String REF_BILL_DISPUTE = "BILL_DISPUTE";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)

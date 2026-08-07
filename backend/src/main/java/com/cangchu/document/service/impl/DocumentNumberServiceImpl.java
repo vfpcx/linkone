@@ -34,6 +34,8 @@ public class DocumentNumberServiceImpl implements DocumentNumberService {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
+    /** P4 W3 月度账单号月段（14 §3.4） */
+    private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyyMM");
 
     @Override
     public String generate(DocType docType, String tenantSimpleCode) {
@@ -51,6 +53,18 @@ public class DocumentNumberServiceImpl implements DocumentNumberService {
         String docNo = String.format("%s-%s-%s-%04d", docType.getPrefix(), simpleCode, day, n);
         log.debug("[DOC] generate docNo={} (docType={}, seq={})", docNo, docType, n);
         return docNo;
+    }
+
+    /**
+     * 月度账单号（P4 W3，14 §3.4）：BL-{简码归一}-W{wholesalerId}-{yyyyMM}。
+     * 无日序列无 Redis 计数——(t,ws,月) 天然唯一；uk_bill_no + uk_bill_idempotent 双层兜底。
+     */
+    @Override
+    public String generateBillNo(String tenantSimpleCode, Long wholesalerId, java.time.YearMonth month) {
+        String billNo = String.format("%s-%s-W%d-%s", DocType.BILL.getPrefix(),
+                normalize(tenantSimpleCode), wholesalerId, month.format(MONTH_FMT));
+        log.debug("[DOC] generateBillNo billNo={}", billNo);
+        return billNo;
     }
 
     /** 简码归一：去空白 + 取后 6 位字母数字，空则占位 {@code T0000}，避免 key/编号含非法字符。 */

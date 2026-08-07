@@ -124,6 +124,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public List<Long> listActiveStUserIdsOfTenant(Long tenantId) {
+        // P4 W3（14 §3.6）：「结算员」通知收件人推导——与 listActiveWkUserIdsOfTenant 同构，
+        // 以 user_roles 绑定为唯一可信来源，多 ST 账号全发（TA 兼岗有独立 ST 角色行才收）
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                        .eq(UserRole::getTenantId, tenantId)
+                        .eq(UserRole::getRole, "ST")
+                        .eq(UserRole::getStatus, "ACTIVE")).stream()
+                .map(UserRole::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    @Override
     public boolean hasWholesalerPermission(Long userId, Long wholesalerId, String permission) {
         UserRole we = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, userId)
