@@ -9,9 +9,13 @@
  *  - 故事：US-TA-04（计费）/ US-TA-10（容量公示）/ US-TA-11（拍照）/ US-TA-12（批次）
  *
  * 契约：
- *  - GET  /tenant/me  → TenantSettings（tenantApi.getSettings）
- *  - PUT  /tenant/me  ← UpdateTenantSettingsRequest（tenantApi.updateSettings）
- *  - 计费规则字段变更 → 需 confirmed=true（二次确认弹窗）
+ *  - GET  /tenant/me  → TenantSettings（tenantApi.getSettings；billingDim 为只读镜像）
+ *  - PUT  /tenant/me  ← UpdateTenantSettingsRequest（不再携带任何计费字段——
+ *    原 billingByQty/pricePerQtyDay 等四个幽灵字段从未被后端消费，§2.6 活缺陷已随 P4 W4 收口）
+ *  - 计费规则（P4 W1 新 API，独立于本页通用保存）：
+ *      GET  /tenant/billing-rules → {current, history}（版本链留痕）
+ *      POST /tenant/billing-rules（R20 变更须 confirmed=true，缺失 40003 → 弹二次确认后重发；
+ *      首存免确认、自当日生效、不补历史 · PRD 13-p4 §1.3/§1.4）
  */
 
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -39,12 +43,17 @@ import type {
   CapacityVisibility,
   CapacityPrecision,
   PhotoMode,
+  BillingRules,
 } from '@cangchu/api-types'
+import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { tenantApi } from '@/api/tenant'
 import { batchApi } from '@/api/batch'
 import { accountApi } from '@/api/account'
+import { billingRuleApi } from '@/api/billing'
+import { ApiError } from '@/api/http'
+import { billingDimLabel } from '@/utils/billing'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -119,6 +128,7 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/returns' ||
     key === '/ta/stocktake' ||
     key === '/ta/batches' ||
+    key === '/ta/bills' ||
     key === '/ta/clearance'
   ) {
     router.push(key)
@@ -153,11 +163,6 @@ const form = reactive({
   photoMode: 'OPTIONAL' as PhotoMode,
   capacityVisibility: 'WA_ONLY' as CapacityVisibility,
   capacityPrecision: 'EXACT' as CapacityPrecision,
-  // 计费维度
-  billingByQty: true,
-  billingByPallet: false,
-  pricePerQtyDay: undefined as number | undefined,
-  pricePerPalletDay: undefined as number | undefined,
   expiryThresholdDays: 30 as number | undefined,
   // 容量
   totalQty: undefined as number | undefined,
@@ -169,43 +174,6 @@ const rules = computed<FormRules>(() => ({
   storeName: [
     { required: true, message: '请输入店铺名称', trigger: 'blur' },
     { max: 30, message: '店铺名称最多 30 字', trigger: 'blur' },
-  ],
-  // 计费维度：至少启用一种
-  billingByQty: [
-    {
-      validator: (_r, _v, cb) => {
-        if (!form.billingByQty && !form.billingByPallet) {
-          cb(new Error('请至少启用一种计费维度'))
-        } else {
-          cb()
-        }
-      },
-      trigger: 'change',
-    },
-  ],
-  pricePerQtyDay: [
-    {
-      validator: (_r, v, cb) => {
-        if (form.billingByQty && (v === undefined || v === null || Number(v) < 0)) {
-          cb(new Error('请填写件·天单价（≥0）'))
-        } else {
-          cb()
-        }
-      },
-      trigger: 'blur',
-    },
-  ],
-  pricePerPalletDay: [
-    {
-      validator: (_r, v, cb) => {
-        if (form.billingByPallet && (v === undefined || v === null || Number(v) < 0)) {
-          cb(new Error('请填写托盘·天单价（≥0）'))
-        } else {
-          cb()
-        }
-      },
-      trigger: 'blur',
-    },
   ],
   expiryThresholdDays: [
     {
@@ -239,10 +207,6 @@ const applyToForm = (s: TenantSettings) => {
   form.capacityVisibility = s.capacityVisibility ?? 'WA_ONLY'
   form.capacityPrecision = s.capacityPrecision ?? 'EXACT'
 
-  form.billingByQty = !!s.billingByQty
-  form.billingByPallet = !!s.billingByPallet
-  form.pricePerQtyDay = s.pricePerQtyDay
-  form.pricePerPalletDay = s.pricePerPalletDay
   form.expiryThresholdDays = s.expiryThresholdDays ?? 30
 
   form.totalQty = s.totalQty
@@ -262,20 +226,8 @@ const fetchSettings = async () => {
   }
 }
 
-// ============ 计费规则变更检测（R20） ============
-const billingChanged = computed(() => {
-  const o = original.value
-  if (!o) return false
-  return (
-    !!o.billingByQty !== form.billingByQty ||
-    !!o.billingByPallet !== form.billingByPallet ||
-    o.pricePerQtyDay !== form.pricePerQtyDay ||
-    o.pricePerPalletDay !== form.pricePerPalletDay
-  )
-})
-
 // ============ 提交 ============
-const buildPayload = (confirmed: boolean): UpdateTenantSettingsRequest => ({
+const buildPayload = (): UpdateTenantSettingsRequest => ({
   storeName: form.storeName,
   address:
     form.addressText || form.lng !== undefined || form.lat !== undefined
@@ -292,14 +244,9 @@ const buildPayload = (confirmed: boolean): UpdateTenantSettingsRequest => ({
   photoMode: form.photoMode,
   capacityVisibility: form.capacityVisibility,
   capacityPrecision: form.capacityPrecision,
-  billingByQty: form.billingByQty,
-  billingByPallet: form.billingByPallet,
-  pricePerQtyDay: form.billingByQty ? form.pricePerQtyDay : undefined,
-  pricePerPalletDay: form.billingByPallet ? form.pricePerPalletDay : undefined,
   expiryThresholdDays: form.batchEnabled ? form.expiryThresholdDays : undefined,
   totalQty: form.totalQty,
   totalPallet: form.totalPallet,
-  confirmed,
 })
 
 const onSubmit = async () => {
@@ -307,32 +254,9 @@ const onSubmit = async () => {
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
 
-  // 计费规则变更 → 二次确认（R20）
-  let confirmed = false
-  if (billingChanged.value) {
-    try {
-      const lines: string[] = []
-      if (form.billingByQty) lines.push(`件·天单价：${form.pricePerQtyDay ?? '—'} 元/件·天`)
-      if (form.billingByPallet) lines.push(`托盘·天单价：${form.pricePerPalletDay ?? '—'} 元/托盘·天`)
-      await ElMessageBox.confirm(
-        `变更将于立即生效，规则如下：\n${lines.join('\n')}\n\n影响：\n· 本月历史账单不重算\n· 当月在算账单按分段计费\n· 所有入驻批发商将收到通知`,
-        '确认变更计费规则',
-        {
-          confirmButtonText: '确认变更',
-          cancelButtonText: '取消',
-          type: 'warning',
-          dangerouslyUseHTMLString: false,
-        },
-      )
-      confirmed = true
-    } catch {
-      return // 取消
-    }
-  }
-
   saving.value = true
   try {
-    await tenantApi.updateSettings(buildPayload(confirmed))
+    await tenantApi.updateSettings(buildPayload())
     ElMessage.success('店铺设置已保存')
     await fetchSettings() // 重新拉取，刷新 original 快照
   } catch {
@@ -340,6 +264,160 @@ const onSubmit = async () => {
   } finally {
     saving.value = false
   }
+}
+
+// ============ 计费规则（P4 W1 API · 独立于本页通用保存） ============
+// 首存免二次确认、当日生效、不补历史（PRD 13-p4 §1.3）；
+// 变更走 R20 二次确认（40003 凭据缺失 → 弹窗确认后重发 confirmed=true）。
+const ruleLoading = ref(false)
+const ruleSaving = ref(false)
+const rules$ = ref<BillingRules | null>(null)
+
+const ruleForm = reactive({
+  byQty: false,
+  priceQty: undefined as number | undefined,
+  byPallet: false,
+  pricePallet: undefined as number | undefined,
+})
+
+const applyRuleToForm = () => {
+  const cur = rules$.value?.current ?? null
+  ruleForm.byQty = !!cur?.qtyEnabled
+  ruleForm.priceQty = cur?.pricePerQtyDay ?? undefined
+  ruleForm.byPallet = !!cur?.palletEnabled
+  ruleForm.pricePallet = cur?.pricePerPalletDay ?? undefined
+}
+
+const fetchRules = async () => {
+  ruleLoading.value = true
+  try {
+    const data = await billingRuleApi.getRules()
+    // 无规则空态后端省略 current 字段 → 归一为 null
+    rules$.value = { current: data?.current ?? null, history: data?.history ?? [] }
+    applyRuleToForm()
+  } catch {
+    // 全局 toast 已提示
+  } finally {
+    ruleLoading.value = false
+  }
+}
+
+/** 首次设置（从未保存过规则）？→ 空态引导横幅 + 保存免二次确认 */
+const isFirstRule = computed(() => !rules$.value?.current)
+
+/** 对外展示计费维度（只读镜像三值映射，BOTH=并存） */
+const billingDimText = computed(() => {
+  const cur = rules$.value?.current
+  if (!cur) return billingDimLabel(original.value?.billingDim ?? null)
+  return billingDimLabel(cur.qtyEnabled && cur.palletEnabled ? 'BOTH' : cur.qtyEnabled ? 'QTY' : 'PALLET')
+})
+
+/** 两维均未勾选 → 保存置灰（PRD §1.2） */
+const canSaveRule = computed(() => ruleForm.byQty || ruleForm.byPallet)
+
+/** 与当前规则完全相同 → 不产生新版本、不发通知（PRD §1.4） */
+const ruleUnchanged = computed(() => {
+  const cur = rules$.value?.current
+  if (!cur) return false
+  const num = (v: number | null | undefined) => (v === null || v === undefined ? null : Number(v))
+  return (
+    cur.qtyEnabled === ruleForm.byQty &&
+    cur.palletEnabled === ruleForm.byPallet &&
+    (!ruleForm.byQty || num(cur.pricePerQtyDay) === num(ruleForm.priceQty)) &&
+    (!ruleForm.byPallet || num(cur.pricePerPalletDay) === num(ruleForm.pricePallet))
+  )
+})
+
+/** R20 二次确认弹窗（线框 13-p4 §8.2：变更内容 + 影响四条） */
+const confirmRuleChange = async (): Promise<boolean> => {
+  const cur = rules$.value?.current
+  const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '未启用' : `${v} `)
+  const qtyOld = cur?.qtyEnabled ? fmt(cur.pricePerQtyDay) : '未启用'
+  const qtyNew = ruleForm.byQty ? `${ruleForm.priceQty} 元/件·天` : '未启用'
+  const palletOld = cur?.palletEnabled ? fmt(cur.pricePerPalletDay) : '未启用'
+  const palletNew = ruleForm.byPallet ? `${ruleForm.pricePallet} 元/托盘·天` : '未启用'
+  try {
+    await ElMessageBox.confirm(
+      `变更自今日起生效，内容如下：\n` +
+        `件·天计费：${qtyOld}→ ${qtyNew}\n` +
+        `托盘·天计费：${palletOld}→ ${palletNew}\n\n` +
+        `影响：\n` +
+        `✓ 历史已出账账单不重算\n` +
+        `✓ 本月账单按变更日分段计费，变更当日起即按新规则\n` +
+        `✓ 全部在驻批发商将收到通知\n` +
+        `✓ 今日多次变更以最后一次为准`,
+      '确认变更计费规则',
+      {
+        confirmButtonText: '确认变更',
+        cancelButtonText: '取消',
+        type: 'warning',
+        customClass: 'billing-rule-confirm',
+      },
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+const postRule = (confirmed?: boolean) =>
+  billingRuleApi.saveRule({
+    billingByQty: ruleForm.byQty,
+    pricePerQtyDay: ruleForm.byQty ? ruleForm.priceQty : undefined,
+    billingByPallet: ruleForm.byPallet,
+    pricePerPalletDay: ruleForm.byPallet ? ruleForm.pricePallet : undefined,
+    confirmed,
+  })
+
+const onSaveRule = async () => {
+  if (!canSaveRule.value) {
+    ElMessage.warning('请至少启用一种计费维度并填写单价')
+    return
+  }
+  if ((ruleForm.byQty && (ruleForm.priceQty === undefined || ruleForm.priceQty === null)) ||
+      (ruleForm.byPallet && (ruleForm.pricePallet === undefined || ruleForm.pricePallet === null))) {
+    ElMessage.warning('启用的计费维度必须填写单价（≥0）')
+    return
+  }
+  if (ruleUnchanged.value) {
+    ElMessage.info('规则未发生变化')
+    return
+  }
+
+  // 已有规则 → R20 变更二次确认；首存免确认（无「变更」即无回溯保护问题）
+  let confirmed: boolean | undefined
+  if (!isFirstRule.value) {
+    if (!(await confirmRuleChange())) return
+    confirmed = true
+  }
+
+  ruleSaving.value = true
+  try {
+    await postRule(confirmed)
+    ElMessage.success(isFirstRule.value ? '计费规则已保存，自今日起生效' : '计费规则已更新，今日起按新规则计费')
+    await fetchRules()
+  } catch (e) {
+    // 40003 = 后端要求变更凭据（并发下他人先改等场景）→ 弹二次确认后重发 confirmed=true
+    if (e instanceof ApiError && e.code === ErrorCode.VALIDATION_REQUIRED) {
+      if (await confirmRuleChange()) {
+        try {
+          await postRule(true)
+          ElMessage.success('计费规则已更新，今日起按新规则计费')
+          await fetchRules()
+        } catch {
+          /* 全局 toast 已提示 */
+        }
+      }
+    }
+    // 50379 等其余错误：全局 toast 已按 messages-zh 提示
+  } finally {
+    ruleSaving.value = false
+  }
+}
+
+const onResetRule = () => {
+  applyRuleToForm()
+  ElMessage.info('已还原为当前生效的计费规则')
 }
 
 // ============ 批次开关（专用端点，P3b T4-FE） ============
@@ -388,7 +466,10 @@ const onReset = () => {
   ElMessage.info('已还原为上次保存的设置')
 }
 
-onMounted(fetchSettings)
+onMounted(() => {
+  void fetchSettings()
+  void fetchRules()
+})
 </script>
 
 <template>
@@ -553,41 +634,14 @@ onMounted(fetchSettings)
 
             <el-divider class="thin" />
 
-            <!-- 4. 计费维度 -->
-            <div class="switch-block">
+            <!-- 4. 计费维度（只读摘要 · 设置移至下方「计费规则」卡，PRD 13-p4 §1.5） -->
+            <div class="switch-row">
               <div class="switch-row__label">
                 <span class="switch-row__name">计费维度</span>
-                <span class="switch-row__desc">至少启用一种；变更单价需二次确认（R20）</span>
+                <span class="switch-row__desc" data-test="billing-dim-summary">
+                  当前对外展示：{{ billingDimText }}｜单价与开关请在下方「计费规则」区块设置
+                </span>
               </div>
-
-              <el-form-item prop="billingByQty" class="bill-line">
-                <el-checkbox v-model="form.billingByQty">件·天</el-checkbox>
-                <el-form-item prop="pricePerQtyDay" class="bill-line__price">
-                  <el-input-number
-                    v-model="form.pricePerQtyDay"
-                    :min="0"
-                    :precision="2"
-                    :step="0.01"
-                    :disabled="!form.billingByQty"
-                    placeholder="0.05"
-                  />
-                  <span class="unit">元 / 件·天</span>
-                </el-form-item>
-              </el-form-item>
-
-              <el-form-item prop="pricePerPalletDay" class="bill-line">
-                <el-checkbox v-model="form.billingByPallet">托盘·天</el-checkbox>
-                <el-input-number
-                  v-model="form.pricePerPalletDay"
-                  :min="0"
-                  :precision="2"
-                  :step="0.01"
-                  :disabled="!form.billingByPallet"
-                  placeholder="1.20"
-                  class="bill-line__price"
-                />
-                <span class="unit">元 / 托盘·天</span>
-              </el-form-item>
             </div>
 
             <el-divider class="thin" />
@@ -609,6 +663,113 @@ onMounted(fetchSettings)
                 <span class="unit">天</span>
               </el-form-item>
             </div>
+          </section>
+
+          <!-- 计费规则（P4 · 独立数据源 billing-rules，独立保存） -->
+          <section class="card" v-loading="ruleLoading" data-test="billing-rule-card">
+            <div class="rule-head">
+              <h3 class="card__title">计费规则</h3>
+              <span v-if="rules$?.current" class="rule-head__version" data-test="billing-rule-version">
+                当前版本：第 {{ rules$.current.version }} 版
+              </span>
+            </div>
+
+            <!-- 首次空态引导横幅（PRD §8.1 逐字） -->
+            <el-alert
+              v-if="isFirstRule && !ruleLoading"
+              type="warning"
+              :closable="false"
+              show-icon
+              class="rule-alert"
+              data-test="billing-rule-first-banner"
+              title="尚未设置计费规则，保存后系统才会开始累计仓储费并按月生成账单"
+            />
+
+            <div class="rule-form">
+              <div class="bill-line">
+                <el-checkbox v-model="ruleForm.byQty" data-test="rule-qty-toggle">按件计费</el-checkbox>
+                <el-input-number
+                  v-model="ruleForm.priceQty"
+                  :min="0"
+                  :precision="4"
+                  :step="0.01"
+                  :disabled="!ruleForm.byQty"
+                  placeholder="0.0500"
+                  class="bill-line__price"
+                  data-test="rule-qty-price"
+                />
+                <span class="unit">元/件·天</span>
+              </div>
+
+              <div class="bill-line">
+                <el-checkbox v-model="ruleForm.byPallet" data-test="rule-pallet-toggle">按托盘计费</el-checkbox>
+                <el-input-number
+                  v-model="ruleForm.pricePallet"
+                  :min="0"
+                  :precision="4"
+                  :step="0.01"
+                  :disabled="!ruleForm.byPallet"
+                  placeholder="1.2000"
+                  class="bill-line__price"
+                  data-test="rule-pallet-price"
+                />
+                <span class="unit">元/托盘·天</span>
+              </div>
+
+              <!-- 托盘基线提示（D-P4-5 逐字） -->
+              <p v-if="ruleForm.byPallet" class="hint" data-test="rule-pallet-hint">
+                ※ 启用托盘·天计费前，建议先完成一次盘点校准在库托盘数，确保计费基数准确
+              </p>
+            </div>
+
+            <!-- 生效口径固定文案（PRD §1.3 逐字采用） -->
+            <p class="rule-note" data-test="billing-rule-effective-note">
+              ※ 计费规则自保存当日起生效。生效日之前的在库时间不计费、不补出历史账单；生效当月的账单只包含生效日起的费用。
+            </p>
+
+            <!-- 历史版本留痕（对账核查「这一段按哪版价算」） -->
+            <template v-if="(rules$?.history?.length ?? 0) > 0 || rules$?.current">
+              <h4 class="rule-history__title">历史版本</h4>
+              <el-table
+                :data="[...(rules$?.current ? [rules$.current] : []), ...(rules$?.history ?? [])]"
+                size="small"
+                class="rule-history__table"
+                data-test="billing-rule-history"
+              >
+                <el-table-column label="版本" width="80">
+                  <template #default="{ row }">第{{ row.version }}版</template>
+                </el-table-column>
+                <el-table-column label="生效起止" min-width="180">
+                  <template #default="{ row }">
+                    {{ row.effectiveFrom }} ~ {{ row.effectiveTo ?? '至今' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="件·天单价" min-width="100">
+                  <template #default="{ row }">
+                    {{ row.qtyEnabled ? row.pricePerQtyDay : '未启用' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="托盘·天单价" min-width="100">
+                  <template #default="{ row }">
+                    {{ row.palletEnabled ? row.pricePerPalletDay : '未启用' }}
+                  </template>
+                </el-table-column>
+              </el-table>
+            </template>
+
+            <div class="rule-actions">
+              <el-button :disabled="ruleSaving" @click="onResetRule">取消</el-button>
+              <el-button
+                type="primary"
+                :loading="ruleSaving"
+                :disabled="!canSaveRule"
+                data-test="billing-rule-save"
+                @click="onSaveRule"
+              >
+                保存
+              </el-button>
+            </div>
+            <p v-if="!canSaveRule" class="hint">※ 请至少启用一种计费维度并填写单价</p>
           </section>
 
           <!-- 容量（可选） -->
@@ -790,6 +951,47 @@ onMounted(fetchSettings)
   flex-shrink: 0;
   color: var(--color-fg-3);
   font-size: var(--font-size-body);
+}
+
+/* 计费规则卡 */
+.rule-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.rule-head__version {
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
+}
+.rule-alert {
+  margin-bottom: var(--space-3);
+}
+.rule-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.rule-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-fg-3);
+  line-height: 1.6;
+}
+.rule-history__title {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-fg-1);
+}
+.rule-history__table {
+  width: 100%;
+}
+.rule-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 /* 计费行 */

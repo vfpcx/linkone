@@ -149,10 +149,22 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_EXPIRY_NOTIFY_RATE_LIMITED]: '24 小时内已通知过该批次',
   [ErrorCode.STATE_STOCK_NOT_ENOUGH]: '当前在库不足，无法完成本次操作',
 
-  [ErrorCode.STATE_BILL_NOT_GENERATED]: '账单尚未生成',
-  [ErrorCode.STATE_BILL_DISPATCHED]: '账单已下发，不能直接调整',
-  [ErrorCode.STATE_BILL_PAID]: '账单已结清，无法继续操作',
-  [ErrorCode.STATE_BILL_HAS_DISPUTE]: '该账单存在未处理申诉',
+  // P4 计费结算（50323 + 50370-50383 · 14-p4-design §5 userMessage 逐字对齐）
+  [ErrorCode.STATE_WITHDRAW_BILL_NOT_SETTLED]: '退驻前须结清账单（存在未结清账单）',
+  [ErrorCode.STATE_BILL_NOT_FOUND]: '账单不存在',
+  [ErrorCode.STATE_BILL_NOT_ADJUSTABLE]: '当前状态不可调整，请先撤回下发',
+  [ErrorCode.STATE_BILL_NOT_WITHDRAWABLE]: '账单已有回款或已被确认，无法撤回',
+  [ErrorCode.STATE_BILL_PAYMENT_EXCEEDS]: '登记金额超出剩余应收',
+  [ErrorCode.STATE_BILL_ALREADY_SETTLED]: '账单已结清，无需重复登记',
+  [ErrorCode.STATE_BILL_PAYMENT_NOT_REVERSIBLE]: '该回款记录已冲销或不存在',
+  [ErrorCode.STATE_BILL_DISPUTE_NOT_PENDING]: '该申诉已处理',
+  [ErrorCode.STATE_BILL_DISPUTE_INVALID]: '申诉条目无效',
+  [ErrorCode.STATE_BILL_DISPUTE_WINDOW_CLOSED]: '申诉期已过（账单下发后 7 天内可提）',
+  [ErrorCode.STATE_BILLING_RULE_INVALID]: '计费规则无效（至少启用一种维度并填写单价）',
+  [ErrorCode.STATE_BILLING_RULE_MISSING]: '计费规则未设置，无法生成账单',
+  [ErrorCode.STATE_BILL_DISPUTED_LOCKED]: '账单争议中，操作受限',
+  [ErrorCode.STATE_BILL_DISPUTE_PENDING_EXISTS]: '该账单已有待处理申诉',
+  [ErrorCode.STATE_BILL_ITEM_NOT_REVERSIBLE]: '该条目不可冲销或已被冲销',
 
   // BUSINESS
   [ErrorCode.BUSINESS_INSUFFICIENT_STOCK]: '库存不足',

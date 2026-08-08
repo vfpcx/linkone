@@ -130,6 +130,7 @@ const menus: MenuItem[] = [
 ]
 
 const IMPLEMENTED = new Set([
+  '/ta/bills',
   '/ta/dashboard',
   '/ta/returns',
   '/ta/stocktake',

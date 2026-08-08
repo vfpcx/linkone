@@ -149,7 +149,8 @@ const IMPLEMENTED = new Set([
 const activeMenu = ref('/ta/clearance')
 
 const handleMenuSelect = (key: string) => {
-  if (key === '/ta/clearance') {
+  if (key === '/ta/clearance' ||
+    key === '/ta/bills') {
     activeMenu.value = key
     return
   }
