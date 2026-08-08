@@ -7,6 +7,7 @@ import com.cangchu.billing.dto.BillReverseItemDto;
 import com.cangchu.billing.dto.PaymentRegisterDto;
 import com.cangchu.billing.dto.PaymentReverseDto;
 import com.cangchu.billing.entity.Bill;
+import com.cangchu.billing.vo.BillsOverviewVo;
 import com.cangchu.billing.vo.BillDetailVo;
 import com.cangchu.billing.vo.BillDisputeVo;
 import com.cangchu.billing.vo.BillGenerateResultVo;
@@ -80,6 +81,14 @@ public interface BillingService {
 
     /** 申诉处理：仅 PENDING（50376）；RESOLVED/REJECTED + resolution 留痕；通知商户管理员。 */
     BillDisputeVo resolveDispute(Long userId, Long disputeId, BillDisputeResolveDto dto);
+
+    // ==================== TA 总览（§6.3 W5 补口） ====================
+
+    /**
+     * TA 账单总览（US-TA-08，requireTa——ST 42001/WE 42004）：按月（可缺省=全部）
+     * 应收/已收/未收/账单数/状态分布 + 逐商户汇总行。
+     */
+    BillsOverviewVo billsOverview(Long userId, String month);
 
     // ==================== WA 侧（§6.3；WE 整域拒绝 42004） ====================
 
