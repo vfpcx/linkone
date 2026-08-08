@@ -2,7 +2,9 @@ package com.cangchu.billing.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.cangchu.billing.dto.SnapshotRecalcDto;
+import com.cangchu.billing.service.BillExportService;
 import com.cangchu.billing.service.DailySnapshotService;
+import jakarta.servlet.http.HttpServletResponse;
 import com.cangchu.billing.vo.DailyBreakdownRowVo;
 import com.cangchu.billing.vo.MonthlyReplayVo;
 import com.cangchu.billing.vo.SnapshotRecalcResultVo;
@@ -28,6 +30,17 @@ import java.util.List;
 public class BillingSnapshotController {
 
     private final DailySnapshotService dailySnapshotService;
+    private final BillExportService billExportService;
+
+    /**
+     * 对账单导出（P4 W5，D-P4-8=A）：某商户某月按日明细 Excel，同步流式下载不落存储；
+     * 文件名 RFC 5987 中文编码。
+     */
+    @GetMapping("/api/v1/tenant/st/snapshots/export")
+    public void export(@RequestParam String month, @RequestParam Long wholesalerId,
+                       HttpServletResponse response) {
+        billExportService.exportSnapshots(StpUtil.getLoginIdAsLong(), wholesalerId, month, response);
+    }
 
     /**
      * 按日下钻：某商户某月逐日计费件数/托盘 + 当日金额（当段单价现算；无规则段 null）。

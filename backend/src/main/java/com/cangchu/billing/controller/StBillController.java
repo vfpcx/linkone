@@ -7,6 +7,7 @@ import com.cangchu.billing.dto.BillGenerateDto;
 import com.cangchu.billing.dto.BillReverseItemDto;
 import com.cangchu.billing.dto.PaymentRegisterDto;
 import com.cangchu.billing.dto.PaymentReverseDto;
+import com.cangchu.billing.service.BillExportService;
 import com.cangchu.billing.service.BillingService;
 import com.cangchu.billing.vo.BillDetailVo;
 import com.cangchu.billing.vo.BillDisputeVo;
@@ -15,6 +16,7 @@ import com.cangchu.billing.vo.BillListVo;
 import com.cangchu.billing.vo.BillVo;
 import com.cangchu.billing.vo.DailyBreakdownRowVo;
 import com.cangchu.common.response.R;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,6 +38,7 @@ import java.util.List;
 public class StBillController {
 
     private final BillingService billingService;
+    private final BillExportService billExportService;
 
     /** 列表 + 汇总卡（应收/已收/未收合计，按当前筛选）；倒序 */
     @GetMapping("/api/v1/tenant/st/bills")
@@ -58,6 +61,17 @@ public class StBillController {
     @GetMapping("/api/v1/tenant/st/bills/{id}/daily-breakdown")
     public R<List<DailyBreakdownRowVo>> dailyBreakdown(@PathVariable Long id) {
         return R.ok(billingService.dailyBreakdown(StpUtil.getLoginIdAsLong(), id));
+    }
+
+    /**
+     * 账单导出（P4 W5，US-ST-05 · D-P4-8=A）：format=pdf|excel，同步流式下载不落存储；
+     * DRAFT 亦可导（预览稿水印「未下发预览稿」）；明细超 5000 行降级按货品聚合；
+     * 文件名 RFC 5987 中文编码。
+     */
+    @GetMapping("/api/v1/tenant/st/bills/{id}/export")
+    public void export(@PathVariable Long id, @RequestParam String format,
+                       HttpServletResponse response) {
+        billExportService.exportBill(StpUtil.getLoginIdAsLong(), id, format, response);
     }
 
     /** 手动补跑（幂等；无规则 50380；月份须已结束） */
