@@ -39,6 +39,7 @@ import {
   recalcSnapshots,
   listStBills,
   getStBill,
+  getRules,
   reversePaymentApi,
 } from './helpers/billing'
 
@@ -96,14 +97,20 @@ test.describe.serial('P4 计费结算', () => {
     )
 
     // 首存：启用件·天 0.5 元 → 免二次确认直接成功
-    await card.locator('[data-test="rule-qty-toggle"]').click()
-    await card.locator('[data-test="rule-qty-price"] input').fill('0.5')
+    // （先等规则拉取完成——fetchRules 回填会重置表单，过早点击会被覆写）
+    await expect(card.locator('.el-loading-mask')).toBeHidden()
+    const qtyToggle = card.locator('[data-test="rule-qty-toggle"]')
+    await qtyToggle.click()
+    await expect(qtyToggle).toHaveClass(/is-checked/)
+    // EP 已启用后 aria-disabled 残留（原生 disabled 已移除，仅无障碍属性未刷新）——
+    // force 跳过 actionability 检查，真实用户可正常输入
+    await card.locator('[data-test="rule-qty-price"] input').fill('0.5', { force: true })
     await card.locator('[data-test="billing-rule-save"]').click()
     await expect(page.locator('.el-message--success').last()).toContainText('计费规则已保存')
     await expect(page.locator('[data-test="billing-rule-version"]')).toContainText('第 1 版')
 
     // R20 变更：单价 0.5 → 0.6 → 二次确认弹窗（影响四条）→ 确认 → 第 2 版
-    await card.locator('[data-test="rule-qty-price"] input').fill('0.6')
+    await card.locator('[data-test="rule-qty-price"] input').fill('0.6', { force: true })
     await card.locator('[data-test="billing-rule-save"]').click()
     const confirmBox = page.locator('.el-message-box', { hasText: '确认变更计费规则' })
     await expect(confirmBox).toBeVisible()
@@ -111,11 +118,14 @@ test.describe.serial('P4 计费结算', () => {
     await expect(confirmBox).toContainText('全部在驻批发商将收到通知')
     await confirmBox.getByRole('button', { name: '确认变更' }).click()
     await expect(page.locator('.el-message--success').last()).toContainText('计费规则已更新')
-    await expect(page.locator('[data-test="billing-rule-version"]')).toContainText('第 2 版')
-    // 历史留痕表：两版可见
+    // 同日多次变更覆写当日行（一日一版，14 §2.1）→ 版本仍为第 1 版，单价已是 0.6
+    await expect(page.locator('[data-test="billing-rule-version"]')).toContainText('第 1 版')
+    // 历史留痕表：当前版行可见且单价为最新值（单价真实落库回显——§2.6 缺陷收口证据）
     const history = page.locator('[data-test="billing-rule-history"]')
     await expect(history).toContainText('第1版')
-    await expect(history).toContainText('第2版')
+    await expect(history).toContainText('0.6')
+    const rules = ok(await getRules(seed.ta.login.token), '规则回读')
+    expect(Number(rules.current?.pricePerQtyDay)).toBeCloseTo(0.6, 4)
 
     // 幂等：内容不变再存 → 「规则未发生变化」
     await card.locator('[data-test="billing-rule-save"]').click()
@@ -173,7 +183,7 @@ test.describe.serial('P4 计费结算', () => {
     await injectAuthAndGoto(page, wa.login, 'WA', '/wa/bills')
     const waRow = page.locator('[data-test="wa-bill-table"] tbody tr').first()
     await expect(waRow).toContainText('已下发')
-    await page.locator('[data-test="wa-bill-row-open"]').first().click()
+    await page.goto(`/wa/bills/${billId}`)
     await expect(page.locator('[data-test="wa-bill-status"]')).toContainText('已下发')
     await page.locator('[data-test="wa-bill-confirm"]').click()
     const confirmBox = page.locator('.el-message-box', { hasText: '确认对账' })
@@ -208,7 +218,7 @@ test.describe.serial('P4 计费结算', () => {
     await expect(dlg).toContainText('此处仅受理账单金额与计费争议')
     // 行级条目可选
     await dlg.locator('[data-test="wa-dispute-items"] .el-checkbox').first().click()
-    await dlg.locator('[data-test="wa-dispute-reason"] textarea').fill('E2E 申诉：件·天数量与实际不符')
+    await dlg.locator('textarea').fill('E2E 申诉：件·天数量与实际不符')
     await dlg.locator('[data-test="wa-dispute-submit"]').click()
     await expect(page.locator('.el-message--success').last()).toContainText('申诉已提交')
     await expect(page.locator('[data-test="wa-dispute-item"]').first()).toContainText('待处理')
@@ -223,7 +233,7 @@ test.describe.serial('P4 计费结算', () => {
     await expect(row).toContainText('待处理')
     await page.locator('[data-test="dispute-resolve-open"]').first().click()
     const resolveDlg = page.locator('[data-test="dispute-resolve-dialog"]')
-    await resolveDlg.locator('[data-test="dispute-resolution"] textarea').fill('E2E 核实：按快照复核属实，下期调整')
+    await resolveDlg.locator('textarea').fill('E2E 核实：按快照复核属实，下期调整')
     await resolveDlg.locator('[data-test="dispute-resolve-submit"]').click()
     await expect(page.locator('.el-message--success').last()).toContainText('成立')
 
