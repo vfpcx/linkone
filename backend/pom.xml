@@ -29,7 +29,28 @@
         <lombok.version>1.18.46</lombok.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <fastjson2.version>2.0.62</fastjson2.version>
+        <!-- P4 W5 导出（14 §7 W5）：Excel=POI SXSSF 流式；PDF=HTML 模板 openhtmltopdf（LGPL，
+             iText AGPL 不可用 D-P4-8 license 取舍）。pdfbox 收敛 2.0.33（openhtmltopdf 1.0.10
+             默认带 2.0.24，统一升至 2.0.x 末版吸收修复）。 -->
+        <poi.version>5.4.1</poi.version>
+        <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
+        <pdfbox.version>2.0.33</pdfbox.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>xmpbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Spring Boot Starters -->
@@ -144,6 +165,19 @@
             <groupId>com.alibaba.fastjson2</groupId>
             <artifactId>fastjson2</artifactId>
             <version>${fastjson2.version}</version>
+        </dependency>
+
+        <!-- P4 W5 导出：Excel（SXSSF 流式，Apache-2.0） -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
+        </dependency>
+        <!-- P4 W5 导出：PDF（HTML 模板 + 中文字体内嵌，LGPL；transitively pdfbox 收敛见 dependencyManagement） -->
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>${openhtmltopdf.version}</version>
         </dependency>
 
         <!-- Spring Security Crypto for BCrypt -->

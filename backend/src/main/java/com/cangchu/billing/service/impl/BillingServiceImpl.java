@@ -26,6 +26,8 @@ import com.cangchu.billing.vo.BillDetailVo;
 import com.cangchu.billing.vo.BillDisputeVo;
 import com.cangchu.billing.vo.BillGenerateResultVo;
 import com.cangchu.billing.vo.BillItemVo;
+import com.cangchu.billing.vo.BillsOverviewRowVo;
+import com.cangchu.billing.vo.BillsOverviewVo;
 import com.cangchu.billing.vo.BillListVo;
 import com.cangchu.billing.vo.BillVo;
 import com.cangchu.billing.vo.DailyBreakdownRowVo;
@@ -780,6 +782,64 @@ public class BillingServiceImpl implements BillingService {
         return toDisputeVo(billDisputeMapper.selectById(disputeId), new HashMap<>(), new HashMap<>());
     }
 
+    // ==================== TA 总览（W5 补口，14 §6.3 US-TA-08） ====================
+
+    @Override
+    public BillsOverviewVo billsOverview(Long userId, String month) {
+        Long tenantId = requireTa(userId);
+        if (month != null && !month.isBlank()) {
+            parseMonth(month); // 仅校验格式（40001）
+        }
+        List<Bill> bills = billMapper.selectList(new LambdaQueryWrapper<Bill>()
+                .eq(Bill::getTenantId, tenantId)
+                .eq(month != null && !month.isBlank(), Bill::getBillingMonth, month));
+        BigDecimal receivable = BigDecimal.ZERO;
+        BigDecimal received = BigDecimal.ZERO;
+        Map<String, Long> statusCounts = new LinkedHashMap<>();
+        Map<Long, BillsOverviewRowVo> byWs = new LinkedHashMap<>();
+        Map<Long, Map<String, Long>> wsStatusCounts = new LinkedHashMap<>();
+        Map<Long, String> nameCache = new HashMap<>();
+        for (Bill b : bills) {
+            receivable = receivable.add(b.getTotalAmount());
+            received = received.add(b.getPaidAmount());
+            statusCounts.merge(b.getStatus(), 1L, Long::sum);
+            BillsOverviewRowVo row = byWs.computeIfAbsent(b.getWholesalerId(),
+                    wsId -> BillsOverviewRowVo.builder()
+                            .wholesalerId(wsId.toString())
+                            .wholesalerName(wholesalerName(wsId, nameCache))
+                            .receivable(BigDecimal.ZERO)
+                            .received(BigDecimal.ZERO)
+                            .billCount(0L)
+                            .build());
+            row.setReceivable(row.getReceivable().add(b.getTotalAmount()));
+            row.setReceived(row.getReceived().add(b.getPaidAmount()));
+            row.setBillCount(row.getBillCount() + 1);
+            wsStatusCounts.computeIfAbsent(b.getWholesalerId(), k -> new LinkedHashMap<>())
+                    .merge(b.getStatus(), 1L, Long::sum);
+        }
+        List<BillsOverviewRowVo> rows = new ArrayList<>(byWs.size());
+        byWs.forEach((wsId, row) -> {
+            row.setReceivable(scale2(row.getReceivable()));
+            row.setReceived(scale2(row.getReceived()));
+            row.setOutstanding(scale2(row.getReceivable().subtract(row.getReceived())));
+            row.setStatusCounts(wsStatusCounts.get(wsId));
+            rows.add(row);
+        });
+        // 未收降序（欠款大的优先），同值按商户 id 升序稳定
+        rows.sort(java.util.Comparator
+                .comparing(BillsOverviewRowVo::getOutstanding).reversed()
+                .thenComparing(BillsOverviewRowVo::getWholesalerId));
+        return BillsOverviewVo.builder()
+                .month(month != null && !month.isBlank() ? month : null)
+                .receivable(scale2(receivable))
+                .received(scale2(received))
+                .outstanding(scale2(receivable.subtract(received)))
+                .billCount((long) bills.size())
+                .statusCounts(statusCounts)
+                .rows(rows)
+                .build();
+    }
+
     // ==================== WA 侧 ====================
 
     @Override
@@ -1089,6 +1149,18 @@ public class BillingServiceImpl implements BillingService {
             throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅批发商管理员可查看账单");
         }
         return ids;
+    }
+
+    /** TA 专属 gate（W5 总览补口，14 §6.3）：ST 不放行（42001）；WE 42004 */
+    private Long requireTa(Long userId) {
+        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        if (tenantId == null) {
+            if (authService.hasRole(userId, "WE")) {
+                throw new BizException(ErrorCode.PERMISSION_ROLE_004);
+            }
+            throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅仓库管理员可查看账单总览");
+        }
+        return tenantId;
     }
 
     /** 读写 gate：ST 或 TA 兼岗（billing 域 gate，W1/W2 同构）；WE 42004、其余 42001 */
