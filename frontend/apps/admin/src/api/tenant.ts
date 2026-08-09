@@ -263,7 +263,10 @@ export const tenantApi = {
       params,
     }),
 
-  /** ⚠️ NOT IMPL · 账单总览 */
+  /**
+   * ✅ P4 W5 · TA 账单总览（US-TA-08，requireTa；ST 42001）：
+   * month 可缺省 = 全部月份；应收/已收/未收/账单数 + 全局状态分布 + 逐商户行（未收降序）。
+   */
   getBillsOverview: (params?: BillsOverviewQuery) =>
     request<BillsOverviewResponse>({
       method: 'GET',

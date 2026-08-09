@@ -11,7 +11,7 @@
  * 错误码 50323 + 50370-50383 已入 @cangchu/error-codes（全局拦截器 toast 中文文案）。
  */
 
-import { request } from './http'
+import { downloadFile, request } from './http'
 import type {
   Bill,
   BillAdjustRequest,
@@ -116,6 +116,23 @@ export const stBillApi = {
       url: `/tenant/st/bill-disputes/${disputeId}/resolve`,
       data,
     }),
+
+  // ============ 导出（W5 · D-P4-8=A 同步流式下载，不落存储） ============
+
+  /**
+   * 账单导出（US-ST-05）：format=pdf|excel；DRAFT 可导（PDF 带「未下发预览稿」水印）；
+   * 明细超 5000 行自动降级按货品聚合；文件名 RFC 5987 中文（账单-{billNo}.pdf/.xlsx）。
+   * 返回实际下载文件名；错误（50370 等）仍为 JSON R 体，由拦截器统一 toast。
+   */
+  exportBill: (id: string, format: 'pdf' | 'excel') =>
+    downloadFile(`/tenant/st/bills/${id}/export`, { format }),
+
+  /**
+   * 对账单导出（BillingSnapshotController）：某商户某月按日明细 Excel
+   * （对账单-{商户名}-{yyyy-MM}.xlsx）。
+   */
+  exportSnapshots: (month: string, wholesalerId: string) =>
+    downloadFile('/tenant/st/snapshots/export', { month, wholesalerId }),
 }
 
 // ============ WA 账单（W3 · 仅批发商管理员，员工整域拒绝） ============

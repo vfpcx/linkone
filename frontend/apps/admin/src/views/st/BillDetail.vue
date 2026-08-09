@@ -296,6 +296,39 @@ const onReversePayment = async () => {
   }
 }
 
+// ============ 导出（W5 · US-ST-05 / D-P4-8=A 同步流式） ============
+const exporting = ref<'' | 'pdf' | 'excel' | 'snapshot'>('')
+
+const onExport = async (format: 'pdf' | 'excel') => {
+  if (exporting.value) return
+  exporting.value = format
+  try {
+    const name = await stBillApi.exportBill(billId, format)
+    ElMessage.success(`已开始下载：${name}`)
+  } catch {
+    // 50370「账单不存在」等：JSON R 体经拦截器分流，全局 toast 已提示
+  } finally {
+    exporting.value = ''
+  }
+}
+
+/** 对账单导出（该商户该账期按日明细 Excel，与「按日」视角同源） */
+const onExportSnapshots = async () => {
+  if (!bill.value || exporting.value) return
+  exporting.value = 'snapshot'
+  try {
+    const name = await stBillApi.exportSnapshots(
+      bill.value.billingMonth,
+      String(bill.value.wholesalerId),
+    )
+    ElMessage.success(`已开始下载：${name}`)
+  } catch {
+    /* 全局 toast 已提示 */
+  } finally {
+    exporting.value = ''
+  }
+}
+
 onMounted(async () => {
   await fetchDetail()
   // 列表「登记回款」直达（?pay=1）
@@ -551,13 +584,43 @@ onMounted(async () => {
         <el-empty v-else description="暂无申诉" :image-size="64" />
       </section>
 
-      <!-- 操作区（移动吸底 · §8.11-2） -->
-      <footer v-if="bill && !frozen" class="action-bar" data-test="bill-actions">
-        <el-tooltip content="导出功能将随后续版本交付" placement="top">
-          <span><el-button disabled>导出 PDF</el-button></span>
+      <!-- 操作区（移动吸底 · §8.11-2；争议中仅保留导出——PRD §7.2「仅可查看与导出」） -->
+      <footer v-if="bill" class="action-bar" data-test="bill-actions">
+        <el-tooltip
+          :disabled="!isDraft"
+          content="待核对账单导出的 PDF 带「未下发预览稿」水印"
+          placement="top"
+        >
+          <span>
+            <el-button
+              :loading="exporting === 'pdf'"
+              :disabled="!!exporting && exporting !== 'pdf'"
+              data-test="bill-export-pdf"
+              @click="onExport('pdf')"
+            >
+              导出 PDF
+            </el-button>
+          </span>
         </el-tooltip>
-        <el-tooltip content="导出功能将随后续版本交付" placement="top">
-          <span><el-button disabled>导出 Excel</el-button></span>
+        <el-button
+          :loading="exporting === 'excel'"
+          :disabled="!!exporting && exporting !== 'excel'"
+          data-test="bill-export-excel"
+          @click="onExport('excel')"
+        >
+          导出 Excel
+        </el-button>
+        <el-tooltip content="该商户该账期的按日明细对账单（Excel）" placement="top">
+          <span>
+            <el-button
+              :loading="exporting === 'snapshot'"
+              :disabled="!!exporting && exporting !== 'snapshot'"
+              data-test="bill-export-snapshots"
+              @click="onExportSnapshots"
+            >
+              导出对账单
+            </el-button>
+          </span>
         </el-tooltip>
         <el-button
           v-if="isDraft"

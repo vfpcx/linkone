@@ -3,7 +3,7 @@
  * 对齐 shared/architecture/04-api-spec.md §4.3
  */
 
-import type { SnowflakeId, PageRequest, PageData } from './common'
+import type { SnowflakeId, PageData } from './common'
 
 // ============ 老板多仓（已上线：TenantController.createWarehouse / listMyWarehouses） ============
 /**
@@ -323,26 +323,45 @@ export interface ApprovalCenterResponse extends PageData<ApprovalCenterItem> {
   countByType: Record<ApprovalDocType, number>
 }
 
-// ============ 账单总览 ============
-export interface BillsOverviewQuery extends PageRequest {
-  yearMonth?: string           // 2026-06
+// ============ 账单总览（P4 W5 补口 · US-TA-08） ============
+/**
+ * 权威契约（backend BillsOverviewController + BillsOverviewVo/BillsOverviewRowVo，W5a 实测）：
+ *  - GET /api/v1/tenant/bills-overview?month=   requireTa（ST 42001 / WE 42004 / WK·WA 42001）
+ *  - month 可缺省 = 全部月份；rows 按未收降序（同值按商户 id 升序稳定）
+ *  - statusCounts：状态码（DRAFT/DISPATCHED/PENDING_PAYMENT/PARTIAL_PAID/PAID/DISPUTED）→ 张数，
+ *    仅出现的状态有键
+ */
+export interface BillsOverviewQuery {
+  /** 账期月 yyyy-MM；缺省 = 全部月份 */
+  month?: string
 }
 
-export interface BillsOverviewItem {
+/** 逐商户汇总行（BillsOverviewRowVo） */
+export interface BillsOverviewRow {
   wholesalerId: SnowflakeId
   wholesalerName: string
-  totalAmount: number
-  paidAmount: number
-  unpaidAmount: number
-  status: 'PENDING' | 'PARTIAL' | 'PAID'
+  /** 应收合计 Σtotal_amount */
+  receivable: number
+  /** 已收合计 Σpaid_amount */
+  received: number
+  /** 未收合计 = 应收 − 已收 */
+  outstanding: number
+  /** 账单张数 */
+  billCount: number
+  /** 状态分布：状态码 → 张数（仅出现的状态有键） */
+  statusCounts: Record<string, number>
 }
 
+/** 总览响应（BillsOverviewVo） */
 export interface BillsOverviewResponse {
-  yearMonth: string
-  totalReceivable: number
-  totalPaid: number
-  totalUnpaid: number
-  list: BillsOverviewItem[]
+  /** 账期月 yyyy-MM；null = 全部月份 */
+  month: string | null
+  receivable: number
+  received: number
+  outstanding: number
+  billCount: number
+  statusCounts: Record<string, number>
+  rows: BillsOverviewRow[]
 }
 
 // ============ 仲裁 ============
