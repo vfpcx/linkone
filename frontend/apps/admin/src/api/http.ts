@@ -87,6 +87,15 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // ============ 响应拦截器 ============
 http.interceptors.response.use(
   (resp: AxiosResponse<ApiResponse>) => {
+    // blob 下载（P4 W5 导出）：二进制直接透传；
+    // 后端错误仍是 JSON R 体（按 content-type 分流）→ 读文本解析后走统一错误路由
+    if (resp.config.responseType === 'blob' && (resp.data as unknown) instanceof Blob) {
+      const blob = resp.data as unknown as Blob
+      if (!blob.type.includes('application/json')) return resp
+      return blob
+        .text()
+        .then((text) => handleBusinessError(safeJsonParse<ApiResponse>(text)))
+    }
     const body = resp.data
     if (!body) {
       throw new ApiError(ErrorCode.SYSTEM_INTERNAL, '响应体为空')
@@ -126,6 +135,13 @@ http.interceptors.response.use(
       return Promise.reject(
         new ApiError(ErrorCode.SYSTEM_INTERNAL, '系统繁忙', undefined, traceId),
       )
+    }
+
+    // blob 请求的错误体也是 JSON R 体（axios 按 responseType 包成 Blob）→ 解出后统一路由
+    if (resp.data instanceof Blob && resp.data.type.includes('application/json')) {
+      return (resp.data as Blob)
+        .text()
+        .then((text: string) => handleBusinessError(safeJsonParse<ApiResponse>(text)))
     }
 
     // 401 / 403 通过 body 路由
@@ -206,6 +222,56 @@ export async function request<T>(
 ): Promise<T> {
   const resp = await http.request<ApiResponse<T>>(config)
   return resp.data.data as T
+}
+
+/** Content-Disposition 文件名解析：优先 RFC 5987 filename*=UTF-8''，回落 ASCII filename */
+function parseDispositionFilename(disposition: string): string | null {
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim())
+    } catch {
+      /* 编码异常 → 回落 filename */
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(disposition)
+  const name = plain?.[1]?.trim()
+  return name || null
+}
+
+/**
+ * blob 下载调用器（P4 W5 导出 · D-P4-8=A 同步流式）：
+ * 成功 → 按 Content-Disposition（RFC 5987 中文名）触发浏览器下载，返回文件名；
+ * 失败 → 后端仍返回 JSON R 体，由响应拦截器按 content-type 分流走统一错误 toast。
+ */
+export async function downloadFile(
+  url: string,
+  params?: Record<string, string | number | undefined>,
+  fallbackName = '导出文件',
+): Promise<string> {
+  const resp = await http.request<Blob>({
+    method: 'GET',
+    url,
+    params,
+    responseType: 'blob',
+    // 流式导出比常规接口慢（明细最多 5000 行），放宽超时
+    timeout: 60_000,
+    // 保持二进制原样（跳过默认的雪花 JSON 解析器）
+    transformResponse: [(data) => data],
+  })
+  const filename =
+    parseDispositionFilename(String(resp.headers['content-disposition'] ?? '')) ??
+    fallbackName
+  const href = URL.createObjectURL(resp.data)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  // 延迟回收：立刻 revoke 在部分浏览器会中断进行中的下载
+  window.setTimeout(() => URL.revokeObjectURL(href), 10_000)
+  return filename
 }
 
 export default http
