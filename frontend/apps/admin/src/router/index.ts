@@ -251,9 +251,16 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'ST', title: '申诉处理' },
   },
 
-  // TA 兼岗入口：账单总览菜单 → 结算账单管理（权限并集，05 §5.2；
-  // 独立 bills-overview 聚合端点未落地，随后端补口后再拆独立总览页）
-  { path: '/ta/bills', redirect: '/st/bills' },
+  // TA 账单总览（P4 W5 · US-TA-08：bills-overview 聚合端点已落地，独立总览页；
+  // 行点击下钻 → /st/bills?wholesalerId=（TA 兼岗权限并集，05 §5.2）
+  {
+    path: '/ta/bills-overview',
+    name: 'ta-bills-overview',
+    component: () => import('@/views/ta/BillsOverview.vue'),
+    meta: { role: 'TA', title: '账单总览' },
+  },
+  // 「账单总览」菜单入口保持 /ta/bills，重定向到独立总览页
+  { path: '/ta/bills', redirect: '/ta/bills-overview' },
 
   // 根重定向
   { path: '/', redirect: '/login' },
