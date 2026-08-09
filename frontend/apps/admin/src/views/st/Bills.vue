@@ -22,11 +22,13 @@ import StShell from './StShell.vue'
 const route = useRoute()
 const router = useRouter()
 
-// ============ 筛选 ============
+// ============ 筛选（month/wholesalerId 支持 query 直达——TA 账单总览行点击下钻） ============
 const filters = reactive({
-  month: '' as string, // '' = 全部账期
+  month: (typeof route.query.month === 'string' ? route.query.month : '') as string, // '' = 全部账期
   status: (typeof route.query.status === 'string' ? route.query.status : '') as string,
-  wholesalerId: '' as string,
+  wholesalerId: (typeof route.query.wholesalerId === 'string'
+    ? route.query.wholesalerId
+    : '') as string,
 })
 
 const page = ref(1)
@@ -102,7 +104,18 @@ const onPageChange = (p: number) => {
   void fetchList()
 }
 
-onMounted(fetchList)
+onMounted(() => {
+  void fetchList()
+  // 总览下钻带 wholesalerId 直达时，预拉商户列表让筛选框能回显商户名
+  if (filters.wholesalerId && wholesalers.value.length === 0) {
+    wholesalerApi
+      .list()
+      .then((list) => {
+        wholesalers.value = list ?? []
+      })
+      .catch(() => undefined)
+  }
+})
 
 // ============ 手动补生成（US-ST-01 兜底） ============
 const generating = ref(false)
