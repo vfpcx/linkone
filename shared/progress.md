@@ -2,6 +2,10 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-08-10
+- **P4 全部交付 ✅（W5c 终验收全绿，P4 收官）**：八段全合并（W0 双文档 580cd26/b65fd46 + W1-W3 后端 351→377→401 绿 + W4 前端 E2E 5/5 + W5a 导出 408 绿 + W5b 前端 E2E 2/2）。W5c：全量 408×4 遍全绿（fresh reports；基线×2 + SaManager 泄漏收口后×2）、**SaManager 静态泄漏测试侧根治**（2fde373，@BeforeAll/@AfterAll 直读直写 SaManager.config 捕获-还原，方案评估见报告 §3.1）、E2E 45/45（P1-P3b 38 例连过 2 遍 + p4-billing 5 + w5b 2，零环境失败零真缺陷）、视觉矩阵 18 图逐张亲检零新缺陷（p4-w5-visual.spec 66f3c28；375 详情吸底栏遮挡甄别为 fullPage 伪影并双视口图取证）、零角色码复核 0 违规。报告 **test-plan/12-p4-delivery-report.md**（遗留 P4-L1~L6：aria-disabled quirk/WA 无按日视角/导出中文字体部署项/上线检查单余项；下一期建议 PII 三段式硬化窗口已到）。
+- **环境**：8080（main，dev,local，logs/w5c-boot.log）+ 5173（主仓 vite）保持运行供真机复验。
+
 ## 2026-08-03
 - **P3b 全部交付 ✅（W5 终验收全绿）**：九开发波全合并（W0 设计/T1-BE·FE/T3-W1·W2·FE/T4-W1·W2·FE），后端 270→285→303→318→337 全绿递进，每波 Team Lead 独立复验后合并。W5：337×4 遍全绿、简码碰撞抖动根治（TestUniq 全局序列替换 10 处取模造数）、E2E 38/38（3.9m）、17 图视觉亲检、报告 11-p3b-delivery-report.md（遗留 L-1~L-7 + P3 检查单复核：Redis 已实测绑 127.0.0.1）。识破 mvnw 假成功坑（wrapper jar 缺失退出码误报 0，L-6）。
 - **环境**：Memurai 已装为 Windows 服务（8/2 机器重启曾致登录 500，根治）；8080/5173 保持最新 main 供真机复验。
