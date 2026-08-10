@@ -1,9 +1,13 @@
 package com.cangchu.account;
 
+import cn.dev33.satoken.SaManager;
+import cn.dev33.satoken.config.SaTokenConfig;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.dto.RegisterDto;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.response.R;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,11 +37,34 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  *
  * <p>探针接口用 GET /api/v1/notifications/unread-count（登录即可、无副作用、不消耗会话）。
+ *
+ * <p><b>SaManager 静态单例泄漏防护（P4-W5a 移交项，测试侧修复）</b>：本类的第二 Spring 上下文
+ * 启动时经 sa-token starter 注入 {@code SaManager.setConfig(...)}，把 active-timeout=3 写进
+ * <i>JVM 全局静态单例</i>——同 JVM 内后续所有测试类（复用缓存主上下文）都会被冻结语义污染
+ * （长静默用例撞 41001，见 BillExportScenarioTest 5000 行压测注释）。@DirtiesContext 只关上下文
+ * 不还原静态字段、独立 fork 需动 surefire 全局配置，均非最简。此处取「捕获-还原」：
+ * {@code @BeforeAll}（先于本类上下文加载执行）直读 {@code SaManager.config} 公共字段捕获
+ * 主上下文配置（避免 getConfig() 触发惰性默认初始化），{@code @AfterAll} 原样还原。
  */
 @SpringBootTest(classes = CangchuApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "sa-token.active-timeout=3")
 class SessionActiveTimeoutTest {
+
+    /** 本类上下文加载前的 JVM 全局 sa-token 配置（可能为 null=本类为首个加载的上下文） */
+    private static SaTokenConfig globalConfigBeforeClass;
+
+    @BeforeAll
+    static void captureGlobalSaTokenConfig() {
+        // 直读公共静态字段而非 getConfig()：后者在 null 时会惰性初始化默认配置，破坏还原语义
+        globalConfigBeforeClass = SaManager.config;
+    }
+
+    @AfterAll
+    static void restoreGlobalSaTokenConfig() {
+        // 直写字段还原（对称于捕获）：不走 setConfig()，避免 null 分支副作用与事件回调
+        SaManager.config = globalConfigBeforeClass;
+    }
 
     @LocalServerPort
     private int port;
