@@ -38,6 +38,13 @@ public interface DailySnapshotService {
     List<DailyBreakdownRowVo> dailyBreakdown(Long userId, Long wholesalerId, String month, Long skuId);
 
     /**
+     * 按日下钻内核（P4-L2 收口）：无鉴权的 (tenant, wholesaler) 直取版，行语义与
+     * {@link #dailyBreakdown} 完全一致（同一实现）。<b>调用方必须已自行完成鉴权与归属校验</b>
+     * （WA 侧账单视角经 BillingService requireWaVisibleBill 后复用；ST/TA 侧走上面的 gate 版）。
+     */
+    List<DailyBreakdownRowVo> dailyBreakdownForPair(Long tenantId, Long wholesalerId, String month, Long skuId);
+
+    /**
      * 按 SKU 下钻（ST/TA）：某商户某月 SKU×规则段行 + 小计——直接复用回放月汇总
      * （与 W3 出账同源，天然以回放为准）。
      */

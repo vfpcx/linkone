@@ -97,6 +97,13 @@ public interface BillingService {
 
     BillDetailVo getWaBill(Long userId, Long billId);
 
+    /**
+     * WA 按日下钻（P4-L2 收口）：账单视角只读 daily_snapshots 聚合——行语义与 ST 侧
+     * {@link #dailyBreakdown} 完全一致（同一快照内核，不暴露实时库存 05 §5.4）。
+     * 可见性同 getWaBill：本人商户 ∧ 已下发过（DRAFT/未下发/跨商户按不存在 50370）；WE 42004。
+     */
+    List<DailyBreakdownRowVo> waDailyBreakdown(Long userId, Long billId);
+
     /** 对账确认（D-P4-6）：DISPATCHED→PENDING_PAYMENT + confirmed_at。 */
     BillVo confirmByWa(Long userId, Long billId);
 
