@@ -41,3 +41,8 @@ cangchu:
   sms:
     mock: true
     mock-code: "888888"
+  # PII 硬化阶段 0：固定测试密钥（Base64("0123456789abcdef0123456789abcdef")），
+  # 【仅供 dev 调试，严禁用于生产】；prod 经 PII_HMAC_KEY / PII_HMAC_KAT 环境变量注入。
+  pii:
+    hmac-key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    hmac-kat: "2aff2a1ede191cf2fd4af900d10f48d1e55f31e69dae59d7938c1ac349641534"
