@@ -22,6 +22,14 @@ public class User {
 
     private String phoneHash;
 
+    /**
+     * PII 硬化阶段 0（V27）：HMAC-SHA256 盲索引影子列。write-mode=dual 时双写；
+     * 读路径（登录/查重）仍走 phoneHash，不消费本列。JsonIgnore 保证任何实体直出的
+     * 响应形状零变化。
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String phoneHmac;
+
     private String passwordHash;
 
     private String nickname;

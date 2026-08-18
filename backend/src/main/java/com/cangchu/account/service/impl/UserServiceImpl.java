@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -31,6 +32,8 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final SnowflakeIdUtil snowflakeIdUtil;
+    // PII 硬化阶段 0：HMAC 盲索引双写（切点 A6 代建幂等开号；读路径仍走 phone_hash）
+    private final PiiCrypto piiCrypto;
 
     /** BCrypt cost 12（与 AccountServiceImpl / 原 tenant 直连点一致） */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -49,6 +52,10 @@ public class UserServiceImpl implements UserService {
         user.setId(snowflakeIdUtil.nextId());
         user.setPhone(p);
         user.setPhoneHash(phoneHash);
+        // PII 阶段 0 双写（切点 A6 WA/OPS 代建开号）：legacy 模式不写（回滚口径）
+        if (piiCrypto.isDualWrite()) {
+            user.setPhoneHmac(piiCrypto.phoneHmac(p));
+        }
         // 临时密码只进 BCrypt 落库与（后续）短信通道；不返回、不打日志（F7）
         String tempPwd = RandomUtil.randomString(8);
         user.setPasswordHash(PASSWORD_ENCODER.encode(tempPwd));
