@@ -214,6 +214,14 @@ public class DailySnapshotServiceImpl implements DailySnapshotService {
     public List<DailyBreakdownRowVo> dailyBreakdown(Long userId, Long wholesalerId, String month, Long skuId) {
         Long tenantId = requireStOrTa(userId);
         assertWholesalerOfTenant(tenantId, wholesalerId);
+        return dailyBreakdownForPair(tenantId, wholesalerId, month, skuId);
+    }
+
+    @Override
+    public List<DailyBreakdownRowVo> dailyBreakdownForPair(Long tenantId, Long wholesalerId,
+                                                           String month, Long skuId) {
+        // 无鉴权内核（P4-L2）：调用方须已完成鉴权/归属校验（ST/TA 走上面 gate 版；
+        // WA 账单视角经 BillingServiceImpl.requireWaVisibleBill 后进入——行语义两侧完全一致）
         YearMonth ym = parseMonth(month);
         LocalDate start = ym.atDay(1);
         LocalDate end = ym.atEndOfMonth();

@@ -8,10 +8,12 @@ import com.cangchu.account.vo.LoginVo;
 import com.cangchu.billing.entity.Bill;
 import com.cangchu.billing.entity.BillItem;
 import com.cangchu.billing.entity.BillingRule;
+import com.cangchu.billing.entity.DailySnapshot;
 import com.cangchu.billing.entity.PaymentRecord;
 import com.cangchu.billing.mapper.BillItemMapper;
 import com.cangchu.billing.mapper.BillMapper;
 import com.cangchu.billing.mapper.BillingRuleMapper;
+import com.cangchu.billing.mapper.DailySnapshotMapper;
 import com.cangchu.billing.mapper.PaymentRecordMapper;
 import com.cangchu.billing.service.BillingService;
 import com.cangchu.common.response.R;
@@ -81,6 +83,8 @@ class BillLifecycleScenarioTest {
     @Autowired
     private PaymentRecordMapper paymentRecordMapper;
     @Autowired
+    private DailySnapshotMapper dailySnapshotMapper;
+    @Autowired
     private NotificationMapper notificationMapper;
     @Autowired
     private BillingService billingService;
@@ -110,6 +114,7 @@ class BillLifecycleScenarioTest {
 
     private static final ParameterizedTypeReference<R<LoginVo>> LOGIN_VO = new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<R<Map<String, Object>>> MAP = new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<R<List<Map<String, Object>>>> LIST = new ParameterizedTypeReference<>() {};
 
     // ==================== helpers ====================
 
@@ -271,6 +276,25 @@ class BillLifecycleScenarioTest {
         dto.put("payAt", LocalDateTime.now().minusHours(1).withNano(0).toString());
         dto.put("payMethod", "BANK_TRANSFER");
         return post(token, "/api/v1/tenant/st/bills/" + billId + "/payments", dto);
+    }
+
+    private R<List<Map<String, Object>>> getList(String token, String path) {
+        return restTemplate.exchange(base + path, HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), LIST).getBody();
+    }
+
+    /** WA 生 WE 码 → 凭码注册 WE，返回其 token（DailySnapshotScenarioTest 同构）。 */
+    private String registerWe(WaContext wa) {
+        Map<String, Object> weInvite = new LinkedHashMap<>();
+        weInvite.put("maxUses", 1);
+        weInvite.put("expireDays", 7);
+        R<Map<String, Object>> weInviteRes = restTemplate.exchange(
+                base + "/api/v1/wholesaler/employee-invites",
+                HttpMethod.POST, new HttpEntity<>(weInvite, bearer(wa.token())), MAP).getBody();
+        assertThat(weInviteRes).isNotNull();
+        assertThat(weInviteRes.getCode()).as("WA 生 WE 码").isEqualTo(0);
+        String weCode = weInviteRes.getData().get("code").toString();
+        return registerAndLogin(uniquePhone(P_EMP), "WePass123", "TA" /* 入口 role 被码覆盖 */, weCode).getToken();
     }
 
     private long noticeCount(Long tenantId, String type, Long recipient) {
@@ -816,5 +840,69 @@ class BillLifecycleScenarioTest {
                 .map(PaymentRecord::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         assertThat(reload(id).getPaidAmount()).isEqualByComparingTo(effectiveSum);
+    }
+
+    @Test
+    @DisplayName("LIF-10 WA 按日下钻（P4-L2）：行语义与 ST 侧逐行一致；未下发 50370；他商户 WA 50370；WE 42004")
+    void lif10_waDailyBreakdown() {
+        TaContext ta = registerTaActive();
+        String st = registerEmployee(ta, "ST").getToken();
+        WaContext wa = onboardWa(ta);
+        Bill bill = seedDraftBill(ta, wa.wholesalerId());
+        Long id = bill.getId();
+        String waPath = "/api/v1/wholesaler/bills/" + id + "/daily-breakdown";
+
+        // 未下发（DRAFT）：按不存在 50370（不泄漏存在性）
+        R<List<Map<String, Object>>> beforeDispatch = getList(wa.token(), waPath);
+        assertThat(beforeDispatch).isNotNull();
+        assertThat(beforeDispatch.getCode()).as("未下发按不存在").isEqualTo(50370);
+
+        // 账期月 1..3 日快照 qty=2（其余日缺行=0；1 元/件·天规则 seedDraftBill 已在位）
+        TenantContext.clear();
+        YearMonth month = YearMonth.parse(bill.getBillingMonth());
+        Long skuId = snowflakeIdUtil.nextId();
+        for (int d = 1; d <= 3; d++) {
+            DailySnapshot snap = new DailySnapshot();
+            snap.setId(snowflakeIdUtil.nextId());
+            snap.setTenantId(ta.tenantId());
+            snap.setWholesalerId(wa.wholesalerId());
+            snap.setSkuId(skuId);
+            snap.setSnapshotDate(month.atDay(d));
+            snap.setQty(2);
+            snap.setPalletQty(0);
+            dailySnapshotMapper.insert(snap);
+        }
+
+        // 下发后正常：行数=整月天数；有快照日 qty=2 金额=2.00；缺行日=0
+        assertThat(post(st, "/api/v1/tenant/st/bills/" + id + "/dispatch", null).getCode()).isEqualTo(0);
+        R<List<Map<String, Object>>> waRows = getList(wa.token(), waPath);
+        assertThat(waRows).isNotNull();
+        assertThat(waRows.getCode()).isEqualTo(0);
+        assertThat(waRows.getData()).hasSize(month.lengthOfMonth());
+        Map<String, Object> day1 = waRows.getData().stream()
+                .filter(r -> month.atDay(1).toString().equals(r.get("date"))).findFirst().orElseThrow();
+        assertThat(day1.get("qty")).isEqualTo(2);
+        assertThat(new BigDecimal(day1.get("amount").toString())).isEqualByComparingTo("2.00");
+        Map<String, Object> day4 = waRows.getData().stream()
+                .filter(r -> month.atDay(4).toString().equals(r.get("date"))).findFirst().orElseThrow();
+        assertThat(day4.get("qty")).isEqualTo(0);
+
+        // 语义与 ST 侧对齐（同一快照内核）：同账单 ST 端点逐行相等
+        R<List<Map<String, Object>>> stRows = getList(st, "/api/v1/tenant/st/bills/" + id + "/daily-breakdown");
+        assertThat(stRows).isNotNull();
+        assertThat(stRows.getCode()).isEqualTo(0);
+        assertThat(waRows.getData()).as("WA 与 ST 行语义一致").isEqualTo(stRows.getData());
+
+        // 他商户 WA 越权：按不存在 50370（不泄漏）
+        WaContext otherWa = onboardWa(ta);
+        R<List<Map<String, Object>>> cross = getList(otherWa.token(), waPath);
+        assertThat(cross).isNotNull();
+        assertThat(cross.getCode()).as("他商户 WA 按不存在").isEqualTo(50370);
+
+        // WE 对账单整域拒绝 42004（WEM-S4-03 防回归）
+        String we = registerWe(wa);
+        R<List<Map<String, Object>>> weResp = getList(we, waPath);
+        assertThat(weResp).isNotNull();
+        assertThat(weResp.getCode()).as("WE 拒 42004").isEqualTo(42004);
     }
 }

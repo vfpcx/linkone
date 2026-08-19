@@ -13,6 +13,12 @@ public interface BillExportService {
     /** 明细降级护栏：超过该行数按货品聚合导出（D-P4-8） */
     int DETAIL_DEGRADE_THRESHOLD = 5000;
 
+    /** 导出降级警告响应头（P4-L3；纯 ASCII 值，FE 可据此 toast 提示） */
+    String HEADER_EXPORT_WARNING = "X-Export-Warning";
+
+    /** 警告值：运行机无中文字体，PDF 中文字形缺失（文档首页同时渲染英文提示行） */
+    String WARNING_CJK_FONT_MISSING = "cjk-font-missing";
+
     /**
      * 账单导出（requireStOrTa）：format=pdf|excel，同步流式写响应；
      * 跨租户/不存在 50370；格式非法 40101。
