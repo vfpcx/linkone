@@ -88,13 +88,19 @@ public class BillExportServiceImpl implements BillExportService {
         }
         BillExportModel model = assembleModel(userId, bill);
 
+        // P4-L3：字体先于响应头解析——缺失时附警告头（FE 可 toast），文档内另渲染英文提示行
+        java.io.File cjkFont = pdf ? ExportSupport.resolveCjkFont() : null;
+
         String filename = "账单-" + ExportSupport.sanitizeFilePart(bill.getBillNo())
                 + (pdf ? ".pdf" : ".xlsx");
         try {
             response.setContentType(pdf ? CONTENT_TYPE_PDF : CONTENT_TYPE_XLSX);
             response.setHeader(HttpHeaders.CONTENT_DISPOSITION, ExportSupport.contentDisposition(filename));
+            if (pdf && cjkFont == null) {
+                response.setHeader(HEADER_EXPORT_WARNING, WARNING_CJK_FONT_MISSING);
+            }
             if (pdf) {
-                BillPdfRenderer.render(model, response.getOutputStream());
+                BillPdfRenderer.render(model, cjkFont, response.getOutputStream());
             } else {
                 BillExcelWriter.writeBill(model, response.getOutputStream());
             }

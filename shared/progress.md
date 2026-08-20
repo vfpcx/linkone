@@ -2,6 +2,14 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-08-18（会话收口·交接）
+- **在途两分支已现场保护（均未合并，接手先看 task_plan 交接标注）**：
+  - fix/p4-leftovers（3 commits）：P4-L2 WA 按日端点+LIF-10 测试（未跑）、P4-L3 PDF 无字体兜底（X-Export-Warning 头+首页提示行）。差最后一步：全量跑绿即可合并
+  - feat/pii-stage0（3 commits）：V27 加列（hmac 列 NULLable+普通索引，V28 才 UNIQUE）、PiiCrypto 单入口+KAT+fail-fast；wip=双写切点半程未编译。真源 15-pii-hardening-v2 §阶段0；读路径不动红线
+- **本段大量余额 401 中断**（约 10+ 次），均按"每段即 commit"纪律无损；接手 Agent 从 wip commit 续做即可
+- **用户新规（已固化 CLAUDE.md 规则 10）**：代码分析/重构任务分批加载文件（单批 1-4 个、先报清单待确认、禁递归批量读目录、禁会话中变更 MCP 工具列表以保护 Prompt 缓存）
+- headroom：mode=cache（8/15 定论勿switch token）；Memurai 已服务化；服务 8080/5173 状态未知，接手先探活
+
 ## 2026-08-10
 - **P4 全部交付 ✅（W5c 终验收全绿，P4 收官）**：八段全合并（W0 双文档 580cd26/b65fd46 + W1-W3 后端 351→377→401 绿 + W4 前端 E2E 5/5 + W5a 导出 408 绿 + W5b 前端 E2E 2/2）。W5c：全量 408×4 遍全绿（fresh reports；基线×2 + SaManager 泄漏收口后×2）、**SaManager 静态泄漏测试侧根治**（2fde373，@BeforeAll/@AfterAll 直读直写 SaManager.config 捕获-还原，方案评估见报告 §3.1）、E2E 45/45（P1-P3b 38 例连过 2 遍 + p4-billing 5 + w5b 2，零环境失败零真缺陷）、视觉矩阵 18 图逐张亲检零新缺陷（p4-w5-visual.spec 66f3c28；375 详情吸底栏遮挡甄别为 fullPage 伪影并双视口图取证）、零角色码复核 0 违规。报告 **test-plan/12-p4-delivery-report.md**（遗留 P4-L1~L6：aria-disabled quirk/WA 无按日视角/导出中文字体部署项/上线检查单余项；下一期建议 PII 三段式硬化窗口已到）。
 - **环境**：8080（main，dev,local，logs/w5c-boot.log）+ 5173（主仓 vite）保持运行供真机复验。

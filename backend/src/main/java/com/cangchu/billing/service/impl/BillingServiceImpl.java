@@ -878,6 +878,15 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
+    public List<DailyBreakdownRowVo> waDailyBreakdown(Long userId, Long billId) {
+        // P4-L2：可见性同 getWaBill（本人商户 ∧ 已下发过，否则 50370；WE 42004）；
+        // 行内核与 ST 侧同一实现（快照聚合 + 当段现算），tenant 取账单真实归属（不信任客户端）
+        Bill bill = requireWaVisibleBill(userId, billId);
+        return dailySnapshotService.dailyBreakdownForPair(bill.getTenantId(),
+                bill.getWholesalerId(), bill.getBillingMonth(), null);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public BillVo confirmByWa(Long userId, Long billId) {
         Bill bill = requireWaVisibleBill(userId, billId);

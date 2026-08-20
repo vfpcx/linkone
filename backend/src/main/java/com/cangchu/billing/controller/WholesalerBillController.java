@@ -7,6 +7,7 @@ import com.cangchu.billing.vo.BillDetailVo;
 import com.cangchu.billing.vo.BillDisputeVo;
 import com.cangchu.billing.vo.BillListVo;
 import com.cangchu.billing.vo.BillVo;
+import com.cangchu.billing.vo.DailyBreakdownRowVo;
 import com.cangchu.common.response.R;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * WA 账单 Controller（P4 W3，14 §6.3；/api/v1/wholesaler/** 已在 SaTokenConfig checkLogin 段）。
@@ -39,6 +42,16 @@ public class WholesalerBillController {
     @GetMapping("/api/v1/wholesaler/bills/{id}")
     public R<BillDetailVo> detail(@PathVariable Long id) {
         return R.ok(billingService.getWaBill(StpUtil.getLoginIdAsLong(), id));
+    }
+
+    /**
+     * 按日下钻（P4-L2 收口）：账单视角只读 daily_snapshots 聚合，行语义与 ST 侧
+     * /tenant/st/bills/{id}/daily-breakdown 完全一致；不暴露实时库存（05 §5.4）。
+     * 可见性同详情：未下发/跨商户按不存在 50370；WE 42004。
+     */
+    @GetMapping("/api/v1/wholesaler/bills/{id}/daily-breakdown")
+    public R<List<DailyBreakdownRowVo>> dailyBreakdown(@PathVariable Long id) {
+        return R.ok(billingService.waDailyBreakdown(StpUtil.getLoginIdAsLong(), id));
     }
 
     /** 对账确认 → 待回款（D-P4-6；满 1 日未确认 00:50 Job 自动） */

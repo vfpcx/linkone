@@ -48,6 +48,12 @@ public final class ExportSupport {
             "REVERSAL", "冲销",
             "STOCKTAKE_IMPACT", "盘点影响");
 
+    /**
+     * CJK 字体候选链覆写系统属性（P4-L3 测试/部署注入口）：逗号分隔路径列表。
+     * 设置后完全替代内置候选链——指向不存在路径即可模拟「无中文字体」环境（降级测试用）。
+     */
+    public static final String CJK_FONT_PATHS_PROPERTY = "cangchu.export.cjk-font-paths";
+
     /** CJK 字体候选路径（按序取首个存在者） */
     private static final List<String> CJK_FONT_CANDIDATES = List.of(
             "C:/Windows/Fonts/simhei.ttf",
@@ -91,15 +97,27 @@ public final class ExportSupport {
         return part.replaceAll("[\\\\/:*?\"<>|\\r\\n\\t]", "_").trim();
     }
 
-    /** 解析系统 CJK 字体；无可用字体返回 null（调用侧记 WARN 降级） */
+    /** 解析系统 CJK 字体；无可用字体返回 null（调用侧降级：警告响应头 + 文档内英文提示行） */
     public static File resolveCjkFont() {
-        for (String candidate : CJK_FONT_CANDIDATES) {
+        for (String candidate : fontCandidates()) {
             File f = new File(candidate);
             if (f.isFile() && f.canRead()) {
                 return f;
             }
         }
         return null;
+    }
+
+    /** 候选链：系统属性覆写优先（{@link #CJK_FONT_PATHS_PROPERTY}），否则内置列表 */
+    private static List<String> fontCandidates() {
+        String override = System.getProperty(CJK_FONT_PATHS_PROPERTY);
+        if (override == null) {
+            return CJK_FONT_CANDIDATES;
+        }
+        return java.util.Arrays.stream(override.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     /** XHTML 文本转义（PDF 模板拼接必经，商户名/说明为外部输入） */

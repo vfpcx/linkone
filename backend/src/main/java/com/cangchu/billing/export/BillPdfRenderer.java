@@ -28,23 +28,41 @@ public final class BillPdfRenderer {
 
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    /** 渲染 PDF 到输出流（同步流式，不落存储 D-P4-8=A） */
+    /**
+     * 无字体降级时渲染在文档首页顶部的英文提示行（P4-L3：内置 Base-14 拉丁字体恒可渲染，
+     * 避免用户拿到空字文档无从定位原因；与响应头
+     * {@link com.cangchu.billing.service.BillExportService#HEADER_EXPORT_WARNING} 成对）。
+     */
+    public static final String FONT_MISSING_NOTICE =
+            "NOTICE: No Chinese (CJK) font is installed on the server, so Chinese text in this "
+                    + "document cannot be displayed. Please ask the administrator to install "
+                    + "SimHei or Noto Sans CJK, then export again.";
+
+    /** 渲染 PDF 到输出流（同步流式，不落存储 D-P4-8=A）；字体自行解析（缺失仅日志降级） */
     public static void render(BillExportModel model, OutputStream out) throws Exception {
+        render(model, ExportSupport.resolveCjkFont(), out);
+    }
+
+    /**
+     * 渲染 PDF 到输出流（调用侧已解析字体）：cjk 为 null 时降级——首页顶部渲染英文提示行
+     * （{@link #FONT_MISSING_NOTICE}）并记 WARN；文件本身仍有效（部署 checklist：预装黑体/Noto CJK）。
+     */
+    public static void render(BillExportModel model, File cjk, OutputStream out) throws Exception {
         PdfRendererBuilder builder = new PdfRendererBuilder();
         builder.useFastMode();
-        File cjk = ExportSupport.resolveCjkFont();
         if (cjk != null) {
             builder.useFont(cjk, "cjk", 400, BaseRendererBuilder.FontStyle.NORMAL, true);
         } else {
             // 部署 checklist 项：无系统中文字体时 PDF 中文字形缺失（文件仍有效）
-            log.warn("[P4][导出] 未找到系统中文字体，PDF 中文字形将缺失（请安装黑体/Noto CJK）");
+            log.warn("[P4][导出] 未找到系统中文字体，PDF 中文字形将缺失（请安装黑体/Noto CJK）——"
+                    + "已降级：响应头警告 + 文档首页英文提示行");
         }
-        builder.withHtmlContent(buildHtml(model), null);
+        builder.withHtmlContent(buildHtml(model, cjk == null), null);
         builder.toStream(out);
         builder.run();
     }
 
-    private static String buildHtml(BillExportModel m) {
+    private static String buildHtml(BillExportModel m, boolean fontMissing) {
         Bill bill = m.bill();
         StringBuilder h = new StringBuilder(8192);
         h.append("<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><style>")
@@ -64,8 +82,14 @@ public final class BillPdfRenderer {
                 .append(".stampbox { float: right; width: 150pt; height: 100pt; border: 1pt solid #888; ")
                 .append("text-align: center; padding-top: 40pt; color: #666; } ")
                 .append(".exporttime { float: left; color: #666; margin-top: 70pt; } ")
+                .append(".fontwarn { font-family: sans-serif; border: 1pt solid #b45309; ")
+                .append("color: #b45309; padding: 4pt 6pt; margin-bottom: 8pt; } ")
                 .append("</style></head><body>");
 
+        if (fontMissing) {
+            // 无 CJK 字体降级：英文提示走内置 Base-14 字体恒可渲染（P4-L3）
+            h.append("<div class=\"fontwarn\">").append(FONT_MISSING_NOTICE).append("</div>");
+        }
         if (m.preview()) {
             h.append("<div class=\"watermark\">未下发预览稿</div>");
         }
