@@ -36,6 +36,15 @@ public class PiiProperties {
      */
     private String writeMode = "legacy";
 
+    /**
+     * 是否在启动时跑一次存量回填（阶段 0 一次性动作）。默认 false——跑完请拨回，
+     * 否则每次重启都空扫全表。见 {@link PiiBackfillRunner}。
+     */
+    private boolean backfillOnStartup = false;
+
+    /** 存量回填单批行数（批内逐行 CAS 更新，不长事务持锁）。 */
+    private int backfillBatchSize = 500;
+
     /** 是否双写（阶段 0 唯一分叉点；读路径与本开关无关，一律走旧列）。 */
     public boolean isDualWrite() {
         return "dual".equalsIgnoreCase(writeMode);
