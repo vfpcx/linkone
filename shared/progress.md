@@ -82,3 +82,12 @@
 - 后端本地跑必须 `dev,local` profile，否则 MySQL 认证失败。
 - 这台机 `npx claude-mem restart/stop` 会产生端口僵尸，别碰。
 - `.worktrees` 是文件占位，worktree 建在 `.claude/worktrees/`。
+
+## 2026-08-21 · PII-S0 合并收口
+
+- 提交 2 个悬挂改动：`CLAUDE.md`（Token 规则上移标注）+ `admin/components.d.ts`（unplugin 重新生成，补 13 个在用组件声明）→ `eb2ac0c`
+- `--no-ff` 合并 `feat/pii-stage0`（5 commits）→ main `acad899`，无冲突
+- 合并后全量回归：**419 tests / 0 failures / 0 errors / 0 skipped**，45 个测试类；`PiiDualWriteBackfillScenarioTest` 10 例全过 → 零回归
+- push origin/main，本地与远端 0/0 同步
+- 回收 3 个已并入 main 的 worktree：`pii-s0` / `p4-leftovers` / `p4-w1`（分支保留，仅移除工作区）；仓库现只剩主工作区
+- 决策：遗留测试债 A1/A4/B2 从「S0 尾巴」提升为「**S1 准入门槛**」——S1 影子双查要改读路径，缺这三处切点断言就没有回归网兜底
