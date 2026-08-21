@@ -68,6 +68,11 @@ cangchu:
   # 仅 dev profile 的 application-dev.yml 提供 mock 开关，prod 永不放行 888888。
   sms:
     mock: false
+  # PII 硬化阶段 0（15 §4）：write-mode=dual 随 V27 一同上线（同写 phone_hash/明文 + hmac 列）。
+  # 回滚口径：拨回 legacy 即止血，读路径始终走旧列，与本开关无关。
+  # hmac-key/hmac-kat 不进主配——dev/test 用固定测试密钥，prod 经环境变量注入（fail-fast）。
+  pii:
+    write-mode: dual
   snowflake:
     worker-id: 1
     datacenter-id: 1

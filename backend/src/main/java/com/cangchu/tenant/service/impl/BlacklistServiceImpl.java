@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.BlacklistAddDto;
 import com.cangchu.tenant.entity.Blacklist;
@@ -43,6 +45,8 @@ public class BlacklistServiceImpl implements BlacklistService {
     private final BlacklistMapper blacklistMapper;
     private final AuthService authService;
     private final SnowflakeIdUtil snowflakeIdUtil;
+    // PII 硬化阶段 0：HMAC 盲索引双写（切点 B2 加黑/复活；仅 PHONE 行，LICENSE_NO 恒 NULL）
+    private final PiiCrypto piiCrypto;
 
     @Override
     public Map<String, Object> page(Long opsUserId, int page, int size, String status, String keyword) {
@@ -90,8 +94,13 @@ public class BlacklistServiceImpl implements BlacklistService {
             existing.setReason(dto.getReason());
             existing.setOperatorUserId(opsUserId);
             existing.setRemovedAt(null);
+            // PII 阶段 0 双写（切点 B2 复活）：PHONE 行顺带补齐 hmac（存量行机会性回填）
+            if (piiCrypto.isDualWrite() && "PHONE".equals(type)) {
+                existing.setTargetValueHmac(piiCrypto.phoneHmac(value));
+            }
             blacklistMapper.updateById(existing);
-            log.info("[黑名单] OPS {} 复活条目 {} {}={}", opsUserId, existing.getId(), type, value);
+            // PII-W1 B4 收口：PHONE 值脱敏后才可入日志（15 §1.2-B4）
+            log.info("[黑名单] OPS {} 复活条目 {} {}={}", opsUserId, existing.getId(), type, maskIfPhone(type, value));
             return existing;
         }
 
@@ -99,6 +108,10 @@ public class BlacklistServiceImpl implements BlacklistService {
         entry.setId(snowflakeIdUtil.nextId());
         entry.setTargetType(type);
         entry.setTargetValue(value);
+        // PII 阶段 0 双写（切点 B2 加黑）：仅 PHONE 行写 hmac；legacy 模式不写（回滚口径）
+        if (piiCrypto.isDualWrite() && "PHONE".equals(type)) {
+            entry.setTargetValueHmac(piiCrypto.phoneHmac(value));
+        }
         entry.setReason(dto.getReason());
         entry.setOperatorUserId(opsUserId);
         entry.setStatus("ACTIVE");
@@ -108,7 +121,8 @@ public class BlacklistServiceImpl implements BlacklistService {
             // 并发撞 uk_blacklist_type_value → 语义码
             throw new BizException(ErrorCode.BLACKLIST_ENTRY_EXISTS);
         }
-        log.info("[黑名单] OPS {} 加黑 {}={} 原因={}", opsUserId, type, value, dto.getReason());
+        // PII-W1 B4 收口：PHONE 值脱敏后才可入日志（15 §1.2-B4）
+        log.info("[黑名单] OPS {} 加黑 {}={} 原因={}", opsUserId, type, maskIfPhone(type, value), dto.getReason());
         return entry;
     }
 
@@ -123,8 +137,14 @@ public class BlacklistServiceImpl implements BlacklistService {
         entry.setStatus("REMOVED");
         entry.setRemovedAt(LocalDateTime.now());
         blacklistMapper.updateById(entry);
+        // PII-W1 B4 收口：PHONE 值脱敏后才可入日志（15 §1.2-B4）
         log.info("[黑名单] OPS {} 解除条目 {} {}={}", opsUserId, entryId,
-                entry.getTargetType(), entry.getTargetValue());
+                entry.getTargetType(), maskIfPhone(entry.getTargetType(), entry.getTargetValue()));
+    }
+
+    /** PII-W1 B4：日志脱敏——PHONE 打码（138****1234），LICENSE_NO 非手机号 PII 原样。 */
+    private static String maskIfPhone(String type, String value) {
+        return "PHONE".equals(type) ? SmsUtil.maskPhone(value) : value;
     }
 
     @Override

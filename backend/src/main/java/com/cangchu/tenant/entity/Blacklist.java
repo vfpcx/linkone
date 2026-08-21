@@ -26,6 +26,14 @@ public class Blacklist {
 
     private String targetValue;
 
+    /**
+     * PII 硬化阶段 0（V27）：HMAC-SHA256 盲索引影子列——仅 PHONE 行双写/回填，
+     * LICENSE_NO 行恒 NULL（15 §2-1）。读路径（isBlacklisted/查重/LIKE 检索）仍走
+     * targetValue，不消费本列。JsonIgnore 保证 page records 实体直出的响应形状零变化。
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String targetValueHmac;
+
     private String reason;
 
     /** OPS 操作人（created_by 语义） */

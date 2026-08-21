@@ -27,6 +27,14 @@ spring:
       # username: ${REDIS_USERNAME}
       timeout: 3000ms
 
+# PII 硬化阶段 0（15 §3）：HMAC 盲索引密钥与启动 KAT 期望值，故意【无默认值】——
+# 缺失即启动失败（fail-fast，复刻上方 MYSQL_PASSWORD 先例）；期望值随部署脚本走，不进 git。
+# KAT 把「密钥配错环境」拦在启动期（Spring 占位符只对缺失 fail-fast，对错值不 fail）。
+cangchu:
+  pii:
+    hmac-key: ${PII_HMAC_KEY}
+    hmac-kat: ${PII_HMAC_KAT}
+
 # X硬化 H5 §5.3(3)：prod Actuator 暴露面显式收敛为 health（防升级后默认面漂移）
 management:
   endpoints:

@@ -11,6 +11,7 @@ import com.cangchu.account.service.AccountService;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.service.TenantService;
@@ -52,6 +53,8 @@ public class AccountServiceImpl implements AccountService {
     private final TenantService tenantService;
     // P2 入驻 Wave1：WA 注册直申接入（同 tenantService 跨域调用先例）
     private final WholesalerApplicationService wholesalerApplicationService;
+    // PII 硬化阶段 0：HMAC 盲索引双写（写切点 A1 注册/A4 换绑/A5 RT 自动建号；读路径不消费）
+    private final PiiCrypto piiCrypto;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -443,6 +446,10 @@ public class AccountServiceImpl implements AccountService {
         // 更新手机号
         user.setPhone(dto.getNewPhone());
         user.setPhoneHash(newPhoneHash);
+        // PII 阶段 0 双写（切点 A4 换绑）：同写 hmac 影子列；legacy 模式不写（回滚口径）
+        if (piiCrypto.isDualWrite()) {
+            user.setPhoneHmac(piiCrypto.phoneHmac(dto.getNewPhone()));
+        }
         userMapper.updateById(user);
 
         // 踢掉所有 token
@@ -591,6 +598,10 @@ public class AccountServiceImpl implements AccountService {
         user.setId(snowflakeIdUtil.nextId());
         user.setPhone(phone);
         user.setPhoneHash(phoneHash);
+        // PII 阶段 0 双写（切点 A1 注册 / A5 RT 免密自动建号，经本单一建号入口）
+        if (piiCrypto.isDualWrite()) {
+            user.setPhoneHmac(piiCrypto.phoneHmac(phone));
+        }
         if (password != null && !password.isEmpty()) {
             user.setPasswordHash(PASSWORD_ENCODER.encode(password));
         }
