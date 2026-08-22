@@ -3,20 +3,33 @@ package com.cangchu.common.pii;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.CangchuApplication;
+import com.cangchu.account.dto.ChangePhoneDto;
+import com.cangchu.account.dto.RegisterDto;
 import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
+import com.cangchu.account.vo.LoginVo;
+import com.cangchu.common.response.R;
+import com.cangchu.tenant.dto.BlacklistAddDto;
 import com.cangchu.tenant.entity.Blacklist;
 import com.cangchu.tenant.mapper.BlacklistMapper;
+import com.cangchu.tenant.service.BlacklistService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,6 +48,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>共享库自洽</b>：H2 内存库在整个 JVM 内跨测试类共享，故所有断言均针对本类自己造的行
  * （按 id 定位），凡是全局计数的断言（对账）都先跑一次回填把基线拉平，避免受兄弟测试类残留影响。
+ *
+ * <p><b>切点覆盖（S1 准入门槛）</b>：S1 影子双查要改读路径，切点无断言即无回归网。本类逐个钉住
+ * 15 §1.2 列出的双写切点——A1 注册（经 {@code createUser} 单一建号入口）、A4 换绑、A6 代建开号、
+ * B2 加黑与复活。A1/A4 经 HTTP 走完整流程（mock 短信码 {@value #MOCK_SMS_CODE}，见
+ * {@code src/test/resources/application.yml} 的 {@code cangchu.sms.mock}），B2 经
+ * {@link BlacklistService#add} 真调并带 OPS 角色，不再用 mapper 造行绕过业务语义。
  */
 @SpringBootTest(classes = CangchuApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("PII-S0 关卡：双写正确性 / 回填幂等 / 对账")
@@ -50,12 +69,25 @@ class PiiDualWriteBackfillScenarioTest {
     /** 手机号发号器，避开兄弟测试类占用的号段，防唯一键撞车。 */
     private static final AtomicLong PHONE_SEQ = new AtomicLong(17700000000L);
 
+    /** 与 src/test/resources/application.yml 的 cangchu.sms.mock-code 一致（仅测试态短路）。 */
+    static final String MOCK_SMS_CODE = "888888";
+
+    private static final ParameterizedTypeReference<R<LoginVo>> LOGIN_VO = new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<R<Void>> VOID_BODY = new ParameterizedTypeReference<>() {};
+
+    @LocalServerPort
+    private int port;
+    @Autowired
+    private TestRestTemplate restTemplate;
+
     @Autowired
     private UserMapper userMapper;
     @Autowired
     private BlacklistMapper blacklistMapper;
     @Autowired
     private UserService userService;
+    @Autowired
+    private BlacklistService blacklistService;
     @Autowired
     private PiiCrypto piiCrypto;
     @Autowired
@@ -108,6 +140,99 @@ class PiiDualWriteBackfillScenarioTest {
 
         assertThat(second).isEqualTo(first);
         assertThat(userMapper.selectById(first).getPhoneHmac()).isEqualTo(expectHmac(phone));
+    }
+
+    @Test
+    @DisplayName("切点 A1（注册）：注册落库的 hmac 等于独立重算值，legacy 索引列不受影响")
+    void dualWrite_a1_register_writesCorrectHmac() {
+        String phone = nextPhone();
+        Long userId = register(phone, "PiiA1Pass123", "TA").getData().getUserId();
+
+        User saved = userMapper.selectById(userId);
+        assertThat(saved.getPhone()).isEqualTo(phone);
+        assertThat(saved.getPhoneHmac())
+                .as("A1 切点必须双写 hmac，且值须等于独立实现重算结果")
+                .isEqualTo(expectHmac(phone));
+        assertThat(saved.getPhoneHash())
+                .as("红线：S0 不动读路径，sha256 索引列必须照旧写入")
+                .isEqualTo(expectSha256Hex(phone));
+    }
+
+    @Test
+    @DisplayName("切点 A4（换绑）：hmac 跟着新号重算，旧号 hmac 不得残留")
+    void dualWrite_a4_changePhone_hmacFollowsNewPhone() {
+        String oldPhone = nextPhone();
+        String newPhone = nextPhone();
+        String password = "PiiA4Pass123";
+        R<LoginVo> registered = register(oldPhone, password, "TA");
+        Long userId = registered.getData().getUserId();
+        assertThat(userMapper.selectById(userId).getPhoneHmac()).isEqualTo(expectHmac(oldPhone));
+
+        changePhone(registered.getData().getToken(), password, newPhone);
+
+        User saved = userMapper.selectById(userId);
+        assertThat(saved.getPhone()).isEqualTo(newPhone);
+        assertThat(saved.getPhoneHmac())
+                .as("换绑后 hmac 必须重算为新号；仍等于旧号值即说明影子列没跟着更新")
+                .isEqualTo(expectHmac(newPhone))
+                .isNotEqualTo(expectHmac(oldPhone));
+        assertThat(saved.getPhoneHash())
+                .as("红线：sha256 索引列同样必须换成新号，两列不得脱节")
+                .isEqualTo(expectSha256Hex(newPhone));
+    }
+
+    @Test
+    @DisplayName("切点 B2（加黑）：OPS 经 BlacklistService.add 落库的 PHONE 行带正确 hmac")
+    void dualWrite_b2_blacklistAdd_writesCorrectHmac() {
+        Long opsUserId = registerOps();
+        String phone = nextPhone();
+
+        Blacklist entry = blacklistService.add(opsUserId, blacklistDto("PHONE", phone));
+
+        assertThat(blacklistMapper.selectById(entry.getId()).getTargetValueHmac())
+                .as("B2 加黑切点必须双写 hmac")
+                .isEqualTo(expectHmac(phone));
+    }
+
+    @Test
+    @DisplayName("切点 B2（加黑）：LICENSE_NO 行不进手机号盲索引，hmac 恒 NULL")
+    void dualWrite_b2_blacklistAdd_licenseRowKeepsHmacNull() {
+        Long opsUserId = registerOps();
+
+        Blacklist entry = blacklistService.add(opsUserId, blacklistDto("LICENSE_NO", "TESTLIC" + nextPhone()));
+
+        assertThat(blacklistMapper.selectById(entry.getId()).getTargetValueHmac())
+                .as("LICENSE_NO 不是手机号，不得写入手机号盲索引（15 §2-1）")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("切点 B2（复活）：REMOVED 存量行复活时机会性补齐 hmac，复用原行不新插")
+    void dualWrite_b2_reviveBackfillsHmacOnLegacyRow() {
+        Long opsUserId = registerOps();
+        String phone = nextPhone();
+        Blacklist entry = blacklistService.add(opsUserId, blacklistDto("PHONE", phone));
+        blacklistService.remove(opsUserId, entry.getId());
+        // 抹掉 hmac，模拟 V27 上线前就加黑、解除过的存量行——复活分支得自己把盲索引补回来
+        clearBlacklistHmac(entry.getId());
+
+        try {
+            Blacklist revived = blacklistService.add(opsUserId, blacklistDto("PHONE", phone));
+
+            assertThat(revived.getId())
+                    .as("uk_blacklist_type_value 在，复活必须复用原行而非新插")
+                    .isEqualTo(entry.getId());
+            Blacklist saved = blacklistMapper.selectById(entry.getId());
+            assertThat(saved.getStatus()).isEqualTo("ACTIVE");
+            // 注：不断言 removed_at 被清空——add 里的 setRemovedAt(null) 被 MP 的 null 跳过策略吞了，
+            // 残留是既有缺陷（见 findings「B2 复活 removed_at 残留」），与 PII 双写无关，不在本类范围。
+            assertThat(saved.getTargetValueHmac())
+                    .as("复活分支是存量行唯一的机会性回填点，漏写即留一个盲索引空洞")
+                    .isEqualTo(expectHmac(phone));
+        } finally {
+            // 断言失败也不把脏行留给对账用例
+            backfillService.backfillBlacklist(500);
+        }
     }
 
     @Test
@@ -249,15 +374,74 @@ class PiiDualWriteBackfillScenarioTest {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(Base64.getDecoder().decode(TEST_KEY_B64), "HmacSHA256"));
-            byte[] out = mac.doFinal(phone.trim().getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(out.length * 2);
-            for (byte b : out) {
-                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
-            }
-            return sb.toString();
+            return toHex(mac.doFinal(phone.trim().getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** legacy 索引列的期望值，同样独立实现（对齐 hutool {@code DigestUtil.sha256Hex}）。 */
+    private static String expectSha256Hex(String phone) {
+        try {
+            return toHex(MessageDigest.getInstance("SHA-256").digest(phone.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
+    }
+
+    // ---- 流程驱动脚手架：短信码走 mock 短路，OPS 角色由真注册产生 user_roles 行 ----
+
+    private String url(String path) {
+        return "http://localhost:" + port + path;
+    }
+
+    private R<LoginVo> register(String phone, String password, String role) {
+        RegisterDto dto = new RegisterDto();
+        dto.setPhone(phone);
+        dto.setPassword(password);
+        dto.setSmsCode(MOCK_SMS_CODE);
+        dto.setRole(role);
+        dto.setAgreedTerms(true);
+        R<LoginVo> body = restTemplate.exchange(url("/api/v1/account/register"), HttpMethod.POST,
+                new HttpEntity<>(dto), LOGIN_VO).getBody();
+        assertThat(body).as("register %s 无响应体", phone).isNotNull();
+        assertThat(body.getCode()).as("register %s 应成功，实际 %s", phone, body).isZero();
+        return body;
+    }
+
+    /** B2 的 OPS 脚手架：真注册一个 OPS 账号，requireOpsRole 查的就是它落下的 user_roles 行。 */
+    private Long registerOps() {
+        return register(nextPhone(), "PiiOpsPass123", "OPS").getData().getUserId();
+    }
+
+    private void changePhone(String token, String password, String newPhone) {
+        ChangePhoneDto dto = new ChangePhoneDto();
+        dto.setPassword(password);
+        dto.setNewPhone(newPhone);
+        dto.setOldSmsCode(MOCK_SMS_CODE);
+        dto.setNewSmsCode(MOCK_SMS_CODE);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", token);
+        R<Void> body = restTemplate.exchange(url("/api/v1/account/phone"), HttpMethod.PUT,
+                new HttpEntity<>(dto, headers), VOID_BODY).getBody();
+        assertThat(body).as("changePhone -> %s 无响应体", newPhone).isNotNull();
+        assertThat(body.getCode()).as("changePhone -> %s 应成功，实际 %s", newPhone, body).isZero();
+    }
+
+    private BlacklistAddDto blacklistDto(String type, String value) {
+        BlacklistAddDto dto = new BlacklistAddDto();
+        dto.setTargetType(type);
+        dto.setTargetValue(value);
+        dto.setReason("PII-S0 切点关卡测试造数");
+        return dto;
     }
 
     private static String nextPhone() {
@@ -280,7 +464,10 @@ class PiiDualWriteBackfillScenarioTest {
                 .eq(Blacklist::getId, id));
     }
 
-    /** 直接落库造行——{@code BlacklistService.add} 需 OPS 角色，本类只验 PII 语义，不搭权限脚手架。 */
+    /**
+     * 直接落库造行——仅供回填/对账用例造「存量」数据用。走业务语义的加黑请用
+     * {@link #blacklistService}（见 B2 切点用例），别再拿这个绕过 {@code requireOpsRole}。
+     */
     private Blacklist insertBlacklistRow(String type, String value) {
         Blacklist entry = new Blacklist();
         entry.setTargetType(type);
