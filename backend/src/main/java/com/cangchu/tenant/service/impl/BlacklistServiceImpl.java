@@ -6,6 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.pii.PiiShadowReader;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.BlacklistAddDto;
@@ -47,6 +48,8 @@ public class BlacklistServiceImpl implements BlacklistService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // PII 硬化阶段 0：HMAC 盲索引双写（切点 B2 加黑/复活；仅 PHONE 行，LICENSE_NO 恒 NULL）
     private final PiiCrypto piiCrypto;
+    // PII 阶段 1 Step1：B1 命中检查 / B2 查重的影子双查（命中判定仍以明文列为准）
+    private final PiiShadowReader piiShadowReader;
 
     @Override
     public Map<String, Object> page(Long opsUserId, int page, int size, String status, String keyword) {
@@ -86,6 +89,7 @@ public class BlacklistServiceImpl implements BlacklistService {
                 .eq(Blacklist::getTargetType, type)
                 .eq(Blacklist::getTargetValue, value)
                 .last("LIMIT 1"));
+        piiShadowReader.checkBlacklistEntry("B2-blacklist-add", type, value, existing);
         if (existing != null) {
             if ("ACTIVE".equals(existing.getStatus())) {
                 throw new BizException(ErrorCode.BLACKLIST_ENTRY_EXISTS);
@@ -154,6 +158,7 @@ public class BlacklistServiceImpl implements BlacklistService {
                     .eq(Blacklist::getTargetType, "PHONE")
                     .eq(Blacklist::getTargetValue, phone.trim())
                     .eq(Blacklist::getStatus, "ACTIVE"));
+            piiShadowReader.checkBlacklistHit("B1-blacklist-hit", phone, hit > 0);
             if (hit > 0) return true;
         }
         if (license != null && !license.isBlank()) {

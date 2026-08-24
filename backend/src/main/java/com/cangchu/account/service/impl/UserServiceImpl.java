@@ -7,6 +7,7 @@ import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.pii.PiiShadowReader;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -34,6 +35,8 @@ public class UserServiceImpl implements UserService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // PII 硬化阶段 0：HMAC 盲索引双写（切点 A6 代建幂等开号；读路径仍走 phone_hash）
     private final PiiCrypto piiCrypto;
+    // PII 阶段 1 Step1：A6 读切点影子双查（read-mode=shadow 时才动作，幂等判定仍以 phone_hash 为准）
+    private final PiiShadowReader piiShadowReader;
 
     /** BCrypt cost 12（与 AccountServiceImpl / 原 tenant 直连点一致） */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -45,6 +48,7 @@ public class UserServiceImpl implements UserService {
         String phoneHash = DigestUtil.sha256Hex(p);
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
+        piiShadowReader.checkUser("A6-ensure-user", p, user);
         if (user != null) {
             return new EnsuredUser(user.getId(), false);
         }

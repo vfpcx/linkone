@@ -91,3 +91,18 @@
 - push origin/main，本地与远端 0/0 同步
 - 回收 3 个已并入 main 的 worktree：`pii-s0` / `p4-leftovers` / `p4-w1`（分支保留，仅移除工作区）；仓库现只剩主工作区
 - 决策：遗留测试债 A1/A4/B2 从「S0 尾巴」提升为「**S1 准入门槛**」——S1 影子双查要改读路径，缺这三处切点断言就没有回归网兜底
+
+## 2026-08-23 · PII-S1 启动：Step1 影子双查（波次 PII-W4）
+
+- 开工前摸底摸出一处**计划与实现的落差**：15 §4 阶段0 原列 7 张表加列，**V27 实际只加了 `users.phone_hmac` + `blacklist.target_value_hmac`**。定价链（customer_prices）/ sms_codes / inquiry_requests 连 hmac 列都没有，双写回填自然也没有 → 这几处**进不了影子期**。故 W4 范围据实收敛为 A1–A6 + B1/B2 共 8 个读切点，缺口单列进 task_plan（Step 2 前须补一次「V30 加列 + 双写 + 回填 + 对账」，等于补做一段 S0，不得夹带进 W5）
+- 新增 `PiiProperties.read-mode`（plain/shadow/hmac）与 `PiiShadowReader`：出结果的永远是旧列，只多用 hmac 列查一遍比对计数；方法返回 void——调用方**拿不到影子结果，就不可能误用它做判定**
+- 三条红线写进类注释并落实：①零行为变化 ②影子异常一律吞在类内（故意在业务 `@Transactional` 方法内部 catch，异常不越出方法就不会把事务标脏）③告警只打切点/结论/行 id，不落 PII
+- 观测：Micrometer `pii.shadow{pointcut,verdict}`（`ObjectProvider` 软依赖，无 MeterRegistry 也不炸）+ 进程内 `snapshot()` 供关卡测试差值断言
+- 关卡测试 10 例：**检出力与零行为变化写在同一条用例里**——造 hmac 漏填 / 造 hmac 指向别行，既断言计数落在 MISSING/DIVERGED，又断言登录与黑名单命中的**结果分毫不变**
+- **RED 已验证**：强制 `read-mode=plain` 复跑，10 例中 9 例转红（唯一不红的是 LICENSE_NO 负向断言，同 S0 先例）
+- 全量 **434 绿**（46 类，424+10，0 失败/0 错误/0 跳过）。全量日志仅 4 条 mismatch 告警，逐条溯源均为两个 PII 关卡类自己造的数——**业务用例零不一致**
+- 生产闸门未起算：`pii.shadow` mismatch 须连续 **≥7 天为 0** 才可进 Step 2；回滚为 `read-mode` 拨回 plain，秒级
+
+### 踩坑
+- 跑 `@SpringBootTest` 前先确认 6379 有人听——Memurai 服务注册已坏，直接跑 `C:\Program Files\Memurai\memurai.exe`
+- `mvn -q` 会把 `Tests run` 汇总压掉；真实计数从 `target/surefire-reports/*.xml` 用 awk 聚合

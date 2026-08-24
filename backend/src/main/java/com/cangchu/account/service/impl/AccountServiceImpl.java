@@ -12,6 +12,7 @@ import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.pii.PiiShadowReader;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.service.TenantService;
@@ -55,6 +56,8 @@ public class AccountServiceImpl implements AccountService {
     private final WholesalerApplicationService wholesalerApplicationService;
     // PII 硬化阶段 0：HMAC 盲索引双写（写切点 A1 注册/A4 换绑/A5 RT 自动建号；读路径不消费）
     private final PiiCrypto piiCrypto;
+    // PII 阶段 1 Step1：A1–A5 读切点影子双查（read-mode=shadow 时才动作，出结果的仍是 phone_hash）
+    private final PiiShadowReader piiShadowReader;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -195,6 +198,7 @@ public class AccountServiceImpl implements AccountService {
         // 检查手机号是否已注册
         User existUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
+        piiShadowReader.checkUser("A1-register", phone, existUser);
         if (existUser != null) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004);
         }
@@ -254,6 +258,7 @@ public class AccountServiceImpl implements AccountService {
 
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
+        piiShadowReader.checkUser("A2-login", phone, user);
 
         // D-04: 锁定优先于一切（即便用户不存在也按手机号维度统一处理，防枚举 + 防爆破）
         if (isLoginLocked(phoneHash)) {
@@ -379,6 +384,7 @@ public class AccountServiceImpl implements AccountService {
 
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
+        piiShadowReader.checkUser("A3-reset-password", phone, user);
         if (user == null) {
             // 不暴露账号存在性
             return;
@@ -436,6 +442,7 @@ public class AccountServiceImpl implements AccountService {
         String newPhoneHash = DigestUtil.sha256Hex(dto.getNewPhone());
         User existUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, newPhoneHash));
+        piiShadowReader.checkUser("A4-change-phone", dto.getNewPhone(), existUser);
         if (existUser != null && !existUser.getId().equals(userId)) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004, "新手机号已被注册");
         }
@@ -469,6 +476,7 @@ public class AccountServiceImpl implements AccountService {
         String phoneHash = DigestUtil.sha256Hex(phone);
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash));
+        piiShadowReader.checkUser("A5-rt-sms-login", phone, user);
 
         boolean isNew = false;
         if (user == null) {

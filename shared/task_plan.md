@@ -15,10 +15,20 @@
   - **RED 已验证**：`SPRING_APPLICATION_JSON` 强制 `write-mode=legacy` 复跑本类，A1/A4/B2加黑/A6 四处 hmac 断言全部 `expected <hmac> but was null`，证明断言确实压在切点上（LICENSE_NO 那例是负向断言，此变异下不失败，其反向语义已由 `backfill_touchesPhoneRowsOnlyAndLeavesLicenseNull` 把住）
   - 2026-08-22 全量 **424 绿**（45 类，419+5，0 失败/0 错误/0 跳过，零回归）
 - [待办] **遗留缺陷：B2 复活 `removed_at` 残留**（非 PII，补测时撞见）：`BlacklistServiceImpl.add` 复活分支的 `existing.setRemovedAt(null)` 被 MyBatis-Plus 默认「null 字段不下发」策略吞掉，`updateById` 根本不带该列 → 复活后条目 `status=ACTIVE` 却仍留着旧的 `removed_at`。已在测试里显式注明不断言此项。修法待定（`UpdateWrapper.set` 显式置空，或字段标 `@TableField(updateStrategy = ALWAYS)`），需先评估对 OPS 列表展示与审计追溯口径的影响，不随本波次夹带
-- [待办] **PII-S1 影子灰度**：影子双查 7 天对账 Job+登录双读兜底自愈；对账零差异后切主读
+- [进行中] **PII-S1 影子灰度**（15 §4 阶段1，三步走）
+  - **Step 1 / 波次 PII-W4 影子双查 ✅ 代码就位**：新增 `PiiProperties.read-mode: plain|shadow|hmac` + `PiiShadowReader`（出结果的仍是旧列，只多用 hmac 列查一遍比对计数；异常一律吞在类内不外抛，故意在业务事务方法内 catch，不把事务标脏；告警只打切点/结论/行 id，不落 PII）。指标 `pii.shadow{pointcut,verdict}`（Micrometer 软依赖，缺 MeterRegistry 也不炸）+ 进程内 `snapshot()` 供测试与无监控环境读数。结论分 MATCHED/MISSING/EXTRA/DIVERGED/ERROR/SKIPPED——除 MATCHED/SKIPPED 外都算 mismatch
+    - 覆盖 8 个读切点：A1 注册查重 / A2 密码登录 / A3 找回密码 / A4 换绑查重 / A5 RT 免密 / A6 代建开号 / B1 入驻命中 / B2 加黑查重。LICENSE_NO 行 hmac 恒 NULL 主动跳过（15 §2-1，不是缺口，不稀释闸门分母）
+    - 关卡测试 `PiiShadowReadScenarioTest` 10 例（差值断言，计数器 JVM 内跨类共享故不断言绝对值）：一致路径 4 例 + **检出力 3 例**（造 hmac 漏填→MISSING、造 hmac 指向别行→DIVERGED，同时断言登录/黑名单命中**结果不变**——零行为变化与检出力同一条用例钉死）+ 开关自身 1 例 + LICENSE_NO 不入分母 2 例
+    - **RED 已验证**：`SPRING_APPLICATION_JSON` 强制 `read-mode=plain` 复跑本类，10 例中 9 例转红（唯一不红的是 LICENSE_NO 负向断言，同 S0 类先例）
+    - 2026-08-23 全量 **434 绿**（46 类，424+10，0 失败/0 错误/0 跳过，零回归）。全量日志仅 4 条 mismatch 告警，逐条溯源均为两个 PII 关卡类自己造的数（S0 类抹 blacklist hmac 测回填 1 条 + 本类故意造的 3 条）——**业务用例零不一致**，这也是"影子期零行为变化"的回归网本身（测试态 `read-mode=shadow`，全量都走了一遍影子）
+    - **闸门（待生产）**：`pii.shadow` 的 mismatch 连续 **≥7 天为 0** 才可进 Step 2。回滚：`read-mode` 拨回 plain，秒级
+  - [待办] Step 2 / PII-W5 非命门切读（blacklist/sms/pricing + Redis 键 HMAC 化）
+  - [待办] Step 3 / PII-W6 登录双读切换（冻结窗口 0.5d，双读兜底自愈 + 异步补写）
+- [待办] **S1 缺口：定价/短信链尚无 hmac 列**（W4 摸出来的实测差异，非本波次能补）：15 §4 阶段0 原列了 7 张表，但 **V27 实际只加了 `users.phone_hmac` 与 `blacklist.target_value_hmac`**，`customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac` 等列都还不存在，双写与回填自然也没有。故 §1.2-C 定价链（C1 settle upsert / C2 价格解析 / C3 批量圈选）与 sms 校验**进不了影子期**。Step 2 要切这些路径，得先补一次「加列（V30）+ 双写 + 回填 + 对账」，等于补做一段 S0——排期需单列，不得夹带进 W5
 - [待办] **PII-S2 收缩+打码**：V29 明文列处置+Redis 键改造+限流键加盐+前端 9 处打码（逐页清单）+E2E 断言更新
 - [待办] **验收**：全量+E2E45×2+报告 13；上线检查单余项复核（prod 冒烟/CVE 复扫/graceful shutdown 属部署侧待环境）
 
 ## 验证
 
-- 每波 mvn 全量绿（基线 419；补完切点测试债后为 **424**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
+- 每波 mvn 全量绿（基线 419；补完切点测试债后 424；W4 影子双查后为 **434**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
+- 测试态常开 `write-mode=dual` + `read-mode=shadow`——「阶段 0 双写不改行为」「阶段 1 影子期零行为变化」这两句话，靠的就是全量在这两个开关下仍全绿

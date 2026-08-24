@@ -71,8 +71,12 @@ cangchu:
   # PII 硬化阶段 0（15 §4）：write-mode=dual 随 V27 一同上线（同写 phone_hash/明文 + hmac 列）。
   # 回滚口径：拨回 legacy 即止血，读路径始终走旧列，与本开关无关。
   # hmac-key/hmac-kat 不进主配——dev/test 用固定测试密钥，prod 经环境变量注入（fail-fast）。
+  # PII 阶段 1 Step1（15 §4 / 波次 PII-W4）：read-mode=shadow 影子双查验证期。出结果的仍是
+  # 旧列，只是多用 hmac 列查一遍做比对计数（指标 pii.shadow，见 PiiShadowReader）。
+  # 闸门：生产 mismatch 连续 >=7 天为 0 才可进 Step2 切读。回滚口径：拨回 plain 即停影子查询。
   pii:
     write-mode: dual
+    read-mode: shadow
   snowflake:
     worker-id: 1
     datacenter-id: 1

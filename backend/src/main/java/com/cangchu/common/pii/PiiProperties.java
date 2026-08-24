@@ -45,8 +45,25 @@ public class PiiProperties {
     /** 存量回填单批行数（批内逐行 CAS 更新，不长事务持锁）。 */
     private int backfillBatchSize = 500;
 
+    /**
+     * 读模式（阶段 1 新增，15 §4 阶段1）：
+     * <ul>
+     *   <li>{@code plain}——只读旧列（phone_hash / 明文），阶段 0 口径；</li>
+     *   <li>{@code shadow}——<b>仍以旧列出结果</b>，同时用 hmac 列再查一遍，仅比对+计数
+     *       （Step 1 验证期，零行为变化，见 {@link PiiShadowReader}）；</li>
+     *   <li>{@code hmac}——主读 hmac + 旧列兜底回退（Step 2/3，本波次未实现）。</li>
+     * </ul>
+     * 回滚口径：拨回 plain 即停影子查询，秒级、无数据损失。
+     */
+    private String readMode = "plain";
+
     /** 是否双写（阶段 0 唯一分叉点；读路径与本开关无关，一律走旧列）。 */
     public boolean isDualWrite() {
         return "dual".equalsIgnoreCase(writeMode);
+    }
+
+    /** 是否影子双查（阶段 1 Step 1；出结果的仍是旧列，本开关只决定要不要多查一次比对）。 */
+    public boolean isShadowRead() {
+        return "shadow".equalsIgnoreCase(readMode);
     }
 }

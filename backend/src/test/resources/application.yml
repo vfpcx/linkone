@@ -53,10 +53,12 @@ cangchu:
     worker-id: 9
     datacenter-id: 9
   # PII 硬化阶段 0：固定测试密钥（Base64("0123456789abcdef0123456789abcdef")），【仅供测试】。
-  # 本文件整体覆盖主配（同名 application.yml），故 write-mode 需在此显式 dual；
-  # 读路径与开关无关（回归零变化断言）。
+  # 本文件整体覆盖主配（同名 application.yml），故 write-mode/read-mode 需在此显式登记。
+  # read-mode=shadow：让全量用例都走一遍影子双查——「影子期零行为变化」这句话，
+  # 靠的正是全量在 shadow 下仍全绿（PII-W4 的回归网就是全量本身）。
   pii:
     write-mode: dual
+    read-mode: shadow
     hmac-key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
     hmac-kat: "2aff2a1ede191cf2fd4af900d10f48d1e55f31e69dae59d7938c1ac349641534"
 
