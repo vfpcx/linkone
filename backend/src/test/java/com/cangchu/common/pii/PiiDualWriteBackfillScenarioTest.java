@@ -5,14 +5,36 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.dto.ChangePhoneDto;
 import com.cangchu.account.dto.RegisterDto;
+import com.cangchu.account.dto.SmsCodeSendDto;
+import com.cangchu.account.entity.SmsCode;
 import com.cangchu.account.entity.User;
+import com.cangchu.account.mapper.SmsCodeMapper;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
 import com.cangchu.account.vo.LoginVo;
+import com.cangchu.common.TestUniq;
 import com.cangchu.common.response.R;
+import com.cangchu.common.util.SnowflakeIdUtil;
+import com.cangchu.document.dto.SubmitInquiryDto;
+import com.cangchu.document.entity.InquiryRequest;
+import com.cangchu.document.mapper.InquiryRequestMapper;
+import com.cangchu.document.service.InquiryService;
+import com.cangchu.inventory.dto.InboundContext;
+import com.cangchu.inventory.service.InventoryService;
+import com.cangchu.pricing.entity.CustomerPrice;
+import com.cangchu.pricing.mapper.CustomerPriceMapper;
+import com.cangchu.pricing.service.PricingService;
+import com.cangchu.product.entity.Sku;
+import com.cangchu.product.mapper.SkuMapper;
 import com.cangchu.tenant.dto.BlacklistAddDto;
 import com.cangchu.tenant.entity.Blacklist;
+import com.cangchu.tenant.entity.Store;
+import com.cangchu.tenant.entity.Tenant;
+import com.cangchu.tenant.entity.Wholesaler;
 import com.cangchu.tenant.mapper.BlacklistMapper;
+import com.cangchu.tenant.mapper.StoreMapper;
+import com.cangchu.tenant.mapper.TenantMapper;
+import com.cangchu.tenant.mapper.WholesalerMapper;
 import com.cangchu.tenant.service.BlacklistService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +51,7 @@ import org.springframework.http.HttpMethod;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.List;
@@ -54,6 +77,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * B2 加黑与复活。A1/A4 经 HTTP 走完整流程（mock 短信码 {@value #MOCK_SMS_CODE}，见
  * {@code src/test/resources/application.yml} 的 {@code cangchu.sms.mock}），B2 经
  * {@link BlacklistService#add} 真调并带 OPS 角色，不再用 mapper 造行绕过业务语义。
+ *
+ * <p><b>V30 补做的三表</b>（task_plan「S1 缺口」）：customer_prices / sms_codes /
+ * inquiry_requests 的切点同样逐个真调——C1 议价沉淀经 {@link PricingService#settleFromInquiry}
+ * （新建与命中既有行两条分支都钉，后者是存量行唯一的机会性回填点）、SMS 经真端点
+ * {@code POST /api/v1/account/sms-code}、C2 经 {@link InquiryService#submitByRt}。
+ * 一律不用 mapper 造行代替切点，否则断言的是造数而非双写。
  */
 @SpringBootTest(classes = CangchuApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DisplayName("PII-S0 关卡：双写正确性 / 回填幂等 / 对账")
@@ -97,6 +126,30 @@ class PiiDualWriteBackfillScenarioTest {
     /** 用容器里那个 ObjectMapper——它才是真正序列化响应的那个，裸 new 测不出真实形状。 */
     @Autowired
     private ObjectMapper objectMapper;
+
+    // ---- V30 三表（定价链 / 短信校验 / 询价）的切点与脚手架依赖 ----
+    @Autowired
+    private CustomerPriceMapper customerPriceMapper;
+    @Autowired
+    private SmsCodeMapper smsCodeMapper;
+    @Autowired
+    private InquiryRequestMapper inquiryRequestMapper;
+    @Autowired
+    private PricingService pricingService;
+    @Autowired
+    private InquiryService inquiryService;
+    @Autowired
+    private InventoryService inventoryService;
+    @Autowired
+    private TenantMapper tenantMapper;
+    @Autowired
+    private StoreMapper storeMapper;
+    @Autowired
+    private WholesalerMapper wholesalerMapper;
+    @Autowired
+    private SkuMapper skuMapper;
+    @Autowired
+    private SnowflakeIdUtil snowflakeIdUtil;
 
     // ------------------------------------------------------------ 算法锚定
 
@@ -235,6 +288,76 @@ class PiiDualWriteBackfillScenarioTest {
         }
     }
 
+    // ---- V30 补做的三表：定价链 / 短信校验 / 询价 ----
+
+    @Test
+    @DisplayName("切点 C1（议价沉淀·新建）：settleFromInquiry 插入的行带正确 rt_phone_hmac")
+    void dualWrite_c1_settleFromInquiry_writesCorrectHmac() {
+        long tenantId = seedTenant();
+        long wid = seedWholesaler(tenantId);
+        long skuId = seedSku(tenantId, wid);
+        String rtPhone = nextPhone();
+
+        pricingService.settleFromInquiry(wid, rtPhone, skuId, new BigDecimal("7.70"), "PII-C1-NEW", 1L);
+
+        assertThat(soleCustomerPrice(wid, rtPhone, skuId).getRtPhoneHmac())
+                .as("C1 切点必须双写 hmac，且值须等于独立实现重算结果")
+                .isEqualTo(expectHmac(rtPhone));
+    }
+
+    @Test
+    @DisplayName("切点 C1（议价沉淀·命中既有行）：存量行 hmac 为 NULL 时机会性补齐，不新插行")
+    void dualWrite_c1_settleFromInquiry_backfillsHmacOnLegacyRow() {
+        long tenantId = seedTenant();
+        long wid = seedWholesaler(tenantId);
+        long skuId = seedSku(tenantId, wid);
+        String rtPhone = nextPhone();
+        pricingService.settleFromInquiry(wid, rtPhone, skuId, new BigDecimal("7.70"), "PII-C1-A", 1L);
+        CustomerPrice first = soleCustomerPrice(wid, rtPhone, skuId);
+        // 抹掉 hmac，模拟 V30 上线前就存在的存量行——upsert 命中分支得自己把盲索引补回来
+        clearCustomerPriceHmac(first.getId());
+
+        pricingService.settleFromInquiry(wid, rtPhone, skuId, new BigDecimal("6.60"), "PII-C1-B", 1L);
+
+        CustomerPrice revised = soleCustomerPrice(wid, rtPhone, skuId);
+        assertThat(revised.getId())
+                .as("唯一键 (wholesaler, rt_phone, sku) 在，第二次沉淀必须复用原行而非新插")
+                .isEqualTo(first.getId());
+        assertThat(revised.getUnitPrice()).isEqualByComparingTo("6.60");
+        assertThat(revised.getRtPhoneHmac())
+                .as("命中既有行是存量行唯一的机会性回填点，漏写即留一个盲索引空洞")
+                .isEqualTo(expectHmac(rtPhone));
+    }
+
+    @Test
+    @DisplayName("切点 SMS（发码）：sms-code 端点落库的行带正确 phone_hmac")
+    void dualWrite_sms_sendSmsCode_writesCorrectHmac() {
+        String phone = nextPhone();
+
+        sendSmsCode(phone, "REGISTER");
+
+        assertThat(soleSmsCode(phone).getPhoneHmac())
+                .as("SMS 切点必须双写 hmac，且值须等于独立实现重算结果")
+                .isEqualTo(expectHmac(phone));
+    }
+
+    @Test
+    @DisplayName("切点 C2（RT 提交询价）：submitByRt 落库的行带正确 rt_phone_hmac")
+    void dualWrite_c2_submitByRt_writesCorrectHmac() {
+        long tenantId = seedTenant();
+        long storeId = seedStore(tenantId);
+        long wid = seedWholesaler(tenantId);
+        long skuId = seedSku(tenantId, wid);
+        seedStock(tenantId, wid, skuId, 100);
+        String rtPhone = nextPhone();
+
+        inquiryService.submitByRt(submitDto(storeId, wid, skuId, rtPhone, 20));
+
+        assertThat(soleInquiry(wid, rtPhone).getRtPhoneHmac())
+                .as("C2 切点必须双写 hmac，且值须等于独立实现重算结果")
+                .isEqualTo(expectHmac(rtPhone));
+    }
+
     @Test
     @DisplayName("红线：hmac 影子列不得出现在实体直出的 JSON（响应形状零变化）")
     void hmacColumn_isJsonIgnored() throws Exception {
@@ -247,6 +370,27 @@ class PiiDualWriteBackfillScenarioTest {
         Blacklist entry = insertBlacklistRow("PHONE", nextPhone());
         assertThat(objectMapper.writeValueAsString(blacklistMapper.selectById(entry.getId())))
                 .doesNotContain("targetValueHmac").doesNotContain("target_value_hmac");
+
+        // V30 三表同一红线：新列不得渗进任何实体直出的响应
+        long tenantId = seedTenant();
+        long wid = seedWholesaler(tenantId);
+        long skuId = seedSku(tenantId, wid);
+        String rtPhone = nextPhone();
+        pricingService.settleFromInquiry(wid, rtPhone, skuId, new BigDecimal("5.50"), "PII-JSON", 1L);
+        assertThat(objectMapper.writeValueAsString(soleCustomerPrice(wid, rtPhone, skuId)))
+                .doesNotContain("rtPhoneHmac").doesNotContain("rt_phone_hmac");
+
+        String smsPhone = nextPhone();
+        sendSmsCode(smsPhone, "REGISTER");
+        assertThat(objectMapper.writeValueAsString(soleSmsCode(smsPhone)))
+                .doesNotContain("phoneHmac").doesNotContain("phone_hmac");
+
+        long storeId = seedStore(tenantId);
+        seedStock(tenantId, wid, skuId, 100);
+        String inquiryPhone = nextPhone();
+        inquiryService.submitByRt(submitDto(storeId, wid, skuId, inquiryPhone, 5));
+        assertThat(objectMapper.writeValueAsString(soleInquiry(wid, inquiryPhone)))
+                .doesNotContain("rtPhoneHmac").doesNotContain("rt_phone_hmac");
     }
 
     // ------------------------------------------------------------ 回填
@@ -307,6 +451,44 @@ class PiiDualWriteBackfillScenarioTest {
     }
 
     @Test
+    @DisplayName("回填 V30 三表：填平存量 NULL 行，重跑零改动（幂等）")
+    void backfill_v30Tables_fillLegacyNullRowsAndAreIdempotent() {
+        long tenantId = seedTenant();
+        long storeId = seedStore(tenantId);
+        long wid = seedWholesaler(tenantId);
+        long skuId = seedSku(tenantId, wid);
+        seedStock(tenantId, wid, skuId, 100);
+
+        String pricePhone = nextPhone();
+        pricingService.settleFromInquiry(wid, pricePhone, skuId, new BigDecimal("4.40"), "PII-BF", 1L);
+        Long priceId = soleCustomerPrice(wid, pricePhone, skuId).getId();
+        String smsPhone = nextPhone();
+        sendSmsCode(smsPhone, "REGISTER");
+        Long smsId = soleSmsCode(smsPhone).getId();
+        String inquiryPhone = nextPhone();
+        inquiryService.submitByRt(submitDto(storeId, wid, skuId, inquiryPhone, 5));
+        Long inquiryId = soleInquiry(wid, inquiryPhone).getId();
+
+        // 抹掉三处 hmac，模拟 V30 上线前就存在的存量行
+        clearCustomerPriceHmac(priceId);
+        clearSmsCodeHmac(smsId);
+        clearInquiryHmac(inquiryId);
+
+        assertThat(backfillService.backfillCustomerPrices(100).filled()).isGreaterThanOrEqualTo(1);
+        assertThat(backfillService.backfillSmsCodes(100).filled()).isGreaterThanOrEqualTo(1);
+        assertThat(backfillService.backfillInquiryRequests(100).filled()).isGreaterThanOrEqualTo(1);
+
+        assertThat(customerPriceMapper.selectById(priceId).getRtPhoneHmac()).isEqualTo(expectHmac(pricePhone));
+        assertThat(smsCodeMapper.selectById(smsId).getPhoneHmac()).isEqualTo(expectHmac(smsPhone));
+        assertThat(inquiryRequestMapper.selectById(inquiryId).getRtPhoneHmac()).isEqualTo(expectHmac(inquiryPhone));
+
+        // 幂等：候选集已空，第二轮一行都不该动
+        assertThat(backfillService.backfillCustomerPrices(100).filled()).isZero();
+        assertThat(backfillService.backfillSmsCodes(100).filled()).isZero();
+        assertThat(backfillService.backfillInquiryRequests(100).filled()).isZero();
+    }
+
+    @Test
     @DisplayName("回滚口径：write-mode=legacy 时回填被拒，一行不写")
     void backfill_refusedUnderLegacyWriteMode() {
         String phone = nextPhone();
@@ -333,9 +515,9 @@ class PiiDualWriteBackfillScenarioTest {
     @Test
     @DisplayName("对账：回填后零差异；漏填与错值都能被抓出来")
     void reconcile_reportsCleanAfterBackfillAndDetectsDrift() {
-        // 先把基线拉平（兄弟测试类可能留下未回填的行）
-        backfillService.backfillUsers(500);
-        backfillService.backfillBlacklist(500);
+        // 先把基线拉平（兄弟测试类可能留下未回填的行——V30 三表尤其：多个场景测试
+        // 直接 mapper 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然为 NULL）
+        flattenBackfillBaseline();
 
         List<PiiBackfillService.ReconcileResult> clean = backfillService.reconcile();
         assertThat(clean).allSatisfy(r -> assertThat(r.clean())
@@ -478,6 +660,148 @@ class PiiDualWriteBackfillScenarioTest {
         entry.setStatus("ACTIVE");
         blacklistMapper.insert(entry);
         return entry;
+    }
+
+    // ---- V30 三表：脚手架与读数 ----
+
+    /**
+     * 把五张表的回填基线拉平。
+     *
+     * <p>对账断言是全局计数，会受兄弟测试类残留影响；V30 三表尤其——多个场景测试直接
+     * {@code mapper.insert} 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然为 NULL。
+     */
+    private void flattenBackfillBaseline() {
+        backfillService.backfillUsers(500);
+        backfillService.backfillBlacklist(500);
+        backfillService.backfillCustomerPrices(500);
+        backfillService.backfillSmsCodes(500);
+        backfillService.backfillInquiryRequests(500);
+    }
+
+    private long seedTenant() {
+        Tenant t = new Tenant();
+        t.setId(snowflakeIdUtil.nextId());
+        t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
+        t.setName("PII仓-" + t.getId());
+        t.setContactUserId(snowflakeIdUtil.nextId());
+        t.setContactPhone("13800000000");
+        t.setStatus("ACTIVE");
+        tenantMapper.insert(t);
+        return t.getId();
+    }
+
+    private long seedStore(long tenantId) {
+        Store s = new Store();
+        s.setId(snowflakeIdUtil.nextId());
+        s.setTenantId(tenantId);
+        s.setName("PII店-" + s.getId());
+        s.setStatus("ACTIVE");
+        storeMapper.insert(s);
+        return s.getId();
+    }
+
+    private long seedWholesaler(long tenantId) {
+        Wholesaler w = new Wholesaler();
+        w.setId(snowflakeIdUtil.nextId());
+        w.setTenantId(tenantId);
+        w.setName("PII商户-" + w.getId());
+        w.setOwnerUserId(snowflakeIdUtil.nextId());
+        w.setStatus("ACTIVE");
+        w.setSource("SELF_OPERATED");
+        wholesalerMapper.insert(w);
+        return w.getId();
+    }
+
+    private long seedSku(long tenantId, long wholesalerId) {
+        Sku s = new Sku();
+        s.setId(snowflakeIdUtil.nextId());
+        s.setTenantId(tenantId);
+        s.setWholesalerId(wholesalerId);
+        s.setName("PII品-" + s.getId());
+        s.setUnitPrice(new BigDecimal("9.90"));
+        s.setMoqPrice(new BigDecimal("8.50"));
+        s.setMoqQty(10);
+        s.setListed(true);
+        skuMapper.insert(s);
+        return s.getId();
+    }
+
+    private void seedStock(long tenantId, long wholesalerId, long skuId, int qty) {
+        inventoryService.addStock(InboundContext.builder()
+                .wholesalerId(wholesalerId)
+                .tenantId(tenantId)
+                .skuId(skuId)
+                .qty(qty)
+                .refDocNo("IN-PII-SEED")
+                .operatorUserId(1L)
+                .build());
+    }
+
+    private SubmitInquiryDto submitDto(long storeId, long wholesalerId, long skuId, String rtPhone, int qty) {
+        SubmitInquiryDto d = new SubmitInquiryDto();
+        d.setStoreId(storeId);
+        d.setWholesalerId(wholesalerId);
+        d.setRtPhone(rtPhone);
+        SubmitInquiryDto.InquiryItemDto it = new SubmitInquiryDto.InquiryItemDto();
+        it.setSkuId(skuId);
+        it.setQty(qty);
+        d.setItems(List.of(it));
+        return d;
+    }
+
+    /** 走真端点发码——sms_codes 的落库切点只有这一处，绕过它等于没测。 */
+    private void sendSmsCode(String phone, String scene) {
+        SmsCodeSendDto dto = new SmsCodeSendDto();
+        dto.setPhone(phone);
+        dto.setScene(scene);
+        R<Void> body = restTemplate.exchange(url("/api/v1/account/sms-code"), HttpMethod.POST,
+                new HttpEntity<>(dto), VOID_BODY).getBody();
+        assertThat(body).as("sendSmsCode %s 无响应体", phone).isNotNull();
+        assertThat(body.getCode()).as("sendSmsCode %s 应成功，实际 %s", phone, body).isZero();
+    }
+
+    private CustomerPrice soleCustomerPrice(long wholesalerId, String rtPhone, long skuId) {
+        List<CustomerPrice> rows = customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
+                .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                .eq(CustomerPrice::getRtPhone, rtPhone)
+                .eq(CustomerPrice::getSkuId, skuId));
+        assertThat(rows).as("(wholesaler=%s, phone=%s, sku=%s) 应恰好一行", wholesalerId, rtPhone, skuId)
+                .hasSize(1);
+        return rows.get(0);
+    }
+
+    private SmsCode soleSmsCode(String phone) {
+        List<SmsCode> rows = smsCodeMapper.selectList(new LambdaQueryWrapper<SmsCode>()
+                .eq(SmsCode::getPhone, phone));
+        assertThat(rows).as("sms_codes 中 %s 应恰好一行", phone).hasSize(1);
+        return rows.get(0);
+    }
+
+    private InquiryRequest soleInquiry(long wholesalerId, String rtPhone) {
+        List<InquiryRequest> rows = inquiryRequestMapper.selectList(new LambdaQueryWrapper<InquiryRequest>()
+                .eq(InquiryRequest::getWholesalerId, wholesalerId)
+                .eq(InquiryRequest::getRtPhone, rtPhone));
+        assertThat(rows).as("inquiry_requests 中 (wholesaler=%s, phone=%s) 应恰好一行", wholesalerId, rtPhone)
+                .hasSize(1);
+        return rows.get(0);
+    }
+
+    private void clearCustomerPriceHmac(Long id) {
+        customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
+                .set(CustomerPrice::getRtPhoneHmac, null)
+                .eq(CustomerPrice::getId, id));
+    }
+
+    private void clearSmsCodeHmac(Long id) {
+        smsCodeMapper.update(null, new LambdaUpdateWrapper<SmsCode>()
+                .set(SmsCode::getPhoneHmac, null)
+                .eq(SmsCode::getId, id));
+    }
+
+    private void clearInquiryHmac(Long id) {
+        inquiryRequestMapper.update(null, new LambdaUpdateWrapper<InquiryRequest>()
+                .set(InquiryRequest::getRtPhoneHmac, null)
+                .eq(InquiryRequest::getId, id));
     }
 
     /** 兜底自检：本类造的行不该在 users 里留下重复手机号。 */

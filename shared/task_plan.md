@@ -22,13 +22,19 @@
     - **RED 已验证**：`SPRING_APPLICATION_JSON` 强制 `read-mode=plain` 复跑本类，10 例中 9 例转红（唯一不红的是 LICENSE_NO 负向断言，同 S0 类先例）
     - 2026-08-23 全量 **434 绿**（46 类，424+10，0 失败/0 错误/0 跳过，零回归）。全量日志仅 4 条 mismatch 告警，逐条溯源均为两个 PII 关卡类自己造的数（S0 类抹 blacklist hmac 测回填 1 条 + 本类故意造的 3 条）——**业务用例零不一致**，这也是"影子期零行为变化"的回归网本身（测试态 `read-mode=shadow`，全量都走了一遍影子）
     - **闸门（待生产）**：`pii.shadow` 的 mismatch 连续 **≥7 天为 0** 才可进 Step 2。回滚：`read-mode` 拨回 plain，秒级
-  - [待办] Step 2 / PII-W5 非命门切读（blacklist/sms/pricing + Redis 键 HMAC 化）
+  - [待办] Step 2 / PII-W5 非命门切读（blacklist/sms/pricing + Redis 键 HMAC 化）。前置已就绪：V30 三表加列+双写+回填+对账已完成（见下方缺口条目），W5 只需接影子切点与切读本身
   - [待办] Step 3 / PII-W6 登录双读切换（冻结窗口 0.5d，双读兜底自愈 + 异步补写）
-- [待办] **S1 缺口：定价/短信链尚无 hmac 列**（W4 摸出来的实测差异，非本波次能补）：15 §4 阶段0 原列了 7 张表，但 **V27 实际只加了 `users.phone_hmac` 与 `blacklist.target_value_hmac`**，`customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac` 等列都还不存在，双写与回填自然也没有。故 §1.2-C 定价链（C1 settle upsert / C2 价格解析 / C3 批量圈选）与 sms 校验**进不了影子期**。Step 2 要切这些路径，得先补一次「加列（V30）+ 双写 + 回填 + 对账」，等于补做一段 S0——排期需单列，不得夹带进 W5
+- [完成] **S1 缺口：定价/短信链补做 S0**（W4 摸出来的实测差异）：15 §4 阶段0 原列了 7 张表，但 V27 实际只加了 `users.phone_hmac` 与 `blacklist.target_value_hmac`。2026-08-25 补齐余下三表，口径逐条照抄 V27 那套：
+  - **V30 加列** ✅ `customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac`，全部 NULLable + 普通索引，索引列序对齐各自现有明文索引（customer_prices 用 `(wholesaler_id, rt_phone_hmac, sku_id)` 对齐物理唯一键）。纯 additive 无回滚脚本；三个新字段均带 `@JsonIgnore`，实体直出响应形状零变化
+  - **双写切点** ✅ 唯一产生点仍是 `PiiCrypto.phoneHmac`，一律 `write-mode=dual` 才写：`PricingServiceImpl.setCustomerPrice` / `settleFromInquiry`（insert 分支写入，命中既有行分支做机会性回填——同 blacklist REMOVED 复活口径）、`AccountServiceImpl.sendSmsCode`、`InquiryServiceImpl.submitByRt`。已核：主代码里这三表的 insert 只有这 4 处，无遗漏。`doBatchCustomerInTx` 不写 rt_phone，属 C3 **读**切点，归 Step 2
+  - **回填+对账** ✅ `PiiBackfillService` 扩到五张表；把「主键/明文列/hmac 列/行过滤」抽成 `HmacColumn` record，CAS 幂等、keyset 游标、legacy 拒填三件套共用一份实现（原 users/blacklist 公开方法签名与 `ReconcileResult.table()` 取值不变）。`reconcile()`/`unreadyTables()` 现覆盖五表，`PiiBackfillRunner` 一次重启跑完五表
+  - **关卡测试** ✅ `PiiDualWriteBackfillScenarioTest` +5 例（15→20）：C1 新建 / C1 命中既有行机会性回填 / SMS 真端点 `POST /api/v1/account/sms-code` / C2 `submitByRt` / V30 三表回填幂等。切点一律真调，不用 mapper 造行代替。JSON 红线用例扩到三表；对账基线拉平改走 `flattenBackfillBaseline()` 覆盖五表（多个兄弟场景类直接 mapper 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然 NULL）
+  - 2026-08-25 全量 **439 绿**（434+5，0 失败/0 错误/0 跳过，零回归）
+  - 遗留：`PiiShadowReader` **未**给这三表接影子切点——那是读路径改造，随 Step 2 / PII-W5 一起做，不进 Step 1 闸门分母（类注释已同步）。生产首跑注意 `sms_codes` 行数随发码量线性增长，回填全表成本由 `backfill-batch-size` 控制（刻意不按「未过期」缩小分母，否则闸门口径随时间漂移）
 - [待办] **PII-S2 收缩+打码**：V29 明文列处置+Redis 键改造+限流键加盐+前端 9 处打码（逐页清单）+E2E 断言更新
 - [待办] **验收**：全量+E2E45×2+报告 13；上线检查单余项复核（prod 冒烟/CVE 复扫/graceful shutdown 属部署侧待环境）
 
 ## 验证
 
-- 每波 mvn 全量绿（基线 419；补完切点测试债后 424；W4 影子双查后为 **434**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
+- 每波 mvn 全量绿（基线 419；补完切点测试债后 424；W4 影子双查后 434；V30 补做 S0 后为 **439**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
 - 测试态常开 `write-mode=dual` + `read-mode=shadow`——「阶段 0 双写不改行为」「阶段 1 影子期零行为变化」这两句话，靠的就是全量在这两个开关下仍全绿

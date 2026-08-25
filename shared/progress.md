@@ -106,3 +106,21 @@
 ### 踩坑
 - 跑 `@SpringBootTest` 前先确认 6379 有人听——Memurai 服务注册已坏，直接跑 `C:\Program Files\Memurai\memurai.exe`
 - `mvn -q` 会把 `Tests run` 汇总压掉；真实计数从 `target/surefire-reports/*.xml` 用 awk 聚合
+
+## 2026-08-25 · 补做 S1 缺口：定价/短信/询价三链的 S0（V30）
+
+W4 摸出来的那个缺口补完了。范围严格限定「加列 + 双写 + 回填 + 对账」，读路径一行没动。
+
+- **V30 加列**：`customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac`。口径逐条照抄 V27——全 NULLable、先建普通索引（唯一索引升级不在本迁移）、纯 additive 无回滚脚本。索引列序按「Step 2 切读后要走的查询」设计，与各表现有明文索引一一对应
+- **双写切点 4 处**：`setCustomerPrice` / `settleFromInquiry` / `sendSmsCode` / `submitByRt`。唯一产生点仍是 `PiiCrypto.phoneHmac`，一律 `write-mode=dual` 才写。**上切点前先核了覆盖**：主代码里这三表的 `mapper.insert` 就这 4 处，无 XML/Wrapper 绕过
+  - 两处 upsert 的**命中既有行**分支也补了 hmac（`.set(condition, ...)`）——存量行只有这一个机会性回填点，漏写就留一个盲索引空洞。口径抄 blacklist REMOVED 复活分支
+  - `doBatchCustomerInTx` **不算切点**：它只改价/状态/过期，不写 rt_phone；按 rtPhone 圈选那部分是 C3 的**读**切点，归 Step 2
+- **回填+对账扩到五表**：把「主键/明文列/hmac 列/行过滤」抽成 `HmacColumn` record，CAS 幂等 + keyset 游标 + legacy 拒填三件套共用一份实现，替掉本来要写 5 份的复制粘贴（5 份里抄漏一个 `isNull` CAS 条件，只在并发下才现形）。users/blacklist 的公开方法签名与 `ReconcileResult.table()` 取值不变；`reconcile()` 从 2 条变 5 条
+- **关卡测试 +5 例**（`PiiDualWriteBackfillScenarioTest` 15→20）：切点一律真调——C1 走 `settleFromInquiry`（新建 + 命中既有行两条分支分开钉）、SMS 走真端点 `POST /api/v1/account/sms-code`、C2 走 `submitByRt`（tenant/store/wholesaler/sku/stock 脚手架沿用 `PricingSettleScenarioTest` 的 mapper-seed 风格）。**不用 mapper 造行代替切点**，否则断言的是造数不是双写
+- 全量 **439 绿**（434+5，0 失败/0 错误/0 跳过，零回归）
+
+### 踩坑 / 决策
+- **对账基线必须拉平五表**：兄弟场景类（`PricingSettleScenarioTest` / `PricingRtMatchScenarioTest` / `OutboundChainScenarioTest`）直接 `mapper.insert` 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然 NULL。原来只 flatten users+blacklist，扩到五表后 `reconcile()` 的 allSatisfy(clean) 会直接红——改走 `flattenBackfillBaseline()`
+- 三个新字段都补了 `@JsonIgnore`。V27 的 `users.phone_hmac` 有这条且有红线用例把着，新列漏加就会让实体直出的响应形状变化
+- `sms_codes` 回填**刻意不按「未过期」缩小分母**——分母随时间滑动的话，「回填填全了」这句话就无法证明。生产首跑成本靠 `backfill-batch-size` 控
+- `PiiShadowReader` **没**给这三表接影子切点，类注释已改成「V30 已补齐前置，影子切点随 Step 2 一起做」。不进 Step 1 的 7 天闸门分母

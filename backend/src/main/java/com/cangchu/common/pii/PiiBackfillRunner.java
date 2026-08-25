@@ -35,11 +35,15 @@ public class PiiBackfillRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         log.info("[PII] backfill-on-startup=true，开始存量回填（批大小 {}）", properties.getBackfillBatchSize());
         try {
-            PiiBackfillService.BackfillResult users =
-                    backfillService.backfillUsers(properties.getBackfillBatchSize());
-            PiiBackfillService.BackfillResult blacklist =
-                    backfillService.backfillBlacklist(properties.getBackfillBatchSize());
-            log.info("[PII] 回填结束 users={} blacklist={}", users, blacklist);
+            int batch = properties.getBackfillBatchSize();
+            PiiBackfillService.BackfillResult users = backfillService.backfillUsers(batch);
+            PiiBackfillService.BackfillResult blacklist = backfillService.backfillBlacklist(batch);
+            // V30 补做的三表（定价链 / 短信校验 / 询价），与 V27 两表同一次重启一起跑完
+            PiiBackfillService.BackfillResult customerPrices = backfillService.backfillCustomerPrices(batch);
+            PiiBackfillService.BackfillResult smsCodes = backfillService.backfillSmsCodes(batch);
+            PiiBackfillService.BackfillResult inquiries = backfillService.backfillInquiryRequests(batch);
+            log.info("[PII] 回填结束 users={} blacklist={} customer_prices={} sms_codes={} inquiry_requests={}",
+                    users, blacklist, customerPrices, smsCodes, inquiries);
 
             List<PiiBackfillService.ReconcileResult> reconcile = backfillService.reconcile();
             reconcile.forEach(r -> {

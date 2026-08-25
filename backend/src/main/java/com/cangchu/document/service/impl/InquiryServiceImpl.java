@@ -7,6 +7,7 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
 import com.cangchu.document.entity.InquiryItem;
@@ -83,6 +84,8 @@ public class InquiryServiceImpl implements InquiryService {
     // P3 BE-W2（12 §3.2）：R8 作废联动站内信
     private final com.cangchu.notify.service.NotificationService notificationService;
     private final SnowflakeIdUtil snowflakeIdUtil;
+    // PII 阶段 0（V30）：rt_phone 盲索引双写的唯一产生点；读路径一律不用
+    private final PiiCrypto piiCrypto;
 
     // ==================== RT 提交询价 ====================
 
@@ -135,6 +138,10 @@ public class InquiryServiceImpl implements InquiryService {
         req.setWholesalerId(dto.getWholesalerId());
         req.setStatus(InquiryRequest.STATUS_PENDING);
         req.setRtPhone(dto.getRtPhone());
+        // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；读路径仍走 rt_phone 明文
+        if (piiCrypto.isDualWrite()) {
+            req.setRtPhoneHmac(piiCrypto.phoneHmac(dto.getRtPhone()));
+        }
         try {
             inquiryRequestMapper.insert(req);
         } catch (DuplicateKeyException e) {

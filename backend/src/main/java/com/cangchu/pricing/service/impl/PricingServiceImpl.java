@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.pricing.dto.BatchCustomerPriceDto;
@@ -76,6 +77,8 @@ public class PricingServiceImpl implements PricingService {
     private final RedissonClient redissonClient;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final ObjectMapper objectMapper;
+    /** PII 阶段 0（V30）：rt_phone 盲索引双写的唯一产生点；读路径一律不用。 */
+    private final PiiCrypto piiCrypto;
 
     /** 自注入代理：用于在锁内调用带 @Transactional 的批量事务体（避免 this 自调用使事务失效）。 */
     @Lazy
@@ -128,6 +131,10 @@ public class PricingServiceImpl implements PricingService {
                     .set(CustomerPrice::getExpireAt, dto.getExpireAt())
                     .set(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
                     .set(CustomerPrice::getSource, CustomerPrice.SOURCE_MANUAL)
+                    // PII 阶段 0（V30）：本分支 rt_phone 不变，但既有行可能是 legacy 期写入 /
+                    // 回填尚未覆盖，hmac 仍为 NULL——顺手补齐（机会性回填，同 blacklist REMOVED 复活分支口径）
+                    .set(piiCrypto.isDualWrite(), CustomerPrice::getRtPhoneHmac,
+                            piiCrypto.phoneHmac(dto.getRtPhone()))
                     .set(CustomerPrice::getUpdatedAt, now));
             existing.setUnitPrice(dto.getUnitPrice());
             existing.setExpireAt(dto.getExpireAt());
@@ -142,6 +149,10 @@ public class PricingServiceImpl implements PricingService {
             cp.setWholesalerId(dto.getWholesalerId());
             cp.setSkuId(dto.getSkuId());
             cp.setRtPhone(dto.getRtPhone());
+            // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；读路径仍走 rt_phone 明文
+            if (piiCrypto.isDualWrite()) {
+                cp.setRtPhoneHmac(piiCrypto.phoneHmac(dto.getRtPhone()));
+            }
             cp.setUnitPrice(dto.getUnitPrice());
             cp.setStatus(CustomerPrice.STATUS_ACTIVE);
             cp.setSource(CustomerPrice.SOURCE_MANUAL);
@@ -186,6 +197,9 @@ public class PricingServiceImpl implements PricingService {
                     .set(CustomerPrice::getSource, CustomerPrice.SOURCE_FROM_INQUIRY)
                     .set(CustomerPrice::getSourceDocNo, sourceDocNo)
                     .set(CustomerPrice::getExpireAt, (LocalDateTime) null)
+                    // PII 阶段 0（V30）：rt_phone 不变，hmac 顺手补齐（同 setCustomerPrice 口径）
+                    .set(piiCrypto.isDualWrite(), CustomerPrice::getRtPhoneHmac,
+                            piiCrypto.phoneHmac(rtPhone))
                     .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
         } else {
             CustomerPrice cp = new CustomerPrice();
@@ -194,6 +208,10 @@ public class PricingServiceImpl implements PricingService {
             cp.setWholesalerId(wholesalerId);
             cp.setSkuId(skuId);
             cp.setRtPhone(rtPhone);
+            // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；读路径仍走 rt_phone 明文
+            if (piiCrypto.isDualWrite()) {
+                cp.setRtPhoneHmac(piiCrypto.phoneHmac(rtPhone));
+            }
             cp.setUnitPrice(dealPrice);
             cp.setStatus(CustomerPrice.STATUS_ACTIVE);
             cp.setSource(CustomerPrice.SOURCE_FROM_INQUIRY);

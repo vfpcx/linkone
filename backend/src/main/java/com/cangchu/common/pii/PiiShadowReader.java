@@ -39,8 +39,11 @@ import java.util.function.Supplier;
  *
  * <h3>覆盖范围</h3>
  * 只覆盖<b>已有 hmac 列且已双写+回填</b>的两张表：users（A1–A6 登录链）、blacklist PHONE 行
- * （B1 命中检查 / B2 加黑查重）。V27 尚未给 customer_prices / sms_codes / inquiry_requests 加列
- * （§1.2-C 定价链、sms 校验），那几处得先补加列+双写+回填才谈得上影子——见 task_plan 缺口条目。
+ * （B1 命中检查 / B2 加黑查重）。
+ *
+ * <p>customer_prices / sms_codes / inquiry_requests（§1.2-C 定价链、sms 校验）的加列+双写+回填+对账
+ * 已由 V30 补齐，但<b>影子切点尚未接入</b>——那几条是读路径改造，随 Step 2（PII-W5）一起做，
+ * 不在 Step 1 的闸门分母内。
  *
  * <h3>读数</h3>
  * Micrometer 指标 {@code pii.shadow{pointcut,verdict}}（prod 经 actuator 观测 7 天闸门）；

@@ -40,6 +40,14 @@ public class InquiryRequest {
 
     private String rtPhone;
 
+    /**
+     * HMAC-SHA256(rt_phone) 盲索引（V30，PII 阶段 0）。
+     * 唯一产生点 {@code PiiCrypto.phoneHmac}；write-mode=dual 时随 rt_phone 同写，读路径不用。
+     * JsonIgnore 保证任何实体直出的响应形状零变化（同 users.phone_hmac 口径）。
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String rtPhoneHmac;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

@@ -137,6 +137,10 @@ public class AccountServiceImpl implements AccountService {
         SmsCode smsCode = new SmsCode();
         smsCode.setId(snowflakeIdUtil.nextId());
         smsCode.setPhone(phone);
+        // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；校验读路径仍走 phone 明文
+        if (piiCrypto.isDualWrite()) {
+            smsCode.setPhoneHmac(piiCrypto.phoneHmac(phone));
+        }
         smsCode.setScene(scene);
         smsCode.setCode(code);
         smsCode.setExpireAt(LocalDateTime.now().plusMinutes(SMS_EXPIRE_MINUTES));
