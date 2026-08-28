@@ -6,6 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.pii.PiiShadowReader;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.pricing.dto.BatchCustomerPriceDto;
@@ -79,6 +80,8 @@ public class PricingServiceImpl implements PricingService {
     private final ObjectMapper objectMapper;
     /** PII 阶段 0（V30）：rt_phone 盲索引双写的唯一产生点；读路径一律不用。 */
     private final PiiCrypto piiCrypto;
+    /** PII 阶段 1 Step1（PII-W5）：定价链影子双查探针，返回 void，绝不参与本类任何判定。 */
+    private final PiiShadowReader piiShadowReader;
 
     /** 自注入代理：用于在锁内调用带 @Transactional 的批量事务体（避免 this 自调用使事务失效）。 */
     @Lazy
@@ -121,6 +124,9 @@ public class PricingServiceImpl implements PricingService {
                 .eq(CustomerPrice::getRtPhone, dto.getRtPhone())
                 .eq(CustomerPrice::getSkuId, dto.getSkuId())
                 .last("LIMIT 1"));
+        // PII 阶段 1 Step1（W5）：影子重查一遍 rt_phone_hmac，只计数不改判定（15 §1.2-C1）
+        piiShadowReader.checkCustomerPrice("C1-price-set", dto.getWholesalerId(), dto.getRtPhone(),
+                dto.getSkuId(), null, existing);
 
         CustomerPrice result;
         if (existing != null) {
@@ -188,6 +194,8 @@ public class PricingServiceImpl implements PricingService {
                 .eq(CustomerPrice::getRtPhone, rtPhone)
                 .eq(CustomerPrice::getSkuId, skuId)
                 .last("LIMIT 1"));
+        // PII 阶段 1 Step1（W5）：同 setCustomerPrice 口径，影子重查不参与 upsert 分支判定
+        piiShadowReader.checkCustomerPrice("C1-price-settle", wholesalerId, rtPhone, skuId, null, existing);
 
         if (existing != null) {
             customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
@@ -445,9 +453,10 @@ public class PricingServiceImpl implements PricingService {
         BigDecimal value = dto.getValue();
 
         // 选取目标行：显式 ids 优先，否则按过滤条件（skuId/rtPhone）
+        boolean byExplicitIds = dto.getIds() != null && !dto.getIds().isEmpty();
         LambdaQueryWrapper<CustomerPrice> qw = new LambdaQueryWrapper<CustomerPrice>()
                 .eq(CustomerPrice::getWholesalerId, dto.getWholesalerId());
-        if (dto.getIds() != null && !dto.getIds().isEmpty()) {
+        if (byExplicitIds) {
             qw.in(CustomerPrice::getId, dto.getIds());
         } else {
             qw.eq(dto.getSkuId() != null, CustomerPrice::getSkuId, dto.getSkuId())
@@ -455,6 +464,10 @@ public class PricingServiceImpl implements PricingService {
                       CustomerPrice::getRtPhone, dto.getRtPhone());
         }
         List<CustomerPrice> rows = customerPriceMapper.selectList(qw);
+        // PII 阶段 1 Step1（W5）：仅当本次真按 rt_phone 圈选时才影子重查（15 §1.2-C3）；
+        // ids 分支没读明文手机号列，压根不进这个切点的分母。
+        piiShadowReader.checkCustomerPriceRows("C3-price-batch", dto.getWholesalerId(),
+                byExplicitIds ? null : dto.getSkuId(), byExplicitIds ? null : dto.getRtPhone(), rows);
 
         List<Map<String, Object>> beforeAfter = new ArrayList<>();
         List<String> rejected = new ArrayList<>();
@@ -530,6 +543,10 @@ public class PricingServiceImpl implements PricingService {
                 .eq(CustomerPrice::getSkuId, skuId)
                 .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
                 .last("LIMIT 1"));
+        // PII 阶段 1 Step1（W5）：本切点在缓存 miss 分支内，分母 = 真实 DB 读次数（15 §1.2-C2）。
+        // 影子查询须同带 status=ACTIVE，否则比的不是同一个问题。
+        piiShadowReader.checkCustomerPrice("C2-price-resolve", wholesalerId, rtPhone, skuId,
+                CustomerPrice.STATUS_ACTIVE, cp);
         BigDecimal result = (cp != null && cp.isActive()) ? cp.getUnitPrice() : null;
         bucket.set(result != null ? result.toPlainString() : SENTINEL_NONE,
                 MATCH_CACHE_TTL_SEC, TimeUnit.SECONDS);

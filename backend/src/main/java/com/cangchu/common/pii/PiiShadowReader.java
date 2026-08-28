@@ -1,8 +1,12 @@
 package com.cangchu.common.pii;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.cangchu.account.entity.SmsCode;
 import com.cangchu.account.entity.User;
+import com.cangchu.account.mapper.SmsCodeMapper;
 import com.cangchu.account.mapper.UserMapper;
+import com.cangchu.pricing.entity.CustomerPrice;
+import com.cangchu.pricing.mapper.CustomerPriceMapper;
 import com.cangchu.tenant.entity.Blacklist;
 import com.cangchu.tenant.mapper.BlacklistMapper;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -11,9 +15,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
@@ -38,12 +47,22 @@ import java.util.function.Supplier;
  * 为 0</b>，才允许进 Step 2 切读。
  *
  * <h3>覆盖范围</h3>
- * 只覆盖<b>已有 hmac 列且已双写+回填</b>的两张表：users（A1–A6 登录链）、blacklist PHONE 行
- * （B1 命中检查 / B2 加黑查重）。
+ * 覆盖<b>已有 hmac 列且已双写+回填</b>的四张表，按闸门分成两组：
+ * <ul>
+ *   <li><b>Step 1 闸门组（W4，8 个切点）</b>：users（A1–A6 登录链）、blacklist PHONE 行
+ *       （B1 命中检查 / B2 加黑查重）。7 天 mismatch=0 是 Step 3 登录切读的准入线。</li>
+ *   <li><b>Step 2 观察组（W5，5 个切点）</b>：customer_prices（C1 upsert 唯一键匹配 ×2 处、
+ *       C2 价格解析、C3 批量调价按 rtPhone 圈选）、sms_codes（SMS 验证码校验）。
+ *       口径与上一组逐条相同，但<b>不进 Step 1 的 7 天分母</b>——它服务的是 15 §4 Step 2
+ *       自己的「pricing 全量 + 黑名单用例 + E2E 全绿，观察 ≥3 天」闸门。</li>
+ * </ul>
  *
- * <p>customer_prices / sms_codes / inquiry_requests（§1.2-C 定价链、sms 校验）的加列+双写+回填+对账
- * 已由 V30 补齐，但<b>影子切点尚未接入</b>——那几条是读路径改造，随 Step 2（PII-W5）一起做，
- * 不在 Step 1 的闸门分母内。
+ * <p><b>inquiry_requests 没有影子切点，这不是遗漏</b>：V30 给它加了 {@code rt_phone_hmac} 并已双写+
+ * 回填，但主代码里对该表的读<b>没有一处按 rt_phone 圈选</b>（全部按 id / tenant / wholesaler / status
+ * 查），15 §1.2-C6 也只把它列为「落库 + 确认转 settle 透传」的写触点、§4 Step 2 的切读清单同样只有
+ * blacklist / sms_codes / pricing。没有明文读路径就没有「两列答案对不对得上」可比，硬造一个探针只会
+ * 往分母里灌永远 MATCHED 的噪音。该列的正确性由 {@link PiiBackfillService#reconcile()} 的对账兜底；
+ * 将来若真出现按手机号查询询价单的入口，接切点时一并补进本类。
  *
  * <h3>读数</h3>
  * Micrometer 指标 {@code pii.shadow{pointcut,verdict}}（prod 经 actuator 观测 7 天闸门）；
@@ -56,6 +75,9 @@ public class PiiShadowReader {
 
     /** Micrometer 指标名（tag：pointcut / verdict）。 */
     public static final String METRIC = "pii.shadow";
+
+    /** 多行圈选切点不一致时，单条日志最多打几个行 id。 */
+    private static final int MAX_LOGGED_IDS = 10;
 
     /** 影子比对结论。除 {@link #MATCHED}/{@link #SKIPPED} 外都算 mismatch，都要拦在闸门外。 */
     public enum Verdict {
@@ -77,6 +99,8 @@ public class PiiShadowReader {
     private final PiiCrypto piiCrypto;
     private final UserMapper userMapper;
     private final BlacklistMapper blacklistMapper;
+    private final CustomerPriceMapper customerPriceMapper;
+    private final SmsCodeMapper smsCodeMapper;
     /** 无监控环境（含测试上下文）可能没有 MeterRegistry，故用 ObjectProvider 软依赖。 */
     private final ObjectProvider<MeterRegistry> meterRegistry;
 
@@ -167,6 +191,103 @@ public class PiiShadowReader {
     }
 
     /**
+     * C1/C2 定价链单行影子双查（PII-W5）：旧列 {@code rt_phone} 已查得 {@code legacy}，
+     * 再用 {@code rt_phone_hmac} 查一遍比对。
+     *
+     * <p>影子查询必须逐条镜像主路的<b>其余</b>谓词，否则比的是两个不同问题：唯一键 upsert 探测
+     * （C1）不带 status，价格解析（C2）带 {@code status=ACTIVE}——故 status 由调用方传入，
+     * 传 null 表示主路本就没按状态过滤。逻辑删除行两边都由 MP 自动排除。
+     *
+     * @param pointcut     切点名（如 {@code C1-price-settle}），进指标 tag，须为常量
+     * @param wholesalerId 商户（唯一键首列，两边同传）
+     * @param rtPhone      客户明文手机号（只用于算 hmac，不入日志）
+     * @param skuId        商品（唯一键末列，两边同传）
+     * @param status       主路若按状态过滤则传该状态，否则传 null
+     * @param legacy       旧列查询结果，未命中传 null
+     */
+    public void checkCustomerPrice(String pointcut, Long wholesalerId, String rtPhone, Long skuId,
+                                   String status, CustomerPrice legacy) {
+        if (!properties.isShadowRead()) {
+            return;
+        }
+        probe(pointcut, () -> {
+            String hmac = piiCrypto.phoneHmac(rtPhone);
+            if (hmac == null) {
+                return Verdict.SKIPPED;
+            }
+            CustomerPrice shadow = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
+                    .select(CustomerPrice::getId)
+                    .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                    .eq(CustomerPrice::getRtPhoneHmac, hmac)
+                    .eq(CustomerPrice::getSkuId, skuId)
+                    .eq(status != null, CustomerPrice::getStatus, status)
+                    .last("LIMIT 1"));
+            return compare(pointcut, legacy == null ? null : legacy.getId(),
+                    shadow == null ? null : shadow.getId());
+        });
+    }
+
+    /**
+     * C3 批量调价「按 rtPhone 圈选」影子双查（PII-W5）：主路一次圈出<b>多行</b>，故比的是行 id 集合
+     * 而非单行——少一行就是一笔改不到的价，多一行就是一笔改错的价，两者都必须在切读前清零。
+     *
+     * <p>{@code rtPhone} 为空表示本次走的是「显式 ids」分支或没带手机号过滤，主路<b>根本没读</b>
+     * 明文手机号列，此时直接不探测（同 {@link #checkBlacklistEntry} 对 LICENSE_NO 的处理）——
+     * 不是 SKIPPED，是压根不该进这个切点的分母。
+     *
+     * @param skuId      主路若按 SKU 过滤则传该 SKU，否则传 null（须与主路条件一致）
+     * @param legacyRows 旧列圈选结果，空列表表示未命中
+     */
+    public void checkCustomerPriceRows(String pointcut, Long wholesalerId, Long skuId,
+                                       String rtPhone, List<CustomerPrice> legacyRows) {
+        if (!properties.isShadowRead() || rtPhone == null || rtPhone.isBlank()) {
+            return;
+        }
+        probe(pointcut, () -> {
+            String hmac = piiCrypto.phoneHmac(rtPhone);
+            if (hmac == null) {
+                return Verdict.SKIPPED;
+            }
+            List<CustomerPrice> shadow = customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
+                    .select(CustomerPrice::getId)
+                    .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                    .eq(skuId != null, CustomerPrice::getSkuId, skuId)
+                    .eq(CustomerPrice::getRtPhoneHmac, hmac));
+            return compareIds(pointcut, idsOf(legacyRows), idsOf(shadow));
+        });
+    }
+
+    /**
+     * SMS 验证码校验影子双查（PII-W5）：旧列 {@code phone} 已查得 {@code legacy}，再用
+     * {@code phone_hmac} 查一遍比对。
+     *
+     * <p>scene / code / 未核销 / 取最新一条这几个谓词逐条照抄主路——只换手机号那一列，才比得出
+     * 「换成 hmac 后还能不能捞到同一条码」。测试态的 mock 万能码在主路里先于本查询短路，
+     * 那条路径没有 DB 读，自然也不进分母。
+     */
+    public void checkSmsCode(String pointcut, String phone, String scene, String code, SmsCode legacy) {
+        if (!properties.isShadowRead()) {
+            return;
+        }
+        probe(pointcut, () -> {
+            String hmac = piiCrypto.phoneHmac(phone);
+            if (hmac == null) {
+                return Verdict.SKIPPED;
+            }
+            SmsCode shadow = smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
+                    .select(SmsCode::getId)
+                    .eq(SmsCode::getPhoneHmac, hmac)
+                    .eq(SmsCode::getScene, scene)
+                    .eq(SmsCode::getCode, code)
+                    .isNull(SmsCode::getVerifiedAt)
+                    .orderByDesc(SmsCode::getCreatedAt)
+                    .last("LIMIT 1"));
+            return compare(pointcut, legacy == null ? null : legacy.getId(),
+                    shadow == null ? null : shadow.getId());
+        });
+    }
+
+    /**
      * 计数快照，key = {@code 切点/结论}（如 {@code A2-login/MATCHED}）。
      * 供关卡测试做前后差值断言、以及无 Micrometer 环境排障；返回不可变副本。
      */
@@ -213,6 +334,49 @@ public class PiiShadowReader {
                     pointcut, verdict, legacyId, shadowId);
         }
         return verdict;
+    }
+
+    /**
+     * 按行 id 集合比对两列答案（多行圈选切点）；语义与 {@link #compare} 逐条对齐：
+     * 影子少捞 = MISSING，多捞 = EXTRA，两头都对不上 = DIVERGED。
+     */
+    private Verdict compareIds(String pointcut, Set<Long> legacyIds, Set<Long> shadowIds) {
+        if (legacyIds.equals(shadowIds)) {
+            return Verdict.MATCHED;
+        }
+        Set<Long> onlyLegacy = new LinkedHashSet<>(legacyIds);
+        onlyLegacy.removeAll(shadowIds);
+        Set<Long> onlyShadow = new LinkedHashSet<>(shadowIds);
+        onlyShadow.removeAll(legacyIds);
+        Verdict verdict;
+        if (!onlyLegacy.isEmpty() && !onlyShadow.isEmpty()) {
+            verdict = Verdict.DIVERGED;
+        } else if (!onlyLegacy.isEmpty()) {
+            verdict = Verdict.MISSING;
+        } else {
+            verdict = Verdict.EXTRA;
+        }
+        log.warn("[PII-shadow] 切点 {} 影子双查不一致：verdict={} legacyCount={} shadowCount={}"
+                        + " onlyLegacyIds={} onlyShadowIds={}",
+                pointcut, verdict, legacyIds.size(), shadowIds.size(),
+                boundedIds(onlyLegacy), boundedIds(onlyShadow));
+        return verdict;
+    }
+
+    private static Set<Long> idsOf(List<CustomerPrice> rows) {
+        Set<Long> ids = new LinkedHashSet<>();
+        for (CustomerPrice row : rows) {
+            ids.add(row.getId());
+        }
+        return ids;
+    }
+
+    /** 圈选口径的差集可能很大；日志只留前 {@value #MAX_LOGGED_IDS} 个 id + 总数，避免刷爆日志。 */
+    private static String boundedIds(Collection<Long> ids) {
+        if (ids.size() <= MAX_LOGGED_IDS) {
+            return ids.toString();
+        }
+        return new ArrayList<>(ids).subList(0, MAX_LOGGED_IDS) + "...(共" + ids.size() + ")";
     }
 
     private void record(String pointcut, Verdict verdict) {

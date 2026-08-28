@@ -22,7 +22,15 @@
     - **RED 已验证**：`SPRING_APPLICATION_JSON` 强制 `read-mode=plain` 复跑本类，10 例中 9 例转红（唯一不红的是 LICENSE_NO 负向断言，同 S0 类先例）
     - 2026-08-23 全量 **434 绿**（46 类，424+10，0 失败/0 错误/0 跳过，零回归）。全量日志仅 4 条 mismatch 告警，逐条溯源均为两个 PII 关卡类自己造的数（S0 类抹 blacklist hmac 测回填 1 条 + 本类故意造的 3 条）——**业务用例零不一致**，这也是"影子期零行为变化"的回归网本身（测试态 `read-mode=shadow`，全量都走了一遍影子）
     - **闸门（待生产）**：`pii.shadow` 的 mismatch 连续 **≥7 天为 0** 才可进 Step 2。回滚：`read-mode` 拨回 plain，秒级
-  - [待办] Step 2 / PII-W5 非命门切读（blacklist/sms/pricing + Redis 键 HMAC 化）。前置已就绪：V30 三表加列+双写+回填+对账已完成（见下方缺口条目），W5 只需接影子切点与切读本身
+  - [进行中] Step 2 / PII-W5 非命门切读（blacklist/sms/pricing + Redis 键 HMAC 化）。前置已就绪：V30 三表加列+双写+回填+对账已完成（见下方缺口条目）
+    - **影子切点已接** ✅（2026-08-27）：新增 5 个读切点，口径逐条照抄 W4 的 8 个（返回 void、异常吞在 `probe()` 内、日志只打切点/结论/行 id、hmac 算不出记 SKIPPED 不入分母）——`C1-price-set`（`setCustomerPrice` upsert 探测）/ `C1-price-settle`（`settleFromInquiry` 同）/ `C2-price-resolve`（`resolveCustomUnitPrice`，须同带 `status=ACTIVE` 才是同一个问题；分母 = Redis 缓存 miss 的 DB 实读次数）/ `C3-price-batch`（`doBatchCustomerInTx` 按 rtPhone 圈选，唯一的**多行**切点，比的是行 id 集合：影子少捞=MISSING、多捞=EXTRA、两头对不上=DIVERGED；显式 ids 分支没读明文列，直接不探测、不入分母）/ `SMS-verify`（`verifySmsCode`）
+    - **inquiry_requests 没接，且不是遗漏**：主代码对该表的读全部按 id / tenant / wholesaler / status，**没有一处按 rt_phone 圈选**（15 §1.2-C6 只把它列为落库+透传的写触点，§4 Step 2 的切读清单也只有 blacklist/sms/pricing）。没有明文读路径就没有「两列答案对不对得上」可比，硬造探针只会往分母里灌永远 MATCHED 的噪音；该列正确性由 `reconcile()` 对账兜底。已写进 `PiiShadowReader` 类注释
+    - **闸门分组**：W5 这 5 个切点**不进 Step 1 的 7 天分母**（那是登录/黑名单 8 切点的准入线），服务的是 Step 2 自己的「pricing 全量 + 黑名单用例 + E2E 45×2 全绿，观察 ≥3 天」
+    - 关卡测试 `PiiShadowReadScenarioTest` 10→19 例：C1/C2/C3/SMS 各「一致记 MATCHED」+「造漏填记 MISSING 且主路结果分毫不变」成对，检出力与零行为变化同一条用例；另 1 例钉死 C3 显式 ids 分支不入分母。三个定价切点的零行为变化各自分开断言（C1 走成 insert 会撞唯一键连累 confirmByWa 整单回滚、C2 回退公开价是资损、C3 少圈一行是漏调价）
+    - **RED 已验证**：`SPRING_APPLICATION_JSON` 强制 `read-mode=plain` 复跑本类，19 例中 17 例转红（不红的两例是 b2 LICENSE_NO 与 c3 显式 ids 两条负向「不入分母」断言，同 W4 先例）
+    - 2026-08-27 全量 **448 绿**（439+9，0 失败/0 错误/0 跳过，零回归）。全量日志 13 条 mismatch 告警：9 条是本关卡类自己造的数，另 4 条（C1 ×1 来自 `PricingSettleScenarioTest`、C2 ×3 来自 `PricingRtMatchScenarioTest`）是这两个兄弟类直接 `customerPriceMapper.insert` 造价行绕过双写切点所致，hmac 天生 NULL——**夹具噪音，非回填缺口**（同 S0 波次把对账基线改走 `flattenBackfillBaseline()` 的成因）；生产没有 mapper 造行，闸门读 prod Micrometer，不受影响，故不追改兄弟类
+    - 顺手修掉一处测试抖动：本类 `PHONE_SEQ` 原起点固定，而 sms-code 的 60s 重发冷却键在 Redis 里跨 JVM 存活 → 60 秒内复跑必撞 41204 假红；改为按本次运行随机偏移（仍在 176 段内，留 1000 万号余量）
+    - [待办] **切读本身**（`read-mode=hmac` 分模块灰度）+ Redis 键 HMAC 化（C4：`matchKey` 换 hmac，旧键自然失效不清洗；sms/login 限流键前缀派生换 HMAC）
   - [待办] Step 3 / PII-W6 登录双读切换（冻结窗口 0.5d，双读兜底自愈 + 异步补写）
 - [完成] **S1 缺口：定价/短信链补做 S0**（W4 摸出来的实测差异）：15 §4 阶段0 原列了 7 张表，但 V27 实际只加了 `users.phone_hmac` 与 `blacklist.target_value_hmac`。2026-08-25 补齐余下三表，口径逐条照抄 V27 那套：
   - **V30 加列** ✅ `customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac`，全部 NULLable + 普通索引，索引列序对齐各自现有明文索引（customer_prices 用 `(wholesaler_id, rt_phone_hmac, sku_id)` 对齐物理唯一键）。纯 additive 无回滚脚本；三个新字段均带 `@JsonIgnore`，实体直出响应形状零变化
@@ -30,11 +38,11 @@
   - **回填+对账** ✅ `PiiBackfillService` 扩到五张表；把「主键/明文列/hmac 列/行过滤」抽成 `HmacColumn` record，CAS 幂等、keyset 游标、legacy 拒填三件套共用一份实现（原 users/blacklist 公开方法签名与 `ReconcileResult.table()` 取值不变）。`reconcile()`/`unreadyTables()` 现覆盖五表，`PiiBackfillRunner` 一次重启跑完五表
   - **关卡测试** ✅ `PiiDualWriteBackfillScenarioTest` +5 例（15→20）：C1 新建 / C1 命中既有行机会性回填 / SMS 真端点 `POST /api/v1/account/sms-code` / C2 `submitByRt` / V30 三表回填幂等。切点一律真调，不用 mapper 造行代替。JSON 红线用例扩到三表；对账基线拉平改走 `flattenBackfillBaseline()` 覆盖五表（多个兄弟场景类直接 mapper 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然 NULL）
   - 2026-08-25 全量 **439 绿**（434+5，0 失败/0 错误/0 跳过，零回归）
-  - 遗留：`PiiShadowReader` **未**给这三表接影子切点——那是读路径改造，随 Step 2 / PII-W5 一起做，不进 Step 1 闸门分母（类注释已同步）。生产首跑注意 `sms_codes` 行数随发码量线性增长，回填全表成本由 `backfill-batch-size` 控制（刻意不按「未过期」缩小分母，否则闸门口径随时间漂移）
+  - 遗留：~~`PiiShadowReader` **未**给这三表接影子切点~~ → **2026-08-27 W5 已收口**：customer_prices / sms_codes 各自的读切点已接（见上方 W5 条目），inquiry_requests 经核实主代码无按 rt_phone 的读路径、无切点可接。生产首跑注意 `sms_codes` 行数随发码量线性增长，回填全表成本由 `backfill-batch-size` 控制（刻意不按「未过期」缩小分母，否则闸门口径随时间漂移）
 - [待办] **PII-S2 收缩+打码**：V29 明文列处置+Redis 键改造+限流键加盐+前端 9 处打码（逐页清单）+E2E 断言更新
 - [待办] **验收**：全量+E2E45×2+报告 13；上线检查单余项复核（prod 冒烟/CVE 复扫/graceful shutdown 属部署侧待环境）
 
 ## 验证
 
-- 每波 mvn 全量绿（基线 419；补完切点测试债后 424；W4 影子双查后 434；V30 补做 S0 后为 **439**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
+- 每波 mvn 全量绿（基线 419；补完切点测试债后 424；W4 影子双查后 434；V30 补做 S0 后 439；W5 影子切点后为 **448**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
 - 测试态常开 `write-mode=dual` + `read-mode=shadow`——「阶段 0 双写不改行为」「阶段 1 影子期零行为变化」这两句话，靠的就是全量在这两个开关下仍全绿

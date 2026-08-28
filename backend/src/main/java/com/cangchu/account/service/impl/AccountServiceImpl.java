@@ -550,6 +550,8 @@ public class AccountServiceImpl implements AccountService {
                 .isNull(SmsCode::getVerifiedAt)
                 .orderByDesc(SmsCode::getCreatedAt)
                 .last("LIMIT 1"));
+        // PII 阶段 1 Step1（W5）：影子重查一遍 phone_hmac，只计数不改判定（15 §4 Step2 的 sms 校验切点）
+        piiShadowReader.checkSmsCode("SMS-verify", phone, scene, code, smsCode);
         if (smsCode == null) {
             throw new BizException(ErrorCode.AUTH_SMS_002);
         }

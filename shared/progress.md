@@ -124,3 +124,24 @@ W4 摸出来的那个缺口补完了。范围严格限定「加列 + 双写 + �
 - 三个新字段都补了 `@JsonIgnore`。V27 的 `users.phone_hmac` 有这条且有红线用例把着，新列漏加就会让实体直出的响应形状变化
 - `sms_codes` 回填**刻意不按「未过期」缩小分母**——分母随时间滑动的话，「回填填全了」这句话就无法证明。生产首跑成本靠 `backfill-batch-size` 控
 - `PiiShadowReader` **没**给这三表接影子切点，类注释已改成「V30 已补齐前置，影子切点随 Step 2 一起做」。不进 Step 1 的 7 天闸门分母
+
+## 2026-08-27 · PII-W5 影子读切点：定价链 + 短信码（Step 2 前半段）
+
+Step 2 拆成两半，本次只做前半段「接影子切点」，**切读本身（`read-mode=hmac`）一行没动**——先让这几条路也攒够观察数据，再谈切。
+
+- **新增 5 个读切点**，口径逐条照抄 W4 那 8 个（返回 void、异常吞在 `probe()` 内、日志只打切点/结论/行 id、hmac 算不出记 SKIPPED 不入分母）：
+  - `C1-price-set` / `C1-price-settle`：`setCustomerPrice` 与 `settleFromInquiry` 的 upsert 唯一键探测，两处同一口径（15 §1.2-C1 本就把它俩算作一个场景）
+  - `C2-price-resolve`：`resolveCustomUnitPrice`。影子查询**必须同带 `status=ACTIVE`**，否则比的不是同一个问题。该切点在 Redis 缓存 miss 分支内，分母 = 真实 DB 读次数，不是请求数
+  - `C3-price-batch`：`doBatchCustomerInTx` 按 rtPhone 圈选。**唯一的多行切点**，比的是行 id 集合——影子少捞=MISSING、多捞=EXTRA、两头都对不上=DIVERGED，与单行 `compare()` 语义逐条对齐。差集日志封顶 10 个 id
+  - `SMS-verify`：`verifySmsCode`
+- **inquiry_requests 没接，是核实后的结论不是遗漏**：主代码对该表的读全部按 id / tenant / wholesaler / status，**没有一处按 rt_phone 圈选**（15 §1.2-C6 只把它列为落库+透传的写触点，§4 Step 2 的切读清单同样只有 blacklist/sms/pricing）。没有明文读路径就没有「两列答案对不对得上」可比，硬造探针只会往分母里灌永远 MATCHED 的噪音。该列正确性由 `reconcile()` 兜底；将来真出现按手机号查询询价单的入口，接切点时一并补进 `PiiShadowReader`
+- **闸门分组写进类注释**：W5 这 5 个切点**不进 Step 1 的 7 天分母**（那是登录/黑名单 8 切点的准入线），服务的是 Step 2 自己的「pricing 全量 + 黑名单用例 + E2E 45×2 全绿，观察 ≥3 天」
+- **关卡测试 10→19 例**（仍在 `PiiShadowReadScenarioTest`，不另起类）：C1/C2/C3/SMS 各一对「一致记 MATCHED」+「造漏填记 MISSING 且主路结果分毫不变」，检出力与零行为变化同一条用例；另 1 例钉死 C3 显式 ids 分支不入分母。三个定价切点的零行为变化**分开断言**，因为爆炸半径不同：C1 走成 insert 会撞唯一键连累 confirmByWa 整单回滚、C2 回退公开价是资损、C3 少圈一行是漏调价
+- **RED 已验证**：强制 `read-mode=plain` 复跑本类，19 例中 17 例转红；不红的两例正是 b2 LICENSE_NO 与 c3 显式 ids 这两条负向「不入分母」断言（同 W4 先例）
+- 全量 **448 绿**（439+9，0 失败/0 错误/0 跳过，零回归）
+
+### 踩坑 / 决策
+- **全量日志 13 条 mismatch，其中 4 条不是本类造的，但也不是缺口**：`PricingSettleScenarioTest`（C1 ×1）与 `PricingRtMatchScenarioTest`（C2 ×3）直接 `customerPriceMapper.insert` 造价行，绕过双写切点，`rt_phone_hmac` 天生 NULL——**和 S0 波次把对账基线改走 `flattenBackfillBaseline()` 是同一个成因**。生产没有 mapper 造行这回事，闸门读的是 prod 的 Micrometer 计数，不受测试态影响，故不追改兄弟类，只在关卡类注释里写明来源，免得下一个人把它当回填缺口查
+- **SMS 切点在测试态默认根本触发不到**：`cangchu.sms.mock=true` 下发出的就是 888888，而 888888 会在 `verifySmsCode` 首行短路，永远走不到 sms_codes 的 DB 读。做法是先经真端点发码（行仍由真双写切点写入），再把落库那行的 `code` 改成非万能码——读切点仍由真端点驱动，改的只是一个夹具字段
+- **修掉一处会咬人的测试抖动**：本类 `PHONE_SEQ` 原起点固定，而 sms-code 的 60s 重发冷却键 `sms:cd:{phoneHash}:{scene}` 在 Redis 里**跨 JVM 存活**（H2 每次重建，Redis 不会）→ 60 秒内复跑本类必撞 41204 假红。改成按本次运行随机偏移，仍在 176 段内、留 1000 万号余量。兄弟类 `PiiDualWriteBackfillScenarioTest` 用 177 段且同样调 sms-code 端点，存在同样的潜在抖动，本波未动（不越界改他人用例），留待其自身波次处理
+- `C3` 的显式 ids 分支选择**早返回不探测**（而非记 SKIPPED）：那条路主路压根没读 rt_phone 列，记 SKIPPED 等于承认"这里本该有个影子"，语义不对。口径抄 `checkBlacklistEntry` 对 LICENSE_NO 的处理
