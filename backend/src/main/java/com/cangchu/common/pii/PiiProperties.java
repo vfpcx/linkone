@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * PII 硬化配置（15-pii-hardening-v2 §3）。
  *
@@ -46,16 +49,30 @@ public class PiiProperties {
     private int backfillBatchSize = 500;
 
     /**
-     * 读模式（阶段 1 新增，15 §4 阶段1）：
+     * 全局读模式（阶段 1 新增，15 §4 阶段1）：
      * <ul>
      *   <li>{@code plain}——只读旧列（phone_hash / 明文），阶段 0 口径；</li>
      *   <li>{@code shadow}——<b>仍以旧列出结果</b>，同时用 hmac 列再查一遍，仅比对+计数
      *       （Step 1 验证期，零行为变化，见 {@link PiiShadowReader}）；</li>
-     *   <li>{@code hmac}——主读 hmac + 旧列兜底回退（Step 2/3，本波次未实现）。</li>
+     *   <li>{@code hmac}——<b>切读</b>：hmac 列直接出结果，明文列不再参与判定。Step 2 是<b>硬切</b>
+     *       ——hmac 未命中即真未命中，<b>没有旧列兜底</b>（回填是否填全，由切读前的影子期闸门证明，
+     *       不靠运行时兜底掩盖；兜底自愈 + 异步补写是 Step 3 登录链另一套口径）。</li>
      * </ul>
-     * 回滚口径：拨回 plain 即停影子查询，秒级、无数据损失。
+     * 回滚口径：拨回 shadow/plain 即恢复旧列读路径，秒级、无数据损失。
+     *
+     * <p>本字段是<b>全局默认</b>，作用于登录链（A1–A6，归 Step 3）与所有未在
+     * {@link #readModes} 里登记覆写的模块。
      */
     private String readMode = "plain";
+
+    /**
+     * 分模块读模式覆写（阶段 1 Step 2 新增，15 §4 Step 2）：key = 模块名（取值见 {@link PiiModule}），
+     * value 与 {@link #readMode} 同三档。未登记的模块回落到全局 {@link #readMode}。
+     *
+     * <p>灰度与回滚都按模块走：切读时一块一块放，出事时只拨回出事的那块，已观察合格的其余模块
+     * 不受牵连。模块名与模式取值在启动期校验，写错即拒绝启动（见 {@link PiiReadRouter}）。
+     */
+    private Map<String, String> readModes = new LinkedHashMap<>();
 
     /** 是否双写（阶段 0 唯一分叉点；读路径与本开关无关，一律走旧列）。 */
     public boolean isDualWrite() {
@@ -65,5 +82,24 @@ public class PiiProperties {
     /** 是否影子双查（阶段 1 Step 1；出结果的仍是旧列，本开关只决定要不要多查一次比对）。 */
     public boolean isShadowRead() {
         return "shadow".equalsIgnoreCase(readMode);
+    }
+
+    /** 某模块生效的读模式：模块覆写优先，未登记（或登记为空）回落全局 {@link #readMode}。 */
+    public String readMode(String module) {
+        String override = readModes.get(module);
+        return (override == null || override.isBlank()) ? readMode : override;
+    }
+
+    /** 该模块是否处于影子双查（出结果的仍是旧列）。 */
+    public boolean isShadowRead(String module) {
+        return "shadow".equalsIgnoreCase(readMode(module));
+    }
+
+    /**
+     * 该模块是否已<b>切读</b>（阶段 1 Step 2）：hmac 列直接出结果，明文列不再参与判定，
+     * 且 hmac 未命中即真未命中——无旧列兜底。拨回 shadow/plain 即恢复旧列读路径。
+     */
+    public boolean isHmacRead(String module) {
+        return "hmac".equalsIgnoreCase(readMode(module));
     }
 }

@@ -30,7 +30,16 @@
     - **RED 已验证**：`SPRING_APPLICATION_JSON` 强制 `read-mode=plain` 复跑本类，19 例中 17 例转红（不红的两例是 b2 LICENSE_NO 与 c3 显式 ids 两条负向「不入分母」断言，同 W4 先例）
     - 2026-08-27 全量 **448 绿**（439+9，0 失败/0 错误/0 跳过，零回归）。全量日志 13 条 mismatch 告警：9 条是本关卡类自己造的数，另 4 条（C1 ×1 来自 `PricingSettleScenarioTest`、C2 ×3 来自 `PricingRtMatchScenarioTest`）是这两个兄弟类直接 `customerPriceMapper.insert` 造价行绕过双写切点所致，hmac 天生 NULL——**夹具噪音，非回填缺口**（同 S0 波次把对账基线改走 `flattenBackfillBaseline()` 的成因）；生产没有 mapper 造行，闸门读 prod Micrometer，不受影响，故不追改兄弟类
     - 顺手修掉一处测试抖动：本类 `PHONE_SEQ` 原起点固定，而 sms-code 的 60s 重发冷却键在 Redis 里跨 JVM 存活 → 60 秒内复跑必撞 41204 假红；改为按本次运行随机偏移（仍在 176 段内，留 1000 万号余量）
-    - [待办] **切读本身**（`read-mode=hmac` 分模块灰度）+ Redis 键 HMAC 化（C4：`matchKey` 换 hmac，旧键自然失效不清洗；sms/login 限流键前缀派生换 HMAC）
+    - **切读本身 ✅ 代码就位（2026-08-29）**：新增 `PiiReadRouter`（切读开关本体，明文查询以 `legacyRead` Supplier 传入 = 回滚分支原样保留）+ `PiiHmacQueries`（hmac 查询**唯一构造入口**，影子期比对与切读后出结果共用同一条谓词——否则闸门证明的是 A 查询、上线跑的是 B 查询）+ `PiiModule`（灰度模块划分）
+      - **分模块灰度**：`cangchu.pii.read-modes.{blacklist|sms|pricing|redis-key}`，未登记/空值回落全局 `read-mode`。四块爆炸半径不同（放进一个该拦的人 / 全员注册失败 / 资损 / 缓存重算），一刀切意味着任一块翻车就得把已观察合格的其余三块一起赔进去。主配已按四行空占位符登记（`${PII_READ_MODE_*:}`），否则 `redis-key` 带连字符没法用标准环境变量注入，「按模块灰度」就是纸面能力。模块名/模式值写错**拒绝启动**（静默回落＝想切的没切且毫无征兆）
+      - **硬切，无旧列兜底**：hmac 未命中 = 真未命中。回填填没填全由切读**之前**的影子闸门证明，用运行时兜底掩盖等于把「回填有洞」永久藏起来，闸门再没有归零的一天。（Step 3 登录链的双读兜底自愈是另一套权衡：登录切错的代价是全员登不上）
+      - **切点**：B1 命中检查 / B2 加黑查重（LICENSE_NO 行 hmac 恒 NULL，切读期照走明文，不被误伤）、SMS-verify、C1-price-set / C1-price-settle / C2-price-resolve / C3-price-batch（显式 ids 分支没读明文列，无可切之读）。**登录链 A1–A6 一行未动**（归 Step 3/W6），继续吃全局 `read-mode`——那也正是 Step 1 七天闸门组的口径；故 `PiiShadowReader.checkUser` 不设模块，其余五个方法改为分模块闸门（模块一旦切读，其影子探针停摆——已无「旧列的答案」可比）
+      - **C4 Redis 键 HMAC 化**：`price:match:*`（原键里**直接带明文手机号**，本次堵掉）、`sms:cd:* / sms:daily:*`、`login:fail:*` 三处的手机号派生物统一经 `redisKeyPart` 派生。旧键不清洗，靠各自 TTL 自然消亡（60s / 当日 / 15min）；代价是拨动开关等于把这几个窗口重开一次（冷却中可再发码、锁定中即解锁、专属价缓存重算）——有界且自愈，但别在遭爆破时拨
+      - 关卡测试 `PiiHmacReadScenarioTest` 22 例（新类，影子类 19 例一条没删）：每个切点「hmac 命中 == 旧列命中」+「hmac 未命中即真未命中」成对。后者把切读后的代价逐条钉死并写进断言消息——B1 放行该拦的人 / B2 复活语义丢失退化成 uk 兜底 50310 / SMS 41202 全员注册受阻 / C1 撞唯一键连累 confirmByWa 整单回滚 / C2 回退公开价 9.90 是资损 / C3 真的少圈一行。另有拨回秒级恢复（含影子探针复活）、模块隔离、启动校验拒绝配置笔误、默认值仍是 shadow 各一例
+      - **RED 已验证（两个互补变异，21 例正式用例全被杀死）**：变异 A「模块覆写失效＝切读没发生」→ 11 例转红（6 条真未命中 + 3 条 C4 + 模块粒度 + 拨回）；变异 B「切读发生但 hmac 查不到」→ 10 例转红（6 条一致用例 + 3 条 C4 + C3 未命中）。两轮均不红的 4 例全是负向断言（默认值、模块隔离、LICENSE_NO、显式 ids），同 W4/W5 先例
+      - 2026-08-29 全量 **470 绿**（448+22，0 失败/0 错误/0 跳过，零回归）。全量日志 16 条 mismatch = 基线 13 + 本类自造 3 条 B1-MISSING；C1 那 3 条逐条溯源为 S0 类 ×1 / 影子类 ×1 / `PricingSettleScenarioTest` ×1（已知夹具噪音），无新增无解释条目
+      - **默认值刻意没动**：全局仍 `read-mode: shadow`，四个模块占位符全空。本波交付的是「代码就绪 + 开关可拨」，生产闸门（pricing 全量 + 入驻黑名单用例 + E2E 45×2 全绿，观察 ≥3 天）过了才逐块拨 hmac
+    - [待办] **生产切读执行**：闸门达标后按 `redis-key → blacklist → sms → pricing` 顺序逐块拨（先拨代价最轻、可自愈的），每块观察 ≥3 天再拨下一块；出事只拨回那一块
   - [待办] Step 3 / PII-W6 登录双读切换（冻结窗口 0.5d，双读兜底自愈 + 异步补写）
 - [完成] **S1 缺口：定价/短信链补做 S0**（W4 摸出来的实测差异）：15 §4 阶段0 原列了 7 张表，但 V27 实际只加了 `users.phone_hmac` 与 `blacklist.target_value_hmac`。2026-08-25 补齐余下三表，口径逐条照抄 V27 那套：
   - **V30 加列** ✅ `customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac`，全部 NULLable + 普通索引，索引列序对齐各自现有明文索引（customer_prices 用 `(wholesaler_id, rt_phone_hmac, sku_id)` 对齐物理唯一键）。纯 additive 无回滚脚本；三个新字段均带 `@JsonIgnore`，实体直出响应形状零变化

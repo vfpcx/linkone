@@ -6,7 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiShadowReader;
+import com.cangchu.common.pii.PiiReadRouter;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.BlacklistAddDto;
@@ -48,8 +48,9 @@ public class BlacklistServiceImpl implements BlacklistService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // PII 硬化阶段 0：HMAC 盲索引双写（切点 B2 加黑/复活；仅 PHONE 行，LICENSE_NO 恒 NULL）
     private final PiiCrypto piiCrypto;
-    // PII 阶段 1 Step1：B1 命中检查 / B2 查重的影子双查（命中判定仍以明文列为准）
-    private final PiiShadowReader piiShadowReader;
+    // PII 阶段 1 Step1/Step2：B1 命中检查 / B2 查重的读路由——影子期仍以明文列为准，
+    // blacklist 模块拨到 hmac 后由 hmac 列出结果（15 §4 Step 2），拨回即秒级恢复
+    private final PiiReadRouter piiReadRouter;
 
     @Override
     public Map<String, Object> page(Long opsUserId, int page, int size, String status, String keyword) {
@@ -85,11 +86,13 @@ public class BlacklistServiceImpl implements BlacklistService {
         String value = dto.getTargetValue().trim();
 
         // 先查：ACTIVE 重复拒绝；REMOVED 复活（uk 约束在，无法重插同键新行）
-        Blacklist existing = blacklistMapper.selectOne(new LambdaQueryWrapper<Blacklist>()
-                .eq(Blacklist::getTargetType, type)
-                .eq(Blacklist::getTargetValue, value)
-                .last("LIMIT 1"));
-        piiShadowReader.checkBlacklistEntry("B2-blacklist-add", type, value, existing);
+        // PII 阶段 1 Step2（W5）：blacklist 模块拨到 hmac 即由 target_value_hmac 出结果；
+        // 非 hmac 模式走下面这条明文查询（回滚分支）+ 影子比对。LICENSE_NO 行恒走明文。
+        Blacklist existing = piiReadRouter.blacklistEntry("B2-blacklist-add", type, value,
+                () -> blacklistMapper.selectOne(new LambdaQueryWrapper<Blacklist>()
+                        .eq(Blacklist::getTargetType, type)
+                        .eq(Blacklist::getTargetValue, value)
+                        .last("LIMIT 1")));
         if (existing != null) {
             if ("ACTIVE".equals(existing.getStatus())) {
                 throw new BizException(ErrorCode.BLACKLIST_ENTRY_EXISTS);
@@ -154,12 +157,13 @@ public class BlacklistServiceImpl implements BlacklistService {
     @Override
     public boolean isBlacklisted(String phone, String license) {
         if (phone != null && !phone.isBlank()) {
-            long hit = blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()
-                    .eq(Blacklist::getTargetType, "PHONE")
-                    .eq(Blacklist::getTargetValue, phone.trim())
-                    .eq(Blacklist::getStatus, "ACTIVE"));
-            piiShadowReader.checkBlacklistHit("B1-blacklist-hit", phone, hit > 0);
-            if (hit > 0) return true;
+            // PII 阶段 1 Step2（W5）：同 B2，hmac 模式下由 target_value_hmac 数行，否则走明文（回滚分支）
+            boolean hit = piiReadRouter.blacklistHit("B1-blacklist-hit", phone,
+                    () -> blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()
+                            .eq(Blacklist::getTargetType, "PHONE")
+                            .eq(Blacklist::getTargetValue, phone.trim())
+                            .eq(Blacklist::getStatus, "ACTIVE")) > 0);
+            if (hit) return true;
         }
         if (license != null && !license.isBlank()) {
             long hit = blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()

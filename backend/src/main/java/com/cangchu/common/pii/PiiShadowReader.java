@@ -57,6 +57,15 @@ import java.util.function.Supplier;
  *       自己的「pricing 全量 + 黑名单用例 + E2E 全绿，观察 ≥3 天」闸门。</li>
  * </ul>
  *
+ * <p><b>切读后本类自动让位</b>（Step 2 起）：blacklist / sms / pricing 三组的闸门改按
+ * {@link PiiModule} 分模块判定——某模块一旦拨到 {@code hmac}，{@link PiiReadRouter} 直接由 hmac
+ * 列出结果、明文查询不再执行，本类对该模块的探针随之停摆。这是对的：已经没有"旧列的答案"可比，
+ * 再计数就是拿 hmac 跟自己比。B1/B2 因此会退出 Step 1 的 7 天分母——切读发生在闸门达标<b>之后</b>，
+ * 不影响准入判定。登录链（{@link #checkUser}）不设模块，继续吃全局 {@code read-mode}。
+ *
+ * <p><b>hmac 侧查询不写在本类</b>：谓词统一由 {@link PiiHmacQueries} 构造，与切读后真正出结果的
+ * 那条查询共用一份——否则影子期证明的是 A 查询、上线跑的是 B 查询，闸门便失去意义。
+ *
  * <p><b>inquiry_requests 没有影子切点，这不是遗漏</b>：V30 给它加了 {@code rt_phone_hmac} 并已双写+
  * 回填，但主代码里对该表的读<b>没有一处按 rt_phone 圈选</b>（全部按 id / tenant / wholesaler / status
  * 查），15 §1.2-C6 也只把它列为「落库 + 确认转 settle 透传」的写触点、§4 Step 2 的切读清单同样只有
@@ -120,6 +129,8 @@ public class PiiShadowReader {
      * @param legacy   旧列查询结果，未命中传 null
      */
     public void checkUser(String pointcut, String phone, User legacy) {
+        // 登录链故意不设灰度模块，吃的就是全局 read-mode——它归 Step 3 / W6，本波不切读，
+        // 且全局 read-mode 正是 Step 1「7 天 mismatch=0」闸门组的口径（见 PiiModule 类注释）。
         if (!properties.isShadowRead()) {
             return;
         }
@@ -144,7 +155,7 @@ public class PiiShadowReader {
      * <p>LICENSE_NO 行的 hmac 恒 NULL（15 §2-1 保留明文分支），直接跳过——不是缺口。
      */
     public void checkBlacklistEntry(String pointcut, String targetType, String targetValue, Blacklist legacy) {
-        if (!properties.isShadowRead() || !"PHONE".equals(targetType)) {
+        if (!properties.isShadowRead(PiiModule.BLACKLIST) || !"PHONE".equals(targetType)) {
             return;
         }
         probe(pointcut, () -> {
@@ -152,11 +163,8 @@ public class PiiShadowReader {
             if (hmac == null) {
                 return Verdict.SKIPPED;
             }
-            Blacklist shadow = blacklistMapper.selectOne(new LambdaQueryWrapper<Blacklist>()
-                    .select(Blacklist::getId)
-                    .eq(Blacklist::getTargetType, "PHONE")
-                    .eq(Blacklist::getTargetValueHmac, hmac)
-                    .last("LIMIT 1"));
+            Blacklist shadow = blacklistMapper.selectOne(PiiHmacQueries.blacklistEntry(hmac)
+                    .select(Blacklist::getId));
             return compare(pointcut, legacy == null ? null : legacy.getId(),
                     shadow == null ? null : shadow.getId());
         });
@@ -168,7 +176,7 @@ public class PiiShadowReader {
      * @param legacyHit 旧列口径的命中结论（调用方已算出，本类不改它）
      */
     public void checkBlacklistHit(String pointcut, String phone, boolean legacyHit) {
-        if (!properties.isShadowRead()) {
+        if (!properties.isShadowRead(PiiModule.BLACKLIST)) {
             return;
         }
         probe(pointcut, () -> {
@@ -176,10 +184,7 @@ public class PiiShadowReader {
             if (hmac == null) {
                 return Verdict.SKIPPED;
             }
-            boolean shadowHit = blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()
-                    .eq(Blacklist::getTargetType, "PHONE")
-                    .eq(Blacklist::getTargetValueHmac, hmac)
-                    .eq(Blacklist::getStatus, "ACTIVE")) > 0;
+            boolean shadowHit = blacklistMapper.selectCount(PiiHmacQueries.blacklistActiveHit(hmac)) > 0;
             if (legacyHit == shadowHit) {
                 return Verdict.MATCHED;
             }
@@ -207,7 +212,7 @@ public class PiiShadowReader {
      */
     public void checkCustomerPrice(String pointcut, Long wholesalerId, String rtPhone, Long skuId,
                                    String status, CustomerPrice legacy) {
-        if (!properties.isShadowRead()) {
+        if (!properties.isShadowRead(PiiModule.PRICING)) {
             return;
         }
         probe(pointcut, () -> {
@@ -215,13 +220,9 @@ public class PiiShadowReader {
             if (hmac == null) {
                 return Verdict.SKIPPED;
             }
-            CustomerPrice shadow = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                    .select(CustomerPrice::getId)
-                    .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                    .eq(CustomerPrice::getRtPhoneHmac, hmac)
-                    .eq(CustomerPrice::getSkuId, skuId)
-                    .eq(status != null, CustomerPrice::getStatus, status)
-                    .last("LIMIT 1"));
+            CustomerPrice shadow = customerPriceMapper.selectOne(
+                    PiiHmacQueries.customerPrice(wholesalerId, hmac, skuId, status)
+                            .select(CustomerPrice::getId));
             return compare(pointcut, legacy == null ? null : legacy.getId(),
                     shadow == null ? null : shadow.getId());
         });
@@ -240,7 +241,7 @@ public class PiiShadowReader {
      */
     public void checkCustomerPriceRows(String pointcut, Long wholesalerId, Long skuId,
                                        String rtPhone, List<CustomerPrice> legacyRows) {
-        if (!properties.isShadowRead() || rtPhone == null || rtPhone.isBlank()) {
+        if (!properties.isShadowRead(PiiModule.PRICING) || rtPhone == null || rtPhone.isBlank()) {
             return;
         }
         probe(pointcut, () -> {
@@ -248,11 +249,9 @@ public class PiiShadowReader {
             if (hmac == null) {
                 return Verdict.SKIPPED;
             }
-            List<CustomerPrice> shadow = customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
-                    .select(CustomerPrice::getId)
-                    .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                    .eq(skuId != null, CustomerPrice::getSkuId, skuId)
-                    .eq(CustomerPrice::getRtPhoneHmac, hmac));
+            List<CustomerPrice> shadow = customerPriceMapper.selectList(
+                    PiiHmacQueries.customerPriceRows(wholesalerId, skuId, hmac)
+                            .select(CustomerPrice::getId));
             return compareIds(pointcut, idsOf(legacyRows), idsOf(shadow));
         });
     }
@@ -266,7 +265,7 @@ public class PiiShadowReader {
      * 那条路径没有 DB 读，自然也不进分母。
      */
     public void checkSmsCode(String pointcut, String phone, String scene, String code, SmsCode legacy) {
-        if (!properties.isShadowRead()) {
+        if (!properties.isShadowRead(PiiModule.SMS)) {
             return;
         }
         probe(pointcut, () -> {
@@ -274,14 +273,8 @@ public class PiiShadowReader {
             if (hmac == null) {
                 return Verdict.SKIPPED;
             }
-            SmsCode shadow = smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
-                    .select(SmsCode::getId)
-                    .eq(SmsCode::getPhoneHmac, hmac)
-                    .eq(SmsCode::getScene, scene)
-                    .eq(SmsCode::getCode, code)
-                    .isNull(SmsCode::getVerifiedAt)
-                    .orderByDesc(SmsCode::getCreatedAt)
-                    .last("LIMIT 1"));
+            SmsCode shadow = smsCodeMapper.selectOne(PiiHmacQueries.smsCode(hmac, scene, code)
+                    .select(SmsCode::getId));
             return compare(pointcut, legacy == null ? null : legacy.getId(),
                     shadow == null ? null : shadow.getId());
         });

@@ -12,6 +12,7 @@ import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.pii.PiiReadRouter;
 import com.cangchu.common.pii.PiiShadowReader;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
@@ -58,6 +59,9 @@ public class AccountServiceImpl implements AccountService {
     private final PiiCrypto piiCrypto;
     // PII 阶段 1 Step1：A1–A5 读切点影子双查（read-mode=shadow 时才动作，出结果的仍是 phone_hash）
     private final PiiShadowReader piiShadowReader;
+    // PII 阶段 1 Step2：SMS 码校验切读（sms 模块）+ 短信/登录限流键的手机号派生物 HMAC 化（C4，redis-key 模块）。
+    // 登录链 A1–A5 的读切换归 Step 3 / W6，本类的 phone_hash 查询一行未动。
+    private final PiiReadRouter piiReadRouter;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -94,18 +98,21 @@ public class AccountServiceImpl implements AccountService {
         String phone = dto.getPhone();
         String scene = dto.getScene();
         String phoneHash = DigestUtil.sha256Hex(phone);
+        // PII 阶段 1 Step2 · C4（W5）：限流键的手机号派生物切 HMAC（redis-key 模块）。
+        // 拨回即恢复 sha256 口径；旧键不清洗，靠各自 TTL 自然消亡（代价见 PiiReadRouter#redisKeyPart）。
+        String rateKeyPart = piiReadRouter.redisKeyPart(phone, phoneHash);
 
         // ---- D-09：Redisson 原子限流，替代「先 select 再 insert」的 DB 计数（消除 TOCTOU 竞态）----
         // 1) 60s 重发冷却（手机号+场景）：RBucket.trySet 原子占位，已存在即冷却中 → 41204
         RBucket<String> cooldown =
-                redissonClient.getBucket("sms:cd:" + phoneHash + ":" + scene);
+                redissonClient.getBucket("sms:cd:" + rateKeyPart + ":" + scene);
         if (!cooldown.trySet("1", SMS_RESEND_COOLDOWN_SEC, java.util.concurrent.TimeUnit.SECONDS)) {
             throw new BizException(ErrorCode.AUTH_SMS_004);
         }
 
         // 2) 单日上限（手机号+场景）：原子自增，首次设置当日剩余 TTL；超限 → 41205
         RAtomicLong phoneDaily =
-                redissonClient.getAtomicLong("sms:daily:" + phoneHash + ":" + scene);
+                redissonClient.getAtomicLong("sms:daily:" + rateKeyPart + ":" + scene);
         long phoneCount = phoneDaily.incrementAndGet();
         if (phoneCount == 1L) {
             phoneDaily.expire(secondsUntilEndOfDay());
@@ -264,8 +271,12 @@ public class AccountServiceImpl implements AccountService {
                 .eq(User::getPhoneHash, phoneHash));
         piiShadowReader.checkUser("A2-login", phone, user);
 
+        // PII 阶段 1 Step2 · C4（W5）：登录失败计数键的手机号派生物切 HMAC（redis-key 模块）。
+        // 只换 Redis 键的派生方式，上面那条 phone_hash 查询（A2 读切点）不在本波范围，归 Step 3 / W6。
+        String failKeyPart = piiReadRouter.redisKeyPart(phone, phoneHash);
+
         // D-04: 锁定优先于一切（即便用户不存在也按手机号维度统一处理，防枚举 + 防爆破）
-        if (isLoginLocked(phoneHash)) {
+        if (isLoginLocked(failKeyPart)) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_002);
         }
 
@@ -278,7 +289,7 @@ public class AccountServiceImpl implements AccountService {
                 verifySmsCode(phone, "LOGIN", dto.getSmsCode());
             }
             // 走到这里说明验证码"通过"但账号不存在，或为密码登录——统一返回账号或密码错误
-            recordLoginFailureAndThrow(phoneHash);
+            recordLoginFailureAndThrow(failKeyPart);
         }
 
         // 检查账号状态
@@ -292,14 +303,14 @@ public class AccountServiceImpl implements AccountService {
             if (user.getPasswordHash() == null
                     || !PASSWORD_ENCODER.matches(dto.getPassword(), user.getPasswordHash())) {
                 // D-04 + D-10：累加失败计数、达阈值锁定，返回真实剩余次数，不区分账号是否存在
-                recordLoginFailureAndThrow(phoneHash);
+                recordLoginFailureAndThrow(failKeyPart);
             }
         } else {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_001, "请输入密码或验证码");
         }
 
         // D-04: 登录成功清零失败计数
-        clearLoginFailures(phoneHash);
+        clearLoginFailures(failKeyPart);
 
         // 更新登录信息
         user.setLastLoginAt(LocalDateTime.now());
@@ -543,15 +554,16 @@ public class AccountServiceImpl implements AccountService {
             return;
         }
 
-        SmsCode smsCode = smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
-                .eq(SmsCode::getPhone, phone)
-                .eq(SmsCode::getScene, scene)
-                .eq(SmsCode::getCode, code)
-                .isNull(SmsCode::getVerifiedAt)
-                .orderByDesc(SmsCode::getCreatedAt)
-                .last("LIMIT 1"));
-        // PII 阶段 1 Step1（W5）：影子重查一遍 phone_hmac，只计数不改判定（15 §4 Step2 的 sms 校验切点）
-        piiShadowReader.checkSmsCode("SMS-verify", phone, scene, code, smsCode);
+        // PII 阶段 1 Step1/Step2（W5）：sms 模块拨到 hmac 即由 phone_hmac 取码，且未命中就是未命中
+        // （切读后 41202 等价于"码不对"，不再回退明文列）；非 hmac 模式走下面这条明文查询（回滚分支）+ 影子比对
+        SmsCode smsCode = piiReadRouter.smsCode("SMS-verify", phone, scene, code,
+                () -> smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
+                        .eq(SmsCode::getPhone, phone)
+                        .eq(SmsCode::getScene, scene)
+                        .eq(SmsCode::getCode, code)
+                        .isNull(SmsCode::getVerifiedAt)
+                        .orderByDesc(SmsCode::getCreatedAt)
+                        .last("LIMIT 1")));
         if (smsCode == null) {
             throw new BizException(ErrorCode.AUTH_SMS_002);
         }
@@ -570,14 +582,18 @@ public class AccountServiceImpl implements AccountService {
 
     // ==================== 登录失败锁定（D-04，Redisson 原子计数 + TTL）====================
 
-    /** 登录失败计数 key（按手机号 hash，避免明文手机号入 Redis key） */
-    private String loginFailKey(String phoneHash) {
-        return LOGIN_FAIL_KEY_PREFIX + phoneHash;
+    /**
+     * 登录失败计数 key（按手机号派生物，避免明文手机号入 Redis key）。
+     * <p>派生物由调用方经 {@code piiReadRouter.redisKeyPart} 取得：redis-key 模块切读后是 HMAC，
+     * 否则仍是 sha256（C4 回滚分支）。
+     */
+    private String loginFailKey(String keyPart) {
+        return LOGIN_FAIL_KEY_PREFIX + keyPart;
     }
 
     /** 是否已锁定：达到最大失败次数即视为锁定（计数 key 自带 TTL，过期即解锁） */
-    private boolean isLoginLocked(String phoneHash) {
-        RAtomicLong counter = redissonClient.getAtomicLong(loginFailKey(phoneHash));
+    private boolean isLoginLocked(String keyPart) {
+        RAtomicLong counter = redissonClient.getAtomicLong(loginFailKey(keyPart));
         return counter.isExists() && counter.get() >= MAX_LOGIN_FAILURES;
     }
 
@@ -587,8 +603,8 @@ public class AccountServiceImpl implements AccountService {
      * 达阈值返回账号锁定错误码 {@code AUTH_ACCOUNT_002}；否则返回"账号或密码错误"并附带真实剩余次数。
      * <p>不区分"账号不存在"与"密码错误"，防止账号枚举。
      */
-    private void recordLoginFailureAndThrow(String phoneHash) {
-        RAtomicLong counter = redissonClient.getAtomicLong(loginFailKey(phoneHash));
+    private void recordLoginFailureAndThrow(String keyPart) {
+        RAtomicLong counter = redissonClient.getAtomicLong(loginFailKey(keyPart));
         long failures = counter.incrementAndGet();
         if (failures == 1L) {
             // 首次失败启动锁定窗口 TTL；窗口内不重置，达阈值即锁满 LOCKOUT_MINUTES
@@ -602,8 +618,8 @@ public class AccountServiceImpl implements AccountService {
     }
 
     /** 登录成功后清零失败计数 */
-    private void clearLoginFailures(String phoneHash) {
-        redissonClient.getAtomicLong(loginFailKey(phoneHash)).delete();
+    private void clearLoginFailures(String keyPart) {
+        redissonClient.getAtomicLong(loginFailKey(keyPart)).delete();
     }
 
     /** 创建用户 */

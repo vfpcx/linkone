@@ -6,7 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiShadowReader;
+import com.cangchu.common.pii.PiiReadRouter;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.pricing.dto.BatchCustomerPriceDto;
@@ -80,8 +80,12 @@ public class PricingServiceImpl implements PricingService {
     private final ObjectMapper objectMapper;
     /** PII 阶段 0（V30）：rt_phone 盲索引双写的唯一产生点；读路径一律不用。 */
     private final PiiCrypto piiCrypto;
-    /** PII 阶段 1 Step1（PII-W5）：定价链影子双查探针，返回 void，绝不参与本类任何判定。 */
-    private final PiiShadowReader piiShadowReader;
+    /**
+     * PII 阶段 1 Step1/Step2（PII-W5）：定价链读路由。影子期出结果的仍是明文列（探针只计数）；
+     * pricing 模块拨到 hmac 后由 rt_phone_hmac 出结果，拨回即秒级恢复明文分支。
+     * 另兼 C4：{@link #matchKey} 的手机号段派生（redis-key 模块）。
+     */
+    private final PiiReadRouter piiReadRouter;
 
     /** 自注入代理：用于在锁内调用带 @Transactional 的批量事务体（避免 this 自调用使事务失效）。 */
     @Lazy
@@ -119,14 +123,15 @@ public class PricingServiceImpl implements PricingService {
         // revoke/批量 DISABLE 只置 status=DISABLED（不软删，行仍在），若按 status=ACTIVE 查会 miss
         // → insert → DuplicateKeyException（未处理 500，且在 confirmByWa 事务内会连累整单回滚）。
         // 命中任一状态的物理行则改价并重置 status=ACTIVE（重新授予被作废/过期的专属价），仅无行时才 insert。
-        CustomerPrice existing = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                .eq(CustomerPrice::getWholesalerId, dto.getWholesalerId())
-                .eq(CustomerPrice::getRtPhone, dto.getRtPhone())
-                .eq(CustomerPrice::getSkuId, dto.getSkuId())
-                .last("LIMIT 1"));
-        // PII 阶段 1 Step1（W5）：影子重查一遍 rt_phone_hmac，只计数不改判定（15 §1.2-C1）
-        piiShadowReader.checkCustomerPrice("C1-price-set", dto.getWholesalerId(), dto.getRtPhone(),
-                dto.getSkuId(), null, existing);
+        // PII 阶段 1 Step1/Step2（W5）：pricing 模块拨到 hmac 即由 rt_phone_hmac 探测唯一键；
+        // 非 hmac 模式走下面这条明文查询（回滚分支）+ 影子比对（15 §1.2-C1）
+        CustomerPrice existing = piiReadRouter.customerPrice("C1-price-set", dto.getWholesalerId(),
+                dto.getRtPhone(), dto.getSkuId(), null,
+                () -> customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
+                        .eq(CustomerPrice::getWholesalerId, dto.getWholesalerId())
+                        .eq(CustomerPrice::getRtPhone, dto.getRtPhone())
+                        .eq(CustomerPrice::getSkuId, dto.getSkuId())
+                        .last("LIMIT 1")));
 
         CustomerPrice result;
         if (existing != null) {
@@ -189,13 +194,14 @@ public class PricingServiceImpl implements PricingService {
         // 该方法在 confirmByWa 的 @Transactional 内调用：若因既有 DISABLED/EXPIRED 行 miss→insert
         // 触发 DuplicateKeyException，会连累整个确认事务（含扣库存）回滚。命中任一状态行则改价并
         // 重置 status=ACTIVE、source=from_inquiry（重新授予沉淀价），仅无行时才 insert。
-        CustomerPrice existing = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                .eq(CustomerPrice::getRtPhone, rtPhone)
-                .eq(CustomerPrice::getSkuId, skuId)
-                .last("LIMIT 1"));
-        // PII 阶段 1 Step1（W5）：同 setCustomerPrice 口径，影子重查不参与 upsert 分支判定
-        piiShadowReader.checkCustomerPrice("C1-price-settle", wholesalerId, rtPhone, skuId, null, existing);
+        // PII 阶段 1 Step1/Step2（W5）：同 setCustomerPrice 口径，hmac 模式下由 rt_phone_hmac 探测唯一键
+        CustomerPrice existing = piiReadRouter.customerPrice("C1-price-settle", wholesalerId, rtPhone,
+                skuId, null,
+                () -> customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
+                        .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                        .eq(CustomerPrice::getRtPhone, rtPhone)
+                        .eq(CustomerPrice::getSkuId, skuId)
+                        .last("LIMIT 1")));
 
         if (existing != null) {
             customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
@@ -463,11 +469,11 @@ public class PricingServiceImpl implements PricingService {
               .eq(dto.getRtPhone() != null && !dto.getRtPhone().isBlank(),
                       CustomerPrice::getRtPhone, dto.getRtPhone());
         }
-        List<CustomerPrice> rows = customerPriceMapper.selectList(qw);
-        // PII 阶段 1 Step1（W5）：仅当本次真按 rt_phone 圈选时才影子重查（15 §1.2-C3）；
-        // ids 分支没读明文手机号列，压根不进这个切点的分母。
-        piiShadowReader.checkCustomerPriceRows("C3-price-batch", dto.getWholesalerId(),
-                byExplicitIds ? null : dto.getSkuId(), byExplicitIds ? null : dto.getRtPhone(), rows);
+        // PII 阶段 1 Step1/Step2（W5）：仅当本次真按 rt_phone 圈选时才走 hmac 圈选/影子重查（15 §1.2-C3）；
+        // ids 分支没读明文手机号列，没有可切的读，也不进这个切点的分母。
+        List<CustomerPrice> rows = piiReadRouter.customerPriceRows("C3-price-batch", dto.getWholesalerId(),
+                byExplicitIds ? null : dto.getSkuId(), byExplicitIds ? null : dto.getRtPhone(),
+                () -> customerPriceMapper.selectList(qw));
 
         List<Map<String, Object>> beforeAfter = new ArrayList<>();
         List<String> rejected = new ArrayList<>();
@@ -537,24 +543,32 @@ public class PricingServiceImpl implements PricingService {
             return SENTINEL_NONE.equals(cached) ? null : new BigDecimal(cached);
         }
         // miss：查 DB（唯一键保证 ACTIVE 且未软删 ≤1 条），再判 isActive（含 expireAt）
-        CustomerPrice cp = customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                .eq(CustomerPrice::getRtPhone, rtPhone)
-                .eq(CustomerPrice::getSkuId, skuId)
-                .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
-                .last("LIMIT 1"));
-        // PII 阶段 1 Step1（W5）：本切点在缓存 miss 分支内，分母 = 真实 DB 读次数（15 §1.2-C2）。
-        // 影子查询须同带 status=ACTIVE，否则比的不是同一个问题。
-        piiShadowReader.checkCustomerPrice("C2-price-resolve", wholesalerId, rtPhone, skuId,
-                CustomerPrice.STATUS_ACTIVE, cp);
+        // PII 阶段 1 Step1/Step2（W5）：本切点在缓存 miss 分支内，分母 = 真实 DB 读次数（15 §1.2-C2）。
+        // 两侧都须同带 status=ACTIVE，否则比的/查的不是同一个问题。
+        CustomerPrice cp = piiReadRouter.customerPrice("C2-price-resolve", wholesalerId, rtPhone, skuId,
+                CustomerPrice.STATUS_ACTIVE,
+                () -> customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
+                        .eq(CustomerPrice::getWholesalerId, wholesalerId)
+                        .eq(CustomerPrice::getRtPhone, rtPhone)
+                        .eq(CustomerPrice::getSkuId, skuId)
+                        .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
+                        .last("LIMIT 1")));
         BigDecimal result = (cp != null && cp.isActive()) ? cp.getUnitPrice() : null;
         bucket.set(result != null ? result.toPlainString() : SENTINEL_NONE,
                 MATCH_CACHE_TTL_SEC, TimeUnit.SECONDS);
         return result;
     }
 
+    /**
+     * 专属价匹配缓存 key。
+     *
+     * <p>PII 阶段 1 Step2 · C4（W5）：手机号段切 HMAC（redis-key 模块），把明文手机号从 Redis
+     * keyspace 里拿掉。旧键不清洗——换了派生方式旧键就再没人读，60s TTL 自然消亡；清洗反倒要按
+     * 明文手机号扫一遍 keyspace。拨回即恢复旧口径，代价只是缓存重算一轮。
+     */
     private String matchKey(Long wholesalerId, String rtPhone, Long skuId) {
-        return "price:match:" + wholesalerId + ":" + rtPhone + ":" + skuId;
+        return "price:match:" + wholesalerId + ":" + piiReadRouter.redisKeyPart(rtPhone, rtPhone)
+                + ":" + skuId;
     }
 
     /** 写后失效专属价匹配缓存（立即删除，用于无事务上下文）。 */

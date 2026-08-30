@@ -77,6 +77,16 @@ cangchu:
   pii:
     write-mode: dual
     read-mode: shadow
+    # 阶段 1 Step 2 分模块切读灰度（15 §4 Step 2）。**默认全空 = 全部回落上面的 read-mode**，
+    # 也就是说本配置不改变任何现有行为；生产闸门（pricing 全量 + 入驻黑名单用例 + E2E 45×2 全绿，
+    # 观察 ≥3 天）过了之后，逐块把对应环境变量置为 hmac 即可切读，置回 shadow 即秒级回滚。
+    # 之所以在这里显式登记四行：redis-key 带连字符，不登记就没法用标准环境变量注入，
+    # 「按模块灰度」也就成了纸面能力。
+    read-modes:
+      blacklist: ${PII_READ_MODE_BLACKLIST:}
+      sms: ${PII_READ_MODE_SMS:}
+      pricing: ${PII_READ_MODE_PRICING:}
+      redis-key: ${PII_READ_MODE_REDIS_KEY:}
   snowflake:
     worker-id: 1
     datacenter-id: 1
