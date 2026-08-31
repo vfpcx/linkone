@@ -2,6 +2,20 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-08-31 · PII-W7 阶段 2 前置交付（列表打码 + 检索口径 + 查全号）
+
+- **提交**：44fb080（main 工作区直做，已推 origin，`origin/main..main=0`，工作区干净）
+- **范围**：15-pii-hardening-v2 §4 阶段 2-1/2-2（§5.2 清单的管理端部分）；**V29 明文收缩不在本波**（归 W8）
+- **查全号接口** `GET /api/v1/pii/phone-reveal?biz=&id=`（`PiiRevealController` + `PiiRevealService`，登录拦截由 SaInterceptor 覆盖）：
+  - **四类 biz 权限矩阵**：`BLACKLIST`/`TENANT` → 仅 OPS；`WA_APPLICATION` → OPS 或该申请归属租户的 TA（跨租户 TA 一律拒绝，不泄漏存在性）；`INQUIRY` → 该询价归属 wholesaler 的 WA 或持 `INQUIRY_CONFIRM` 授权位的 WE（对齐 `InquiryServiceImpl.requireWaRole` 口径）
+  - **跨租户显式归属校验**：wholesaler_applications / inquiry_requests 查询先 `TenantContext.clear()` 再查（TenantLine 会注入当前租户条件、把 50401 伪装成"不存在"，无法与 50402 区分）；归属校验在方法内显式完成并注释明示，PII 横切模块直连 mapper 照 `PiiReadRouter` 先例（G-S1/G-S2 既定例外，其余业务代码仍禁直连他域 mapper）
+  - **审计**：`[PII-REVEAL] operator={} biz={} id={} ts={}` 只落 operator/biz/id，不落明文；错误码新增 `PII_REVEAL_TYPE_INVALID` / `PII_REVEAL_FORBIDDEN` / `PII_REVEAL_TARGET_NOT_FOUND`
+  - **数据源**：当前直接读明文列（V29 未做），W8 收缩后改 cipher 解密，**接口形态不变**
+- **检索口径**（15 §4 阶段 2-2 / B3）：黑名单 LIKE 模糊查号下线——完整 11 位 → `target_value=kw OR target_value_hmac=hmac(kw)` 两列精确查；其他输入 → `RIGHT(target_value,4)=kw` 精确尾号 + 执照号行保留 LIKE（非 PII）
+- **VO 打码**：BlacklistServiceImpl 列表 PHONE 行 `SmsUtil.maskPhone`（LICENSE_NO 原样）+ Inquiry/Pricing/Tenant/WholesalerApplication 五 service 回打码号；前端 `utils/phone.ts`（maskPhone 对齐后端）+ `api/pii.ts` + 管理端 4 页（ops/Blacklist、ops/TenantAudit、ta/Pricing、ta/WholesalerApplications）接"查看完整号"展开
+- **测试**：`PiiRevealScenarioTest`（新）+ Pricing/Onboarding/Wave6DefectFix/WeEmployee 四场景类适配 + E2E `onboarding-flow`/`onboarding-visual` 更新；全量 **49 类绿**（0 失败/0 错误/0 跳过）
+- **未做（归 W8 / 待产品拍板）**：wa/ 侧 `Inquiry.vue`、`PriceSettleDialog.vue` 的"详情展开查全号"（§5.2 标注"是否放开由产品定"）；`wa/Staff.vue` 例外项（建议保留全号，待确认）；V29 明文收缩 + 删双写/开关代码；`05-secure-coding-guardrails` 防回潮规约增补（导出/通知/列表禁出完整手机号）
+
 ## 2026-08-31 · PII-W6 收尾完成（Team Lead，CodeBuddy 接手收口）
 
 - **PII 阶段 1 Step 3 登录链双读切换交付**：全量 **488 绿**（基线 470 + `PiiLoginHmacReadScenarioTest` 18 例，0 失败/0 错误/0 跳过，零回归）。A1–A6 六切点经 `PiiReadRouter.user()` 统一走"hmac 出结果 / 漏填旧列兜底 / 异步补写自愈"；`PiiFallbackHealer` 以 `pii.fallback` 承接七天闸门（FALLBACK 恒 0 为切读后准入线）

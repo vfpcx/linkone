@@ -2,6 +2,7 @@
 
 > 真源：`architecture/15-pii-hardening-v2.md`（V26 基线实测+八波次）。P4 计划已归档 `shared/archive/task_plan-p4.md`。
 > 基线：main=acad899，后端 **419 测试全绿**（45 个测试类，0 失败/0 错误/0 跳过），V1-V27。
+> 当前：main=**44fb080**（PII-W7 阶段 2 前置已交付），后端 **49 类全绿**，已 push origin，工作区干净。
 
 ## 阶段
 
@@ -40,7 +41,8 @@
       - 2026-08-29 全量 **470 绿**（448+22，0 失败/0 错误/0 跳过，零回归）。全量日志 16 条 mismatch = 基线 13 + 本类自造 3 条 B1-MISSING；C1 那 3 条逐条溯源为 S0 类 ×1 / 影子类 ×1 / `PricingSettleScenarioTest` ×1（已知夹具噪音），无新增无解释条目
       - **默认值刻意没动**：全局仍 `read-mode: shadow`，四个模块占位符全空。本波交付的是「代码就绪 + 开关可拨」，生产闸门（pricing 全量 + 入驻黑名单用例 + E2E 45×2 全绿，观察 ≥3 天）过了才逐块拨 hmac
     - [待办] **生产切读执行**：闸门达标后按 `redis-key → blacklist → sms → pricing` 顺序逐块拨（先拨代价最轻、可自愈的），每块观察 ≥3 天再拨下一块；出事只拨回那一块
-  - [待办] Step 3 / PII-W6 登录双读切换（冻结窗口 0.5d，双读兜底自愈 + 异步补写）
+  - [完成] **Step 3 / PII-W6 登录双读切换（2026-08-31，61df04d）**：A1–A6 登录链改走 `PiiReadRouter.user()`（主路 hmac + 旧列兜底放行 + 异步补写自愈，`PiiFallbackHealer` 承接七天闸门——`pii.fallback` FALLBACK 恒 0 为切读后准入线）+ `PiiHmacQueries` 增 users 查询 + login 模块入 `PiiModule`。用户拍板：无生产环境 → 不设 7 天/3 天观察期，验证直接拨 hmac 跑全量；双读兜底代码保留。默认值未动（login 殿后）。全量 **488 绿** + RED 双变异验证（杀 15/7）
+  - [完成] **阶段 2 前置 / PII-W7（2026-08-31，44fb080）**：管理端列表打码 + 检索口径切换 + 查全号接口 `GET /api/v1/pii/phone-reveal`（四类 biz 权限矩阵：BLACKLIST/TENANT→OPS、WA_APPLICATION→OPS|归属TA、INQUIRY→归属WA|INQUIRY_CONFIRM 的 WE；跨租户 TenantLine 显式绕过+归属校验；审计只落 operator/biz/id）+ 前端 `maskPhone`/`pii.ts` + 管理端 4 页接查全号。检索口径：黑名单 LIKE 下线改"11 位精确(h明文双列 or) / RIGHT last4 尾号 / 执照号保留 LIKE"。全量 **49 类绿**
 - [完成] **S1 缺口：定价/短信链补做 S0**（W4 摸出来的实测差异）：15 §4 阶段0 原列了 7 张表，但 V27 实际只加了 `users.phone_hmac` 与 `blacklist.target_value_hmac`。2026-08-25 补齐余下三表，口径逐条照抄 V27 那套：
   - **V30 加列** ✅ `customer_prices.rt_phone_hmac` / `sms_codes.phone_hmac` / `inquiry_requests.rt_phone_hmac`，全部 NULLable + 普通索引，索引列序对齐各自现有明文索引（customer_prices 用 `(wholesaler_id, rt_phone_hmac, sku_id)` 对齐物理唯一键）。纯 additive 无回滚脚本；三个新字段均带 `@JsonIgnore`，实体直出响应形状零变化
   - **双写切点** ✅ 唯一产生点仍是 `PiiCrypto.phoneHmac`，一律 `write-mode=dual` 才写：`PricingServiceImpl.setCustomerPrice` / `settleFromInquiry`（insert 分支写入，命中既有行分支做机会性回填——同 blacklist REMOVED 复活口径）、`AccountServiceImpl.sendSmsCode`、`InquiryServiceImpl.submitByRt`。已核：主代码里这三表的 insert 只有这 4 处，无遗漏。`doBatchCustomerInTx` 不写 rt_phone，属 C3 **读**切点，归 Step 2
@@ -48,10 +50,10 @@
   - **关卡测试** ✅ `PiiDualWriteBackfillScenarioTest` +5 例（15→20）：C1 新建 / C1 命中既有行机会性回填 / SMS 真端点 `POST /api/v1/account/sms-code` / C2 `submitByRt` / V30 三表回填幂等。切点一律真调，不用 mapper 造行代替。JSON 红线用例扩到三表；对账基线拉平改走 `flattenBackfillBaseline()` 覆盖五表（多个兄弟场景类直接 mapper 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然 NULL）
   - 2026-08-25 全量 **439 绿**（434+5，0 失败/0 错误/0 跳过，零回归）
   - 遗留：~~`PiiShadowReader` **未**给这三表接影子切点~~ → **2026-08-27 W5 已收口**：customer_prices / sms_codes 各自的读切点已接（见上方 W5 条目），inquiry_requests 经核实主代码无按 rt_phone 的读路径、无切点可接。生产首跑注意 `sms_codes` 行数随发码量线性增长，回填全表成本由 `backfill-batch-size` 控制（刻意不按「未过期」缩小分母，否则闸门口径随时间漂移）
-- [待办] **PII-S2 收缩+打码**：V29 明文列处置+Redis 键改造+限流键加盐+前端 9 处打码（逐页清单）+E2E 断言更新
-- [待办] **验收**：全量+E2E45×2+报告 13；上线检查单余项复核（prod 冒烟/CVE 复扫/graceful shutdown 属部署侧待环境）
+- [待办] **PII-S2 收口（PII-W8，唯一不可逆段）**：V29 明文收缩（`RENAME COLUMN`→观察→DROP：users.phone/phone_hash+uk、sms_codes.phone、tenants/tenant_applications/wholesaler_applications.contact_phone、inquiry_requests.rt_phone、customer_prices.rt_phone+旧唯一键、blacklist PHONE 行改写 last4 摘要）+ 删双写/开关代码 + `PiiRevealService` 改 cipher 解密（接口形态不变）。**前置**：全库备份 + rename 过渡期干净；无生产环境下按既定决策压缩（本地全量回归 + rename 观察）。**未决**：wa/ 侧 `Inquiry.vue`/`PriceSettleDialog.vue` 查全号展开（是否放开由产品定）、`wa/Staff.vue` 例外项确认（当前建议保留全号）；`05-secure-coding-guardrails` 防回潮规约增补
+- [待办] **验收**：全量 + E2E 45×2 + PII 交付报告（test-plan/13-）；上线检查单余项复核（prod 冒烟 / CVE 复扫 / graceful shutdown / Redis ACL·密码 属部署侧待环境）
 
 ## 验证
 
-- 每波 mvn 全量绿（基线 419；补完切点测试债后 424；W4 影子双查后 434；V30 补做 S0 后 439；W5 影子切点后为 **448**）+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
+- 每波 mvn 全量绿（基线 419 → 424 → 434 → 439 → 448 → **470**（W5 切读）→ **488**（W6 登录双读）→ **49 类**（W7））+ E2E 全套；登录命门波次须含回滚演练证据；独立复验后合并
 - 测试态常开 `write-mode=dual` + `read-mode=shadow`——「阶段 0 双写不改行为」「阶段 1 影子期零行为变化」这两句话，靠的就是全量在这两个开关下仍全绿
