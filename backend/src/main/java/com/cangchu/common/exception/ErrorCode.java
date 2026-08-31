@@ -229,7 +229,12 @@ public enum ErrorCode {
     BILLING_RULE_MISSING(50380, "计费规则未设置，无法生成账单"),
     BILL_DISPUTED_LOCKED(50381, "账单争议中，操作受限"),
     BILL_DISPUTE_PENDING_EXISTS(50382, "该账单已有待处理申诉"),
-    BILL_ITEM_NOT_REVERSIBLE(50383, "该条目不可冲销或已被冲销");
+    BILL_ITEM_NOT_REVERSIBLE(50383, "该条目不可冲销或已被冲销"),
+
+    // ==================== PII-W7 查全号（15-pii-hardening-v2 §4 阶段2，50400+） ====================
+    PII_REVEAL_TYPE_INVALID(50400, "查全号类型不支持"),
+    PII_REVEAL_TARGET_NOT_FOUND(50401, "查询对象不存在"),
+    PII_REVEAL_FORBIDDEN(50402, "您没有查看完整手机号的权限");
 
     private final int code;
     private final String message;

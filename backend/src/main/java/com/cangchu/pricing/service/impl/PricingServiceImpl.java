@@ -847,7 +847,8 @@ public class PricingServiceImpl implements PricingService {
                 .id(cp.getId())
                 .wholesalerId(cp.getWholesalerId())
                 .skuId(cp.getSkuId())
-                .rtPhone(cp.getRtPhone())
+                // PII-W7（15 §4 阶段2）：VO 层统一脱敏，需全号走 phone-reveal 接口
+                .rtPhone(SmsUtil.maskPhone(cp.getRtPhone()))
                 .unitPrice(cp.getUnitPrice())
                 .status(cp.getStatus())
                 .source(cp.getSource())

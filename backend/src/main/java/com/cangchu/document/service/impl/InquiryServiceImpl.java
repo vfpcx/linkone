@@ -480,7 +480,8 @@ public class InquiryServiceImpl implements InquiryService {
         vo.setTenantId(r.getTenantId());
         vo.setWholesalerId(r.getWholesalerId());
         vo.setStatus(r.getStatus());
-        vo.setRtPhone(r.getRtPhone());
+        // PII-W7（15 §4 阶段2）：VO 层统一脱敏（138****1234），需全号走 /api/v1/pii/phone-reveal
+        vo.setRtPhone(SmsUtil.maskPhone(r.getRtPhone()));
         vo.setCreatedAt(r.getCreatedAt());
         vo.setConfirmedAt(r.getConfirmedAt());
         vo.setVoidedAt(r.getVoidedAt());

@@ -66,6 +66,7 @@ import { wholesalerApi } from '@/api/wholesaler'
 import { skuApi } from '@/api/sku'
 import { pricingApi } from '@/api/pricing'
 import { accountApi } from '@/api/account'
+import { maskPhone } from '@/utils/phone'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -221,9 +222,17 @@ const cpPickerColumns: EntityPickerColumn<CustomerPriceVo>[] = [
 
 const fetchCpPage = makeClientPickerFetch<CustomerPriceVo>(
   () => customerPrices.value,
-  (cp, kw) =>
-    cp.rtPhone.toLowerCase().includes(kw) ||
-    skuNameOf(String(cp.skuId)).toLowerCase().includes(kw),
+  // PII-W7：rtPhone 只回打码号（138****1234）——last4 尾号可直接 includes；
+  // 完整 11 位输入转打码形态比较（maskPhone），保证精确检索仍可命中（15 §4 阶段2-2）
+  (cp, kw) => {
+    const k = kw.trim().toLowerCase()
+    const mk = maskPhone(kw)
+    return (
+      cp.rtPhone.toLowerCase().includes(k) ||
+      (mk.length > 3 && cp.rtPhone.toLowerCase().includes(mk)) ||
+      skuNameOf(String(cp.skuId)).toLowerCase().includes(k)
+    )
+  },
 )
 
 // ============ SKU（供 skuName 映射 + 选择器） ============

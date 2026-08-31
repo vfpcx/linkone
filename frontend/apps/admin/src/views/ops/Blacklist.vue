@@ -95,7 +95,7 @@ const list = ref<BlacklistItem[]>([])
 const page = ref(1)
 const size = ref(10)
 const total = ref(0)
-/** 键值搜索：手机号 / 执照号同框（后端模糊匹配 targetValue） */
+/** 键值搜索（PII-W7 口径，15 §4 阶段2-2）：手机号=完整 11 位精确 / 尾号 4 位；执照号=子串匹配 */
 const keyword = ref('')
 
 const fetchList = async () => {
@@ -303,7 +303,7 @@ onMounted(fetchList)
             <el-input
               v-model="keyword"
               class="bl-toolbar__search"
-              placeholder="按键值搜索：手机号 / 执照号（支持部分匹配）"
+              placeholder="搜索：手机号完整 11 位 / 尾号 4 位 / 执照号子串"
               :prefix-icon="Search"
               clearable
               @keyup.enter="onSearch"

@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -58,16 +59,34 @@ public class BlacklistServiceImpl implements BlacklistService {
         // DEF-6：全量返回改分页（page>=1，size 1..100），结构对齐 wholesaler-applications 的
         // PageRecords 契约 {records,total,page,size}；keyword 模糊匹配 target_value（手机号/执照号）。
         String kw = keyword != null ? keyword.trim() : null;
+        // PII-W7（15 §4 阶段2-2）：LIKE 模糊查号下线——完整 11 位 → hmac/明文精确查；
+        // 其他（last4 尾号 / 执照号）→ RIGHT(target_value,4)=kw 精确尾号，执照号行保留 LIKE（非 PII）
+        LambdaQueryWrapper<Blacklist> qw = new LambdaQueryWrapper<Blacklist>()
+                .eq(status != null && !status.isBlank(), Blacklist::getStatus, status);
+        if (kw != null && !kw.isEmpty()) {
+            if (kw.matches("\\d{11}")) {
+                String hmacKw = piiCrypto.phoneHmac(kw);
+                qw.and(w -> w.eq(Blacklist::getTargetValue, kw)
+                        .or(x -> x.eq(Blacklist::getTargetValueHmac, hmacKw)));
+            } else {
+                qw.and(w -> w.apply("RIGHT(target_value, 4) = {0}", kw)
+                        .or(x -> x.like(Blacklist::getTargetValue, kw)));
+            }
+        }
+        qw.orderByDesc(Blacklist::getCreatedAt).orderByDesc(Blacklist::getId);
         Page<Blacklist> p = blacklistMapper.selectPage(
-                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
-                new LambdaQueryWrapper<Blacklist>()
-                        .eq(status != null && !status.isBlank(), Blacklist::getStatus, status)
-                        .like(kw != null && !kw.isEmpty(), Blacklist::getTargetValue, kw)
-                        .orderByDesc(Blacklist::getCreatedAt)
-                        .orderByDesc(Blacklist::getId));
+                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)), qw);
+
+        // PII-W7（15 §4 阶段2-1）：列表记录脱敏——PHONE 行只回打码值；LICENSE_NO 非手机号 PII 原样
+        List<Blacklist> masked = p.getRecords().stream().map(b -> {
+            if ("PHONE".equals(b.getTargetType())) {
+                b.setTargetValue(SmsUtil.maskPhone(b.getTargetValue()));
+            }
+            return b;
+        }).toList();
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("records", p.getRecords());
+        result.put("records", masked);
         result.put("total", p.getTotal());
         result.put("page", p.getCurrent());
         result.put("size", p.getSize());

@@ -7,6 +7,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.OpsWholesalerCreateDto;
 import com.cangchu.tenant.dto.WholesalerApplicationAuditDto;
@@ -118,7 +119,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
                         .eq(status != null && !status.isBlank(), WholesalerApplication::getStatus, status)
                         .orderByDesc(WholesalerApplication::getCreatedAt));
 
-        List<WholesalerApplicationVo> records = p.getRecords().stream().map(this::toVo).toList();
+        List<WholesalerApplicationVo> records = p.getRecords().stream().map(a -> toVo(a, true)).toList();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", records);
         result.put("total", p.getTotal());
@@ -135,7 +136,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
                         .eq(WholesalerApplication::getApplicantUserId, userId)
                         .orderByDesc(WholesalerApplication::getCreatedAt)
                         .orderByDesc(WholesalerApplication::getId)).stream()
-                .map(this::toVo)
+                .map(a -> toVo(a, false))
                 .toList();
     }
 
@@ -403,14 +404,15 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         }
     }
 
-    private WholesalerApplicationVo toVo(WholesalerApplication app) {
+    private WholesalerApplicationVo toVo(WholesalerApplication app, boolean masked) {
         return WholesalerApplicationVo.builder()
                 .id(app.getId())
                 .tenantId(app.getTenantId())
                 .applicantUserId(app.getApplicantUserId())
                 .name(app.getName())
                 .contactName(app.getContactName())
-                .contactPhone(app.getContactPhone())
+                // PII-W7（15 §4 阶段2）：审批列表/操作回传打码；本人申请（listMine）保留全号（本人数据）
+                .contactPhone(masked ? SmsUtil.maskPhone(app.getContactPhone()) : app.getContactPhone())
                 .license(app.getLicense())
                 .status(app.getStatus())
                 .source(app.getSource())

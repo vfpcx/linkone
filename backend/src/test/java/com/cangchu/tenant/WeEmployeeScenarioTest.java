@@ -9,6 +9,7 @@ import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.response.R;
 import com.cangchu.common.tenant.TenantContext;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.inventory.dto.InboundContext;
 import com.cangchu.inventory.service.InventoryService;
@@ -682,7 +683,8 @@ class WeEmployeeScenarioTest {
                 .filter(t -> String.valueOf(ta.tenantId()).equals(t.get("tenantId")))
                 .findFirst().orElseThrow();
         assertThat(mine.get("status")).isEqualTo("ACTIVE");
-        assertThat(mine.get("contactPhone")).isEqualTo(ta.phone());
+        // PII-W7：管理端租户列表 contactPhone 打码（138****1234），全号走 phone-reveal 接口
+        assertThat(mine.get("contactPhone")).isEqualTo(SmsUtil.maskPhone(ta.phone()));
         assertThat(mine.get("addressText")).isEqualTo("江苏省南京市江宁区");
         assertThat(mine).containsKeys("name", "appliedAt");
 

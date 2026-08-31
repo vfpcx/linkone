@@ -9,6 +9,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.TestUniq;
 import com.cangchu.common.response.R;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.tenant.dto.TenantApplyDto;
 import com.cangchu.tenant.entity.Tenant;
 import org.junit.jupiter.api.BeforeEach;
@@ -295,7 +296,8 @@ class Wave6DefectFixScenarioTest {
                 HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
         List<Map<String, Object>> phoneRecs = blacklistRecords(byPhone);
         assertThat(phoneRecs).hasSize(1);
-        assertThat(phoneRecs.get(0).get("targetValue")).isEqualTo(prefix + "2");
+        // PII-W7：黑名单列表打码（138****1234），全号走 phone-reveal 接口
+        assertThat(phoneRecs.get(0).get("targetValue")).isEqualTo(SmsUtil.maskPhone(prefix + "2"));
 
         // keyword 匹配执照号子串
         R<Map<String, Object>> byLic = restTemplate.exchange(

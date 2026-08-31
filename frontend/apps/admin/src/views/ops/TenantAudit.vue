@@ -26,6 +26,7 @@ import type { AdminTenantItem, AdminTenantStatus } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import { tenantApi } from '@/api/tenant'
 import { accountApi } from '@/api/account'
+import { piiApi } from '@/api/pii'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -174,6 +175,18 @@ const emptyText = computed(() => {
 
 // ============ 通过（确认弹窗） ============
 const auditingId = ref('')
+
+/** PII-W7 查全号：列表只回打码号，OPS 联系/核实需要时经 phone-reveal 取全号（权限+审计在服务端） */
+const revealContact = async (row: AdminTenantItem) => {
+  try {
+    const { phone } = await piiApi.revealPhone('TENANT', row.tenantId)
+    await ElMessageBox.alert(phone, `完整联系方式（${row.name || '仓库'}）`, {
+      confirmButtonText: '关闭',
+    })
+  } catch {
+    /* 无权限/对象不存在 → http.ts 已 toast */
+  }
+}
 
 const onApprove = async (row: AdminTenantItem) => {
   try {
@@ -332,9 +345,16 @@ onMounted(async () => {
             <el-table-column label="申请人" width="110">
               <template #default="{ row }">{{ row.applicantName || '—' }}</template>
             </el-table-column>
-            <el-table-column label="联系方式" width="140">
+            <el-table-column label="联系方式" min-width="180">
               <template #default="{ row }">
                 <span class="cell-code">{{ row.contactPhone || '—' }}</span>
+                <el-button
+                  v-if="row.contactPhone"
+                  link
+                  type="primary"
+                  class="reveal-link"
+                  @click="revealContact(row as AdminTenantItem)"
+                >查看完整号</el-button>
               </template>
             </el-table-column>
             <el-table-column label="仓库地址" min-width="180" show-overflow-tooltip>

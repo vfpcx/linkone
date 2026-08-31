@@ -613,7 +613,8 @@ public class TenantServiceImpl implements TenantService {
                     .name(t.getName())
                     .legalName(t.getLegalName())
                     .applicantName(applicantName)
-                    .contactPhone(t.getContactPhone())
+                    // PII-W7（15 §4 阶段2）：VO 层统一脱敏，需全号走 phone-reveal 接口
+                    .contactPhone(SmsUtil.maskPhone(t.getContactPhone()))
                     .addressText(addresses.get(t.getId()))
                     .status(t.getStatus())
                     .appliedAt(t.getCreatedAt())

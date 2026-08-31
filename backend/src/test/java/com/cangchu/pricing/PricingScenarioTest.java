@@ -5,6 +5,7 @@ import com.cangchu.account.dto.RegisterDto;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.response.R;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.pricing.dto.SetCustomerPriceDto;
 import com.cangchu.pricing.service.PricingService;
 import com.cangchu.tenant.dto.TenantApplyDto;
@@ -183,7 +184,8 @@ class PricingScenarioTest {
         assertThat(set).isNotNull();
         assertThat(set.getCode()).isEqualTo(0);
         assertThat(set.getData().get("status")).isEqualTo("ACTIVE");
-        assertThat(set.getData().get("rtPhone")).isEqualTo(phone);
+        // PII-W7：专属价 VO 打码回传（138****1234）
+        assertThat(set.getData().get("rtPhone")).isEqualTo(SmsUtil.maskPhone(phone));
         assertThat(new BigDecimal(set.getData().get("unitPrice").toString())).isEqualByComparingTo("6.60");
         String priceId = set.getData().get("id").toString();
 
@@ -367,7 +369,7 @@ class PricingScenarioTest {
         // 列表中该 (商户,手机,SKU) 仅一条物理行，且 ACTIVE 5.50（未新增重复行）
         R<List<Map<String, Object>>> list = listPrices(ta.token(), wid);
         List<Map<String, Object>> forPhone = list.getData().stream()
-                .filter(m -> phone.equals(m.get("rtPhone")) && skuId.equals(m.get("skuId").toString()))
+                .filter(m -> SmsUtil.maskPhone(phone).equals(m.get("rtPhone")) && skuId.equals(m.get("skuId").toString()))
                 .toList();
         assertThat(forPhone).as("同 (商户,手机,SKU) 仅一条物理行").hasSize(1);
         assertThat(forPhone.get(0).get("status")).isEqualTo("ACTIVE");

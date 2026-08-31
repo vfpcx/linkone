@@ -22,7 +22,14 @@ import {
   uniqPhone,
   SMS_CODE,
   SEED_PWD,
+  registerWithRetry,
 } from './helpers/onboarding'
+
+/**
+ * PII-W7（15 §4 阶段2-1）：黑名单/审批列表只回打码号（138****1234），
+ * E2E 行匹配用打码形态，全号断言一律走 API。
+ */
+const masked = (p: string) => (p.length >= 7 ? `${p.slice(0, 3)}****${p.slice(7)}` : p)
 
 /**
  * 仓储云 admin · P2 入驻生态 4 链路 E2E（04-onboarding-test-plan §3）
@@ -106,7 +113,7 @@ test.describe('onboarding E2E-02 黑名单拦截链', () => {
     await dialog.getByPlaceholder('11 位手机号').fill(victim.phone)
     await dialog.getByPlaceholder(/请填写加黑原因/).fill('E2E 黑名单链路测试拉黑')
     await dialog.getByRole('button', { name: '确认加黑' }).click()
-    const blRow = page.locator('.el-table__row', { hasText: victim.phone })
+    const blRow = page.locator('.el-table__row', { hasText: masked(victim.phone) })
     await expect(blRow).toBeVisible({ timeout: 12_000 })
 
     // ---- ② 该手机号提交入驻申请被拒（UI 文案验证）----
@@ -143,11 +150,11 @@ test.describe('onboarding E2E-02 黑名单拦截链', () => {
     // ---- ③ OPS 移除 ----
     await loginAs(page, tenant.ops.phone, tenant.ops.pwd, /\/ops\/dashboard/)
     await page.goto('/ops/blacklist')
-    const rmRow = page.locator('.el-table__row', { hasText: victim.phone })
+    const rmRow = page.locator('.el-table__row', { hasText: masked(victim.phone) })
     await expect(rmRow).toBeVisible({ timeout: 12_000 })
     await rmRow.getByRole('button', { name: '移除' }).click()
     await page.locator('.el-message-box').getByRole('button', { name: '移除' }).click()
-    await expect(page.locator('.el-table__row', { hasText: victim.phone })).toHaveCount(0, {
+    await expect(page.locator('.el-table__row', { hasText: masked(victim.phone) })).toHaveCount(0, {
       timeout: 12_000,
     })
 
@@ -334,5 +341,58 @@ test.describe('onboarding E2E-04 WE员工链', () => {
     // API 双保险：WE 旧 token 复用 → 41001；再登录 → 41110 已禁用
     const weRelogin = await apiLogin(wePhone, SEED_PWD)
     expect(weRelogin.code, '被禁用 WE 不可再登录').toBe(41110)
+  })
+})
+
+// ============================== ONB-E2E-05 PII-W7 查全号入口 ==============================
+test.describe('onboarding E2E-05 PII-W7 查全号入口', () => {
+  test('OPS 租户审核页：列表打码 + 「查看完整号」弹窗全号', async ({ page }) => {
+    const tenant = await seedActiveTenant()
+    // 造 PENDING 租户行（TA 注册即 PENDING，不审核，供审核列表留样）
+    const pendingPhone = uniqPhone()
+    const tenantName = 'PII待审仓' + pendingPhone.slice(-4)
+    await registerWithRetry(
+      {
+        phone: pendingPhone,
+        password: SEED_PWD,
+        smsCode: SMS_CODE,
+        role: 'TA',
+        realName: 'PII样本',
+        tenantName,
+        agreedTerms: true,
+      },
+      'E2E-05 造待审租户',
+    )
+
+    await loginAs(page, tenant.ops.phone, tenant.ops.pwd, /\/ops\/dashboard/)
+    await page.goto('/ops/tenant-audit')
+    const row = page.locator('.el-table__row', { hasText: tenantName })
+    await expect(row).toBeVisible({ timeout: 15_000 })
+    // PII-W7：列表只回打码号，全号不得直接出现
+    await expect(row).toContainText(masked(pendingPhone))
+    await expect(row).not.toContainText(pendingPhone)
+    // 查全号入口 → 弹窗全号
+    await row.getByRole('button', { name: '查看完整号' }).click()
+    const box = page.locator('.el-message-box', { hasText: '完整联系方式' })
+    await expect(box).toBeVisible()
+    await expect(box).toContainText(pendingPhone)
+  })
+
+  test('TA 商户申请页：列表打码 + 「查看完整号」弹窗全号', async ({ page }) => {
+    const tenant = await seedActiveTenant()
+    const wa = await registerWaWithTarget(tenant.tenantId)
+
+    await loginAs(page, tenant.ta.phone, tenant.ta.pwd, /\/ta\/dashboard/)
+    await page.goto('/ta/wholesaler-applications')
+    const row = page.locator('.el-table__row', { hasText: wa.wholesalerName })
+    await expect(row).toBeVisible({ timeout: 15_000 })
+    // PII-W7：列表只回打码号，全号不得直接出现
+    await expect(row).toContainText(masked(wa.phone))
+    await expect(row).not.toContainText(wa.phone)
+    // 归属 TA 查全号 → 弹窗全号
+    await row.getByRole('button', { name: '查看完整号' }).click()
+    const box = page.locator('.el-message-box', { hasText: '完整联系方式' })
+    await expect(box).toBeVisible()
+    await expect(box).toContainText(wa.phone)
   })
 })

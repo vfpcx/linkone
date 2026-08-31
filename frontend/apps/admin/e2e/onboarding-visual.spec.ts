@@ -8,6 +8,7 @@ import {
   listTaApplications,
   auditApplication,
   seedStockForWholesaler,
+  confirmPendingInbound,
   sellOutStock,
   submitWithdraw,
   listTaWithdrawApps,
@@ -202,6 +203,8 @@ test.describe('P2 视觉验收截图', () => {
     const wholesalerId = String(approve.data.wholesalerId)
     const waLogin = ok(await apiLogin(wa.phone, wa.pwd), 'V05 WA 登录')
     const stock = await seedStockForWholesaler(tenant.ta.login.token, wholesalerId, 3)
+    // P3 BE-W1：WK 代建入库停 PENDING_WA_CONFIRM（R13 未结单据），WA 先确认收尾，否则退驻自查会卡「存在未结单据」
+    await confirmPendingInbound(waLogin.token)
 
     // 自查未通过态（库存 ❌ 提交置灰）
     await injectAuthAndGoto(page, waLogin, 'WA', '/wa/withdraw')

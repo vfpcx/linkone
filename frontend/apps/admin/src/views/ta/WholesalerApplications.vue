@@ -46,6 +46,7 @@ import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { tenantApi } from '@/api/tenant'
 import { accountApi } from '@/api/account'
+import { piiApi } from '@/api/pii'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -314,6 +315,18 @@ const wEmptyText = computed(() => {
 // ============ 通过 ============
 const auditingId = ref('')
 
+/** PII-W7 查全号：列表只回打码号，TA 审批联系需要时经 phone-reveal 取全号（权限+归属+审计在服务端） */
+const revealContact = async (row: WholesalerApplication) => {
+  try {
+    const { phone } = await piiApi.revealPhone('WA_APPLICATION', row.id)
+    await ElMessageBox.alert(phone, `完整联系方式（${row.name || '商户'}）`, {
+      confirmButtonText: '关闭',
+    })
+  } catch {
+    /* 无权限/对象不存在 → http.ts 已 toast */
+  }
+}
+
 const onApprove = async (row: WholesalerApplication) => {
   try {
     await ElMessageBox.confirm(
@@ -537,9 +550,16 @@ onMounted(async () => {
             <el-table-column label="联系人" width="110">
               <template #default="{ row }">{{ row.contactName || '—' }}</template>
             </el-table-column>
-            <el-table-column label="联系电话" width="140">
+            <el-table-column label="联系电话" min-width="180">
               <template #default="{ row }">
                 <span class="cell-code">{{ row.contactPhone || '—' }}</span>
+                <el-button
+                  v-if="row.contactPhone"
+                  link
+                  type="primary"
+                  class="reveal-link"
+                  @click="revealContact(row as WholesalerApplication)"
+                >查看完整号</el-button>
               </template>
             </el-table-column>
             <el-table-column label="营业执照号" min-width="170">

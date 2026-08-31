@@ -4,6 +4,7 @@ import com.cangchu.CangchuApplication;
 import com.cangchu.account.dto.RegisterDto;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.response.R;
+import com.cangchu.common.util.SmsUtil;
 import com.cangchu.tenant.dto.TenantApplyDto;
 import com.cangchu.tenant.dto.WholesalerCreateDto;
 import org.junit.jupiter.api.DisplayName;
@@ -373,7 +374,8 @@ class OnboardingScenarioTest {
         assertThat(list.getCode()).isEqualTo(0);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> blRecords = (List<Map<String, Object>>) list.getData().get("records");
-        assertThat(blRecords).extracting(m -> m.get("targetValue")).contains(phone);
+        // PII-W7：黑名单列表打码（138****1234），全号走 phone-reveal 接口
+        assertThat(blRecords).extracting(m -> m.get("targetValue")).contains(SmsUtil.maskPhone(phone));
 
         // 非 OPS（TA）操作黑名单 → 42002
         TaContext ta = registerTaWithTenant();
@@ -482,7 +484,8 @@ class OnboardingScenarioTest {
                 .filter(m -> ("注册直申-" + phone).equals(m.get("name")))
                 .findFirst().orElseThrow();
         assertThat(rec.get("source")).isEqualTo("SELF_APPLY");
-        assertThat(rec.get("contactPhone")).isEqualTo(phone);
+        // PII-W7：TA 审批列表打码（本人申请 listMine 回显才保留全号）
+        assertThat(rec.get("contactPhone")).isEqualTo(SmsUtil.maskPhone(phone));
     }
 
     @Test
