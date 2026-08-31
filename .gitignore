@@ -9,13 +9,11 @@ dist/
 dump.rdb
 
 # --- 本机/工具生态（不参与协作；文件保留在本地，可随时改回） ---
+# 注：AGENTS.md / .github 下 AI 指令已入库共享（Claude Code / Copilot 跨机器可用）
 .codebase-memory/
 .cursor/
 .zed/
 .vscode/
 install.ps1
-AGENTS.md
-.github/copilot-instructions.md
-.github/instructions/
 .e2e-tmp/
 backend/data/
