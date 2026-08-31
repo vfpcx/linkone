@@ -277,8 +277,11 @@ class PiiDualWriteBackfillScenarioTest {
                     .isEqualTo(entry.getId());
             Blacklist saved = blacklistMapper.selectById(entry.getId());
             assertThat(saved.getStatus()).isEqualTo("ACTIVE");
-            // 注：不断言 removed_at 被清空——add 里的 setRemovedAt(null) 被 MP 的 null 跳过策略吞了，
-            // 残留是既有缺陷（见 findings「B2 复活 removed_at 残留」），与 PII 双写无关，不在本类范围。
+            // B2 修复（findings「B2 复活 removed_at 残留」）：@TableField(updateStrategy=ALWAYS) 允许
+            // add 复活分支的 setRemovedAt(null) 下发，复活后行必须是干净的 ACTIVE（无残留解除时间）
+            assertThat(saved.getRemovedAt())
+                    .as("复活后 removed_at 必须清空，不得残留旧的解除时间")
+                    .isNull();
             assertThat(saved.getTargetValueHmac())
                     .as("复活分支是存量行唯一的机会性回填点，漏写即留一个盲索引空洞")
                     .isEqualTo(expectHmac(phone));

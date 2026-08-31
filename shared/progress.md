@@ -2,6 +2,17 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-08-31 · W7 验收核对 + B2 遗留修复 + guardrails v3
+
+- **W7 验收核对**（前端逐页 + 后端 VO 对照 15 §5.2 清单，结论：**覆盖完整、无缺陷**）
+  - 管理端 4 页（ops/Blacklist、ops/TenantAudit、ta/Pricing、ta/WholesalerApplications）打码 + 查全号 ✅；后端 5 service VO 打码 ✅；检索口径（黑名单 11 位精确/last4/执照 LIKE）✅
+  - **本人豁免正确**：wa/Apply 走 `listMine`（`toVo(masked=false)` 保留全号），驳回重提无"打码号回写"风险 ✅
+  - **编辑身份键不可改**：ta/Pricing 编辑分支只提 unitPrice/status（rtPhone 不随编辑提交），无打码号提交风险 ✅
+  - 已知待产品定：wa/Inquiry、wa/PriceSettleDialog 无查全号入口（§5.2 标"由产品定"）；wa/Staff 全号展示（§5.2 例外项）
+  - 阴性页 st/*、ta/BillsOverview、ops/Arbitrations 无手机号展示 ✅
+- **B2 修复**（遗留缺陷收口）：`Blacklist.removedAt` 标 `@TableField(updateStrategy=ALWAYS)` 允许 null 下发——复活分支 `setRemovedAt(null)` 生效；影响评估：前端 0 处消费 removedAt（展示零影响）、remove 路径不受影响、保持实体写路径（不破坏 PII"双写切点走实体"约定）。`PiiDualWriteBackfillScenarioTest` 复活用例补 `removedAt isNull` 断言；DualWrite 20 + Hmac 22 + Onboarding 15 全绿零回归
+- **guardrails v3**：`05-secure-coding-guardrails.md` 增 G-8.3/8.4/8.5（手机号默认打码口径统一、全号走 reveal+角色归属校验+审计、检索禁 LIKE、本人豁免须显式）+ 自检卡 PII 项（对应 15 §1.2-G/§4 阶段2 防回潮）
+
 ## 2026-08-31 · PII-W7 阶段 2 前置交付（列表打码 + 检索口径 + 查全号）
 
 - **提交**：44fb080（main 工作区直做，已推 origin，`origin/main..main=0`，工作区干净）

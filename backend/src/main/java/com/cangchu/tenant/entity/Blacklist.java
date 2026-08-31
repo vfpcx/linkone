@@ -43,6 +43,11 @@ public class Blacklist {
     /** ACTIVE / REMOVED */
     private String status;
 
+    /**
+     * 解除时间（remove 置 now；add 复活分支置 null）。updateStrategy=ALWAYS 允许 null 下发，
+     * 否则复活分支的 setRemovedAt(null) 被 MP 空值跳过策略吞掉、残留旧解除时间（findings「B2 复活 removed_at 残留」）。
+     */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private LocalDateTime removedAt;
 
     @TableField(fill = FieldFill.INSERT)
