@@ -2,6 +2,7 @@ package com.cangchu.common.pii;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.SmsCode;
+import com.cangchu.account.entity.User;
 import com.cangchu.pricing.entity.CustomerPrice;
 import com.cangchu.tenant.entity.Blacklist;
 
@@ -19,6 +20,23 @@ import com.cangchu.tenant.entity.Blacklist;
 public final class PiiHmacQueries {
 
     private PiiHmacQueries() {
+    }
+
+    /**
+     * A1–A6 登录链：按 {@code phone_hmac} 取行（15 §4 Step 3 / 波次 PII-W6）。
+     *
+     * <p>明文侧口径是 {@code eq(phone_hash)} 的单行查询，故此处同样单行。影子期比对只在其上追加
+     * {@code .select(id)}；切读后 {@link PiiReadRouter#user} 取整行——登录要用 {@code password_hash}
+     * / {@code status} 等列，与明文分支拿到的必须是同一个对象形状。
+     *
+     * <p>本方法是 Step 3 才补上的：{@code checkUser} 的影子查询原先手搓在 {@link PiiShadowReader}
+     * 里，早于本类存在。登录链一旦切读，「影子期比对的谓词」与「上线出结果的谓词」必须逐字节相同，
+     * 否则 Step 1 那道 7 天闸门证明的是另一条查询。
+     */
+    public static LambdaQueryWrapper<User> user(String phoneHmac) {
+        return new LambdaQueryWrapper<User>()
+                .eq(User::getPhoneHmac, phoneHmac)
+                .last("LIMIT 1");
     }
 
     /**

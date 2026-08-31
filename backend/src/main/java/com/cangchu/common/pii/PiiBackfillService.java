@@ -257,6 +257,57 @@ public class PiiBackfillService {
         return new BackfillResult(false, scanned, filled, skipped);
     }
 
+    // ---------------------------------------------------------------- 按需补填（单行）
+
+    /**
+     * 单行按需补填的结果（15 §4 Step 3 / 波次 PII-W6 的兜底自愈）。
+     *
+     * @see #healUserHmac
+     */
+    public enum HealResult {
+        /** {@code write-mode} 非 dual，拒填——拨回 legacy 是止血动作，此时不应再有进程往新列写。 */
+        REFUSED,
+        /** 明文空白，算不出 hmac，本就不该有值。 */
+        SKIPPED,
+        /** CAS 成功写入。 */
+        FILLED,
+        /** CAS 影响 0 行——该行 hmac 已被并发双写/批量回填抢先填上，按幂等口径不覆盖。 */
+        NOOP
+    }
+
+    /**
+     * 按需补填单行 {@code users.phone_hmac}（Step 3 登录双读兜底触发）。
+     *
+     * <p><b>为什么走这里而不是各自写一条 update</b>：hmac 的<b>写入</b>口径必须和批量回填是同一份
+     * ——CAS 条件（{@code hmac IS NULL}）、拒填条件（{@code write-mode != dual}）、hmac 产生点
+     * （{@link PiiCrypto#phoneHmac}）三件事任一处抄漏，都只在并发或回滚态下才现形。这与
+     * {@link PiiHmacQueries} 收敛<b>读</b>谓词是同一个理由。
+     *
+     * <p>调用方是 {@link PiiFallbackHealer} 的异步线程，<b>不在主路事务内</b>：本方法只把一个
+     * 本来就该有值的列补上，与主路事务成败无关，也绝不能因为它失败而影响登录。
+     */
+    public HealResult healUserHmac(Long userId, String phone) {
+        return healOne(usersColumn(), userId, phone);
+    }
+
+    /** 单行 CAS 补填；语义与 {@link #backfill} 的批内逐行更新逐条相同，只是不扫表。 */
+    private <T> HealResult healOne(HmacColumn<T> col, Long id, String plain) {
+        if (!piiCrypto.isDualWrite()) {
+            log.warn("[PII] {}.id={} 按需补填被拒：write-mode 非 dual（回滚口径下不得再往 hmac 列写入）",
+                    col.table(), id);
+            return HealResult.REFUSED;
+        }
+        String hmac = piiCrypto.phoneHmac(plain);
+        if (hmac == null) {
+            return HealResult.SKIPPED;
+        }
+        int affected = col.mapper().update(null, new LambdaUpdateWrapper<T>()
+                .set(col.hmac(), hmac)
+                .eq(col.id(), id)
+                .isNull(col.hmac()));
+        return affected > 0 ? HealResult.FILLED : HealResult.NOOP;
+    }
+
     // ---------------------------------------------------------------- 对账
 
     /** 五张表一起对账（users / blacklist PHONE 行 / customer_prices / sms_codes / inquiry_requests）。 */

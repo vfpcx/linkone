@@ -1,6 +1,5 @@
 package com.cangchu.common.pii;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.SmsCode;
 import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.SmsCodeMapper;
@@ -50,18 +49,24 @@ import java.util.function.Supplier;
  * 覆盖<b>已有 hmac 列且已双写+回填</b>的四张表，按闸门分成两组：
  * <ul>
  *   <li><b>Step 1 闸门组（W4，8 个切点）</b>：users（A1–A6 登录链）、blacklist PHONE 行
- *       （B1 命中检查 / B2 加黑查重）。7 天 mismatch=0 是 Step 3 登录切读的准入线。</li>
+ *       （B1 命中检查 / B2 加黑查重）。7 天 mismatch=0 是 Step 3 登录切读的准入线。
+ *       B1/B2 已随 Step 2 切读退出该分母，登录切读后 A1–A6 亦然——见下条。</li>
  *   <li><b>Step 2 观察组（W5，5 个切点）</b>：customer_prices（C1 upsert 唯一键匹配 ×2 处、
  *       C2 价格解析、C3 批量调价按 rtPhone 圈选）、sms_codes（SMS 验证码校验）。
  *       口径与上一组逐条相同，但<b>不进 Step 1 的 7 天分母</b>——它服务的是 15 §4 Step 2
  *       自己的「pricing 全量 + 黑名单用例 + E2E 全绿，观察 ≥3 天」闸门。</li>
  * </ul>
  *
- * <p><b>切读后本类自动让位</b>（Step 2 起）：blacklist / sms / pricing 三组的闸门改按
- * {@link PiiModule} 分模块判定——某模块一旦拨到 {@code hmac}，{@link PiiReadRouter} 直接由 hmac
- * 列出结果、明文查询不再执行，本类对该模块的探针随之停摆。这是对的：已经没有"旧列的答案"可比，
- * 再计数就是拿 hmac 跟自己比。B1/B2 因此会退出 Step 1 的 7 天分母——切读发生在闸门达标<b>之后</b>，
- * 不影响准入判定。登录链（{@link #checkUser}）不设模块，继续吃全局 {@code read-mode}。
+ * <p><b>切读后本类自动让位</b>（Step 2 起）：各组的闸门一律按 {@link PiiModule} 分模块判定——某模块
+ * 一旦拨到 {@code hmac}，{@link PiiReadRouter} 直接由 hmac 列出结果、明文查询不再执行，本类对该模块的
+ * 探针随之停摆。这是对的：已经没有"旧列的答案"可比，再计数就是拿 hmac 跟自己比。B1/B2 因此会退出
+ * Step 1 的 7 天分母——切读发生在闸门达标<b>之后</b>，不影响准入判定。
+ *
+ * <p><b>登录链（{@link #checkUser}）从 Step 3 起同理</b>，但多一层要交代：它切读后走的是<b>双读兜底</b>
+ * 而非硬切，明文列在 hmac 未命中时仍会被查一次。那一次回落是主路救场，不是影子比对，因此<b>不</b>记进
+ * 本类——它由 {@link PiiFallbackHealer} 以 {@code pii.fallback} 单独计数。两个指标的分工：本类回答
+ * 「切之前两列答案是否一致」，那个类回答「切之后有没有人靠旧列被救回来」。后者恒为 0 才是 7 天闸门
+ * 在切读后的延续；不单独计，兜底会让「回填有洞」永远沉默（登录照常成功，用户无感）。
  *
  * <p><b>hmac 侧查询不写在本类</b>：谓词统一由 {@link PiiHmacQueries} 构造，与切读后真正出结果的
  * 那条查询共用一份——否则影子期证明的是 A 查询、上线跑的是 B 查询，闸门便失去意义。
@@ -129,9 +134,10 @@ public class PiiShadowReader {
      * @param legacy   旧列查询结果，未命中传 null
      */
     public void checkUser(String pointcut, String phone, User legacy) {
-        // 登录链故意不设灰度模块，吃的就是全局 read-mode——它归 Step 3 / W6，本波不切读，
-        // 且全局 read-mode 正是 Step 1「7 天 mismatch=0」闸门组的口径（见 PiiModule 类注释）。
-        if (!properties.isShadowRead()) {
+        // Step 3 起登录链有了自己的灰度模块（PiiModule.LOGIN），未登记时回落全局 read-mode
+        // ——也就是 Step 1「7 天 mismatch=0」闸门组的口径。一旦 login 拨到 hmac，本探针停摆
+        // （已无「旧列的答案」可比），闸门的延续改看 pii.fallback，见 PiiFallbackHealer。
+        if (!properties.isShadowRead(PiiModule.LOGIN)) {
             return;
         }
         probe(pointcut, () -> {
@@ -139,10 +145,7 @@ public class PiiShadowReader {
             if (hmac == null) {
                 return Verdict.SKIPPED;
             }
-            User shadow = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                    .select(User::getId)
-                    .eq(User::getPhoneHmac, hmac)
-                    .last("LIMIT 1"));
+            User shadow = userMapper.selectOne(PiiHmacQueries.user(hmac).select(User::getId));
             return compare(pointcut, legacy == null ? null : legacy.getId(),
                     shadow == null ? null : shadow.getId());
         });

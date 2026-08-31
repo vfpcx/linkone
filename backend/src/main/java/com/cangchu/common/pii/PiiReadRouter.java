@@ -1,7 +1,9 @@
 package com.cangchu.common.pii;
 
 import com.cangchu.account.entity.SmsCode;
+import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.SmsCodeMapper;
+import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.pricing.entity.CustomerPrice;
 import com.cangchu.pricing.mapper.CustomerPriceMapper;
 import com.cangchu.tenant.entity.Blacklist;
@@ -18,19 +20,22 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
- * PII 阶段 1 Step 2 · 切读开关（15-pii-hardening-v2 §4 Step 2 / 波次 PII-W5）。
+ * PII 阶段 1 Step 2/3 · 切读开关（15-pii-hardening-v2 §4 / 波次 PII-W5、PII-W6）。
  *
  * <p>影子期（Step 1）出结果的是明文列、hmac 只在旁边比对；本类负责把这件事<b>反过来</b>：模块一旦
- * 拨到 {@code hmac}，hmac 列直接出结果，明文读路径不再执行。范围严格是 15 §4 Step 2 那四块——
- * 黑名单 B1/B2、短信码校验、定价 C1/C2/C3、手机号派生的 Redis 键（C4）。<b>登录链 A1–A6 不在本类</b>，
- * 归 Step 3 / 波次 PII-W6。
+ * 拨到 {@code hmac}，hmac 列直接出结果。Step 2 覆盖黑名单 B1/B2、短信码校验、定价 C1/C2/C3、
+ * 手机号派生的 Redis 键（C4）；Step 3 追加<b>登录链 A1–A6</b>（{@link #user}）。
  *
  * <h3>三条口径</h3>
  * <ol>
  *   <li><b>硬切，无旧列兜底</b>：hmac 未命中 = 真未命中，主路照未命中处理（加黑走 insert、专属价回退
  *       公开价、验证码校验不通过）。回填有没有填全，是切读<b>之前</b>由影子期闸门证明的事；用运行时
  *       兜底去掩盖，等于把「回填有洞」这个事实永久藏起来，闸门也就再没有归零的一天。
- *       （Step 3 登录链另有双读兜底自愈 + 异步补写，那是因为登录切错的代价是全员登不上，不同权衡。）</li>
+ *       <p><b>唯一的例外是登录链</b>（{@link #user}，Step 3）：它走<b>双读兜底 + 异步补写</b>。
+ *       这不是把上面那句话打个折，而是失败模式不同——上面几块漏填的代价是「一次判定错了」，可观察、
+ *       可追溯、可补救；登录漏填的代价是「那个人从此登不上、找不回密码、重新注册还撞唯一键」，
+ *       而且他没有任何自助手段。所以登录用兜底换可用性，<b>并把因此被掩盖的那笔账单独记出来</b>
+ *       （{@link PiiFallbackHealer}），闸门归零的路径依然存在，只是换了个指标承载。</li>
  *   <li><b>回滚分支永远在</b>：非 hmac 模式走的就是原来那条明文查询（由调用方以 {@code legacyRead}
  *       传入，一行没改），外加原来那次影子比对。拨回 {@code shadow}/{@code plain} 即秒级恢复。</li>
  *   <li><b>比对过的查询才敢拿来出结果</b>：hmac 侧查询一律经 {@link PiiHmacQueries} 构造，与
@@ -58,6 +63,8 @@ public class PiiReadRouter {
     private final PiiProperties properties;
     private final PiiCrypto piiCrypto;
     private final PiiShadowReader shadowReader;
+    private final PiiFallbackHealer fallbackHealer;
+    private final UserMapper userMapper;
     private final BlacklistMapper blacklistMapper;
     private final CustomerPriceMapper customerPriceMapper;
     private final SmsCodeMapper smsCodeMapper;
@@ -94,6 +101,57 @@ public class PiiReadRouter {
     /** 该模块是否已切读（供调用方在需要时跳过明文入参的组装开销；不调用也不影响正确性）。 */
     public boolean isHmacRead(String module) {
         return properties.isHmacRead(module);
+    }
+
+    // ------------------------------------------------------------ 登录链（A1–A6，Step 3）
+
+    /**
+     * A1–A6 登录链按手机号取用户：<b>双读兜底自愈</b>（15 §4 Step 3 / 波次 PII-W6）。
+     *
+     * <p>与本类其余方法的硬切不同，切读后的判定链是：
+     * <pre>
+     * hmac 命中          → 直接出结果                                  记 HMAC_HIT
+     * hmac 未命中 → 回落 phone_hash 再查一次
+     *      ├ 旧列也未命中 → 返回 null（真未命中：新号注册、找回不存在的账号） 记 CONFIRMED_MISS
+     *      └ 旧列命中     → 用旧列结果出结果 + 异步补写该行 hmac 列        记 FALLBACK → HEALED
+     * </pre>
+     *
+     * <p><b>为什么登录可以兜底、别的不可以</b>：见类注释口径 1。一句话——别处漏填是「一次判定错了」，
+     * 登录漏填是「这个人再也进不来且无法自助」。代价换过来之后，被兜底掩盖的那笔账由
+     * {@link PiiFallbackHealer} 单独记账（{@code pii.fallback}），Step 1 的七天闸门在切读后由它延续。
+     *
+     * <p><b>兜底的盲区，说清楚</b>：hmac 命中即出结果，明文列根本不查，所以「hmac 命中的是不是同一行」
+     * （撞键 / 规范化漂移 R1）双读救不了也测不出——那是影子期七天闸门的职责，不是本方法的。
+     *
+     * <p><b>算不出 hmac</b>（明文空白）走明文分支且不计数：与 B2 的 LICENSE_NO 同一口径——hmac 列本就
+     * 不承载这一行的可查性，不是兜底。
+     *
+     * @param pointcut   切点名（如 {@code A2-login}），进指标 tag，须为常量
+     * @param phone      明文手机号（只用于算 hmac 与补写，不入 key、不入日志）
+     * @param legacyRead 原 {@code phone_hash} 查询（回滚分支；切读后仅在 hmac 未命中时执行）
+     */
+    public User user(String pointcut, String phone, Supplier<User> legacyRead) {
+        if (!properties.isHmacRead(PiiModule.LOGIN)) {
+            User legacy = legacyRead.get();
+            shadowReader.checkUser(pointcut, phone, legacy);
+            return legacy;
+        }
+        String hmac = piiCrypto.phoneHmac(phone);
+        if (hmac == null) {
+            return legacyRead.get();
+        }
+        User hit = userMapper.selectOne(PiiHmacQueries.user(hmac));
+        if (hit != null) {
+            fallbackHealer.recordHmacHit(pointcut);
+            return hit;
+        }
+        User legacy = legacyRead.get();
+        if (legacy == null) {
+            fallbackHealer.recordConfirmedMiss(pointcut);
+            return null;
+        }
+        fallbackHealer.recordFallback(pointcut, legacy.getId(), phone);
+        return legacy;
     }
 
     // ------------------------------------------------------------ 黑名单（B1 / B2）

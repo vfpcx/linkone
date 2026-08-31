@@ -13,7 +13,6 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.pii.PiiReadRouter;
-import com.cangchu.common.pii.PiiShadowReader;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.service.TenantService;
@@ -57,10 +56,9 @@ public class AccountServiceImpl implements AccountService {
     private final WholesalerApplicationService wholesalerApplicationService;
     // PII 硬化阶段 0：HMAC 盲索引双写（写切点 A1 注册/A4 换绑/A5 RT 自动建号；读路径不消费）
     private final PiiCrypto piiCrypto;
-    // PII 阶段 1 Step1：A1–A5 读切点影子双查（read-mode=shadow 时才动作，出结果的仍是 phone_hash）
-    private final PiiShadowReader piiShadowReader;
-    // PII 阶段 1 Step2：SMS 码校验切读（sms 模块）+ 短信/登录限流键的手机号派生物 HMAC 化（C4，redis-key 模块）。
-    // 登录链 A1–A5 的读切换归 Step 3 / W6，本类的 phone_hash 查询一行未动。
+    // PII 读路由单入口：A1–A5 登录链双读（login 模块，Step3/W6）+ SMS 码校验硬切（sms 模块，Step2/W5）
+    // + 短信/登录限流键的手机号派生物 HMAC 化（C4，redis-key 模块）。
+    // 非 hmac 模式下由它内部回落原 phone_hash/明文查询并触发影子双查，本类不再直连 PiiShadowReader。
     private final PiiReadRouter piiReadRouter;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
@@ -207,9 +205,11 @@ public class AccountServiceImpl implements AccountService {
         }
 
         // 检查手机号是否已注册
-        User existUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, phoneHash));
-        piiShadowReader.checkUser("A1-register", phone, existUser);
+        // PII 阶段 1 Step3 · A1（W6）：login 模块拨到 hmac 即由 phone_hmac 查重，未命中则回落
+        // phone_hash 兜底（漏填时若真按未命中放行，会造出重号并撞 uk_users_phone_hash）
+        User existUser = piiReadRouter.user("A1-register", phone,
+                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
+                        .eq(User::getPhoneHash, phoneHash)));
         if (existUser != null) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004);
         }
@@ -267,12 +267,14 @@ public class AccountServiceImpl implements AccountService {
         String phone = dto.getPhone();
         String phoneHash = DigestUtil.sha256Hex(phone);
 
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, phoneHash));
-        piiShadowReader.checkUser("A2-login", phone, user);
+        // PII 阶段 1 Step3 · A2（W6）：登录命门。切读后 hmac 未命中会回落 phone_hash 再查一次
+        // ——硬切在这里的代价是「那个人登不上且失败计数照涨到锁定」，故此处独取双读兜底口径。
+        User user = piiReadRouter.user("A2-login", phone,
+                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
+                        .eq(User::getPhoneHash, phoneHash)));
 
         // PII 阶段 1 Step2 · C4（W5）：登录失败计数键的手机号派生物切 HMAC（redis-key 模块）。
-        // 只换 Redis 键的派生方式，上面那条 phone_hash 查询（A2 读切点）不在本波范围，归 Step 3 / W6。
+        // 与上面那条读切换互相独立：键的派生方式由 redis-key 模块拨，用户行的读由 login 模块拨。
         String failKeyPart = piiReadRouter.redisKeyPart(phone, phoneHash);
 
         // D-04: 锁定优先于一切（即便用户不存在也按手机号维度统一处理，防枚举 + 防爆破）
@@ -397,9 +399,11 @@ public class AccountServiceImpl implements AccountService {
         // 验证验证码
         verifySmsCode(phone, "RESET_PWD", dto.getSmsCode());
 
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, phoneHash));
-        piiShadowReader.checkUser("A3-reset-password", phone, user);
+        // PII 阶段 1 Step3 · A3（W6）：找回密码。硬切在这里会静默 return（防枚举语义本就不报错），
+        // 用户改不了密码却收不到任何提示——双读兜底正是为这类「无声失败」准备的
+        User user = piiReadRouter.user("A3-reset-password", phone,
+                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
+                        .eq(User::getPhoneHash, phoneHash)));
         if (user == null) {
             // 不暴露账号存在性
             return;
@@ -455,9 +459,11 @@ public class AccountServiceImpl implements AccountService {
 
         // 检查新手机号是否已被注册
         String newPhoneHash = DigestUtil.sha256Hex(dto.getNewPhone());
-        User existUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, newPhoneHash));
-        piiShadowReader.checkUser("A4-change-phone", dto.getNewPhone(), existUser);
+        // PII 阶段 1 Step3 · A4（W6）：换绑查重。硬切漏填会放行换到一个已被占用的号，
+        // 随后撞 uk_users_phone_hash——错误码从「新手机号已被注册」退化成 500
+        User existUser = piiReadRouter.user("A4-change-phone", dto.getNewPhone(),
+                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
+                        .eq(User::getPhoneHash, newPhoneHash)));
         if (existUser != null && !existUser.getId().equals(userId)) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004, "新手机号已被注册");
         }
@@ -489,9 +495,11 @@ public class AccountServiceImpl implements AccountService {
         verifySmsCode(phone, "RT_LOGIN", code);
 
         String phoneHash = DigestUtil.sha256Hex(phone);
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, phoneHash));
-        piiShadowReader.checkUser("A5-rt-sms-login", phone, user);
+        // PII 阶段 1 Step3 · A5（W6）：RT 免密。硬切漏填会当成新用户重新建号——老账号的订单、
+        // 专属价、角色绑定全部失联，且新号立刻撞 uk_users_phone_hash
+        User user = piiReadRouter.user("A5-rt-sms-login", phone,
+                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
+                        .eq(User::getPhoneHash, phoneHash)));
 
         boolean isNew = false;
         if (user == null) {

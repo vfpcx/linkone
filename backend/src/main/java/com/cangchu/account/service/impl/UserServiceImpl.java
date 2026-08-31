@@ -7,7 +7,7 @@ import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiShadowReader;
+import com.cangchu.common.pii.PiiReadRouter;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -35,8 +35,9 @@ public class UserServiceImpl implements UserService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // PII 硬化阶段 0：HMAC 盲索引双写（切点 A6 代建幂等开号；读路径仍走 phone_hash）
     private final PiiCrypto piiCrypto;
-    // PII 阶段 1 Step1：A6 读切点影子双查（read-mode=shadow 时才动作，幂等判定仍以 phone_hash 为准）
-    private final PiiShadowReader piiShadowReader;
+    // PII 读路由单入口：A6 读切点。login 模块拨到 hmac 即由 phone_hmac 判幂等，
+    // 未命中则回落 phone_hash 兜底；非 hmac 模式由它内部触发影子双查（Step1 口径不变）
+    private final PiiReadRouter piiReadRouter;
 
     /** BCrypt cost 12（与 AccountServiceImpl / 原 tenant 直连点一致） */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -46,9 +47,11 @@ public class UserServiceImpl implements UserService {
     public EnsuredUser ensureUserByPhone(String phone, String registerSource) {
         String p = phone.trim();
         String phoneHash = DigestUtil.sha256Hex(p);
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, phoneHash));
-        piiShadowReader.checkUser("A6-ensure-user", p, user);
+        // PII 阶段 1 Step3 · A6（W6）：代建开号的幂等判定。硬切漏填会把老账号当成不存在而重新建号
+        // ——撞 uk_users_phone_hash 之余，原账号的租户/商户绑定也就此失联
+        User user = piiReadRouter.user("A6-ensure-user", p,
+                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
+                        .eq(User::getPhoneHash, phoneHash)));
         if (user != null) {
             return new EnsuredUser(user.getId(), false);
         }

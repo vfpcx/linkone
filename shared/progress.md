@@ -2,6 +2,15 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-08-31 · PII-W6 收尾完成（Team Lead，CodeBuddy 接手收口）
+
+- **PII 阶段 1 Step 3 登录链双读切换交付**：全量 **488 绿**（基线 470 + `PiiLoginHmacReadScenarioTest` 18 例，0 失败/0 错误/0 跳过，零回归）。A1–A6 六切点经 `PiiReadRouter.user()` 统一走"hmac 出结果 / 漏填旧列兜底 / 异步补写自愈"；`PiiFallbackHealer` 以 `pii.fallback` 承接七天闸门（FALLBACK 恒 0 为切读后准入线）
+- **RED 变异验证（W5 同款纪律，两个互补变异）**：变异 A（切读没发生）18 例杀 **15**；变异 B（hmac 查询失效）18 例杀 **7**（6 例"hmac 一致" + 1 例"指标分家"）；两轮都不红的正是默认值/CAS/漏填兜底等"兜底语义"用例——行为断言本就不该杀它们，与设计注释一致。变异还原后复验 488 全绿
+- **PiiCrypto 待核点结论：无需改动**。现形态（HMAC 单入口 + 启动 KAT + fail-fast）已完全满足 Step 3 全部需求；设计文档中 AES-GCM 加密属阶段 2（PII-W7/W8），不在 W6 范围
+- **用户拍板（2026-08-31）**：①无生产环境 → 不设 7 天/3 天观察期，验证直接拨 hmac 跑全量即可；双读兜底代码保留（上线后 FALLBACK 恒 0 监控即保险）②W6 在 main 工作区直接收尾（未建分支）
+- **默认值未动**：全局 `read-mode: shadow`、login 模块占位符空——交付的是"代码就绪 + 开关可拨"，生产拨动顺序 login 殿后（爆炸半径最大者最后切）
+- 提交：W6 单提交（含 8 改动 + 2 新文件 + progress.md），main 已同步 origin
+
 ## 2026-08-18（会话收口·交接）
 - **在途两分支已现场保护（均未合并，接手先看 task_plan 交接标注）**：
   - fix/p4-leftovers（3 commits）：P4-L2 WA 按日端点+LIF-10 测试（未跑）、P4-L3 PDF 无字体兜底（X-Export-Warning 头+首页提示行）。差最后一步：全量跑绿即可合并
@@ -168,3 +177,15 @@ Step 2 拆成两半，本次只做前半段「接影子切点」，**切读本�
 - **RED 用两个互补变异而非单向变异**：只做「切读没发生」这一个变异的话，6 条「hmac 命中 == 旧列命中」用例不会红——它们断言的正是两种模式结论相同，本就区分不了。补上「切读发生但 hmac 查不到」的变异后，21 例正式用例全部被至少一个变异杀死；两轮都不红的 4 例全是负向断言（默认值、模块隔离、LICENSE_NO、显式 ids），同 W4/W5 先例
 - **`markRemoved` 造 REMOVED 行来放大 B2 的可观察差异**：直接对 ACTIVE 行测，明文与切读两条路的错误码都是 50310，差异被唯一键兜底掩盖看不出来；改成 REMOVED 行后，明文口径走**复活**、切读漏填走 insert 撞 uk，行为差异肉眼可辨
 - **默认值刻意没动**（全局仍 shadow、四个占位符全空），本波交付的是「代码就绪 + 开关可拨」，不是「已经切了」
+
+## 2026-08-31 · 记忆迁移核对 + PII-W6 在途交接（Team Lead，CodeBuddy 接手）
+
+> 从 claude-mem 抽取 8/18 后 22 条会话摘要与 8/30-8/31 全部记录核对，与本文档一致，**无文档外决策遗漏**。唯一增量 = 下方 W6 在途状态，已固化。
+
+- **PII-W6（15 §4 Step 3 登录双读切换）代码已动工但未提交**（上个 CLAUDE CODE 会话 8/30 晚–8/31 凌晨在 main 工作区直接改，未建分支）：
+  - 新增未跟踪：`PiiFallbackHealer.java`（双读兜底计数 `pii.fallback{pointcut,verdict}` + 单线程有界队列异步补写，Verdict 含 FALLBACK/HEALED/HEAL_FAILED/HEAL_DROPPED，类注释钉死「FALLBACK 恒为 0 才是 7 天闸门在切读后的延续」）+ `PiiLoginHmacReadScenarioTest.java`（29KB 关卡测试）
+  - 已跟踪改动 8 个：`AccountServiceImpl`/`UserServiceImpl` 的 A1–A6 登录链已从 `selectOne(phoneHash)`+`piiShadowReader.checkUser` 改走 `piiReadRouter.user(...)`（双读兜底）；`PiiReadRouter`/`PiiShadowReader`/`PiiModule`/`PiiBackfillService`/`PiiHmacQueries` 配套（login 模块入 PiiModule、checkUser 改吃模块闸门、PiiHmacQueries 新增 users 查询、PiiBackfillService 新增 `healUserHmac` 单行按需补填）；`application.yml` 新增 `login: ${PII_READ_MODE_LOGIN:}` 占位符并注明拨动顺序 login 殿后
+  - 状态：会话记录最后动作为「Maven 编译主源码」，**全量测试未跑、未提交、未推送**；PiiCrypto 改动点（计划里的第三批）经 git diff 未见——待核
+  - 接手：跑全量（基线 470）→ 修绿 → 独立复验 → commit。注意与 W5 相同的验证纪律：RED 变异、PiiCrypto 若需改须过 KAT
+- **环境**：6379 Memurai ✅；8080 后端未监听（java 进程在但无服务）；`main` 领先 `origin` 2 commits（W5 两个）未推送
+- 附：claude-mem 出现一条 8/30 的「OAuth2 PKCE」记录，与本项目不符，疑为跨项目误抓，已忽略
