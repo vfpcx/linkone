@@ -7,3 +7,15 @@ node_modules/
 target/
 dist/
 dump.rdb
+
+# --- 本机/工具生态（不参与协作；文件保留在本地，可随时改回） ---
+.codebase-memory/
+.cursor/
+.zed/
+.vscode/
+install.ps1
+AGENTS.md
+.github/copilot-instructions.md
+.github/instructions/
+.e2e-tmp/
+backend/data/
