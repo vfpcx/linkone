@@ -49,7 +49,7 @@
 **核心边界**（对全系统所有域生效）：
 - **account**：账号身份（users/user_roles/login_sessions/sms_codes/password_history/invite_codes）。
 - **tenant**：入驻与租户（tenants/stores/tenant_settings/tenant_applications/wholesalers/wholesaler_applications/wholesaler_withdraw_applications；blacklist 为平台级共享表）。
-- **document**：单据交易（inbound/inquiry/outbound/return/correction/count_sheet/clearance/arbitration/notifications）。
+- **document**：单据交易（inbound/inquiry/outbound/return/correction/count_sheet/clearance/arbitration）。
 - **pii**：敏感数据横切面（**不是业务域**，物理位置 `common.pii`），约束各域的 PII 读改写方式。
 - 其余既有域（inventory/product/storefront/billing/pricing）与新域同规则；**新增域必须先声明归属表与依赖方向再开发**（§6 准入规则）。
 - 证据：08 §3 G-S1~G-S4；08 §2 数据归属表；07 文档 user_roles 归属 account 的先例。
@@ -98,13 +98,13 @@
 |---|---|---|---|---|
 | `account`（30 文件） | 账号身份、登录会话、短信码、角色权限 | users、user_roles、login_sessions、sms_codes、password_history、invite_codes | 已实现 | account 服务（鉴权中心） |
 | `tenant`（62） | 入驻、租户、店铺、批发商、黑名单 | tenants、stores、tenant_settings、tenant_applications、wholesalers、wholesaler_applications、wholesaler_withdraw_applications、blacklist | 已实现 | tenant + wholesaler 服务 |
-| `document`（91） | 单据交易、询价、入库/出库/退货、盘点、清库、仲裁、站内信 | inbound/inquiry/outbound/return/correction/count_sheet/clearance/arbitration/notifications 等 | 已实现 | trade 服务 |
+| `document`（91） | 单据交易、询价、入库/出库/退货、盘点、清库、仲裁 | inbound/inquiry/outbound/return/correction/count_sheet/clearance/arbitration 等 | 已实现 | trade 服务 |
 | `inventory`（41） | 库存、流水、批次登记簿 | inventories、stock_movements、batches 等 | 已实现 | inventory 服务 |
 | `product`（小） | 商品 SKU | skus | 已实现 | product 服务 |
 | `storefront`（小） | RT 门店前台聚合（只读 BFF，无自有表） | 聚合 tenant/inventory/pricing/product 数据 | 已实现 | BFF/聚合服务 |
 | `pricing`（15） | 定价与专属价 | customer_prices、price_change_logs | 已实现（P3） | product/pricing 服务 |
 | `billing`（60） | 计费规则、快照、账单、支付流水 | billing_rules、daily_snapshots、bills、bill_items、payment_records、bill_disputes | 已实现（P4） | billing 服务 |
-| `notify`（0） | 站内信/通知（目录已建） | notifications（现归 document 域承载） | 未实现 | notification 服务 |
+| `notify`（13） | 站内信/通知 | notifications | 已实现 | notification 服务 |
 | `common`（29） | 横切设施：config/exception/file/pii/response/tenant/util | —（无业务表） | 已实现 | 共享库/公共依赖 |
 
 > 数据归属基准见 08 §2；本表为 2026-09-01 实测口径（billing/pricing 已从 08 的"未实现"变为已实现）。

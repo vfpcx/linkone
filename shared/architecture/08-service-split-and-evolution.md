@@ -41,6 +41,7 @@
 | **product** 商品 | skus（未来含 spu、定价/专属价）|
 | **inventory** 库存 | inventories、stock_movements |
 | **document/trade** 单据 | inbound_requests、inquiry_requests、inquiry_items、outbound_requests |
+| **notify** 站内信/通知 | notifications |
 | **storefront** 门店聚合 | 无自有表（只读聚合，天然是 BFF/聚合层）|
 | **billing**（未实现）| bills、bill_items、billing_rules、daily_snapshots |
 
