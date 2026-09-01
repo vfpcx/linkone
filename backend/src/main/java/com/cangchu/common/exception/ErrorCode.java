@@ -236,7 +236,12 @@ public enum ErrorCode {
     PII_REVEAL_TARGET_NOT_FOUND(50401, "查询对象不存在"),
     PII_REVEAL_FORBIDDEN(50402, "您没有查看完整手机号的权限"),
     // W8-B1（16 §2.3）：AES-GCM 密文解不开时给语义码而非 500（展示层用 decryptOrNull 降级不抛）
-    PII_DECRYPT_ERROR(50403, "数据解密失败，请稍后重试");
+    PII_DECRYPT_ERROR(50403, "数据解密失败，请稍后重试"),
+
+    // ==================== P5-A 平台公告（18-p5-design §5，50500+，归属 notify 域） ====================
+    ANNOUNCEMENT_NOT_FOUND(50501, "公告不存在"),
+    ANNOUNCEMENT_STATE_INVALID(50502, "公告状态不允许此操作"),
+    ANNOUNCEMENT_TARGET_ROLES_INVALID(50503, "目标角色组非法");
 
     private final int code;
     private final String message;

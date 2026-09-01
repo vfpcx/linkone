@@ -26,12 +26,24 @@ public class NotificationController {
 
     private final NotificationService notificationService;
 
-    /** 我的消息列表（unreadOnly=true 只看未读）。 */
+    /**
+     * 我的消息列表（unreadOnly=true 只看未读）。
+     *
+     * @param group 分组筛选（P5-A W3，18-p5-design §4.4）：BIZ/ANNOUNCE/SYS，空=全部
+     */
     @GetMapping
     public R<Page<NotificationVo>> list(@RequestParam(defaultValue = "1") int page,
                                         @RequestParam(defaultValue = "20") int size,
-                                        @RequestParam(defaultValue = "false") boolean unreadOnly) {
-        return R.ok(notificationService.listMine(StpUtil.getLoginIdAsLong(), page, size, unreadOnly));
+                                        @RequestParam(defaultValue = "false") boolean unreadOnly,
+                                        @RequestParam(required = false) String group) {
+        return R.ok(notificationService.listMine(StpUtil.getLoginIdAsLong(), page, size, unreadOnly, group));
+    }
+
+    /** 全部已读（P5-A W3，本人 scope，幂等）。 */
+    @PostMapping("/read-all")
+    public R<Void> readAll() {
+        notificationService.readAll(StpUtil.getLoginIdAsLong());
+        return R.ok();
     }
 
     /** 我的未读数（铃铛角标轮询）。 */

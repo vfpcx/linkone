@@ -75,6 +75,19 @@ public interface AuthService {
     java.util.List<Long> listActiveStUserIdsOfTenant(Long tenantId);
 
     /**
+     * 上下文查询（平台级反查，P5-A W3，18-p5-design §3.2）：列出<b>全平台</b>具有任一指定角色的
+     * ACTIVE 用户 id（去重）。与 {@link #listActiveStUserIdsOfTenant} 同构但不带租户过滤——
+     * 用于平台公告（OPS）发布时目标角色收件人推导；角色白名单由调用方（notify 域）保证。
+     */
+    java.util.List<Long> listActiveUserIdsByRoles(java.util.Collection<String> roles);
+
+    /**
+     * 上下文查询（平台级反查，P5-A W3，18-p5-design §3.2）：列出全平台全部 ACTIVE 用户 id（去重）。
+     * 用于平台公告 target_roles=ALL 的收件人推导；以 user_roles 绑定为唯一可信来源。
+     */
+    java.util.List<Long> listAllActiveUserIds();
+
+    /**
      * 角色-租户绑定（幂等）：确保用户拥有一条 (role, tenantId, ACTIVE) 的角色记录。
      *
      * <p>行为与原 tenant 域直连逐一等价：优先复用一条 status=ACTIVE 且 tenant_id 为空的

@@ -68,16 +68,34 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
-    public Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly) {
+    public Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly, String group) {
+        LambdaQueryWrapper<Notification> qw = new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getRecipientUserId, userId)
+                .isNull(unreadOnly, Notification::getReadAt);
+        // P5-A W3（18 §4.4）：group 白名单（类型安全条件，杜绝注入）；SYS 本期无 type 归属 → 恒空
+        if (group != null && !group.isBlank() && !"ALL".equalsIgnoreCase(group)) {
+            switch (group.toUpperCase()) {
+                case "ANNOUNCE" -> qw.eq(Notification::getType, Notification.TYPE_PLATFORM_ANNOUNCEMENT);
+                case "BIZ" -> qw.ne(Notification::getType, Notification.TYPE_PLATFORM_ANNOUNCEMENT);
+                case "SYS" -> qw.eq(Notification::getId, Long.MIN_VALUE);
+                default -> throw new BizException(ErrorCode.VALIDATION_BASIC_003);
+            }
+        }
+        qw.orderByDesc(Notification::getCreatedAt);
         Page<Notification> p = notificationMapper.selectPage(
-                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
-                new LambdaQueryWrapper<Notification>()
-                        .eq(Notification::getRecipientUserId, userId)
-                        .isNull(unreadOnly, Notification::getReadAt)
-                        .orderByDesc(Notification::getCreatedAt));
+                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)), qw);
         Page<NotificationVo> out = new Page<>(p.getCurrent(), p.getSize(), p.getTotal());
         out.setRecords(p.getRecords().stream().map(this::toVo).toList());
         return out;
+    }
+
+    @Override
+    @Transactional
+    public void readAll(Long userId) {
+        notificationMapper.update(null, new LambdaUpdateWrapper<Notification>()
+                .eq(Notification::getRecipientUserId, userId)
+                .isNull(Notification::getReadAt)
+                .set(Notification::getReadAt, LocalDateTime.now()));
     }
 
     @Override

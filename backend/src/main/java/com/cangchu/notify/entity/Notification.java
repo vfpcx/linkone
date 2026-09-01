@@ -93,6 +93,8 @@ public class Notification {
     public static final String TYPE_BILL_DISPUTE_RESOLVED = "BILL_DISPUTE_RESOLVED";
     /** P4 W3：R14 强制下架未结账单标争议中 → 本仓库全部结算员 */
     public static final String TYPE_BILL_DISPUTED_MARKED = "BILL_DISPUTED_MARKED";
+    /** P5-A W3：平台公告（18-p5-design §2.2/§4.4）→ 目标角色（通知中心「公告」分组常驻 + 登录弹窗 1 次） */
+    public static final String TYPE_PLATFORM_ANNOUNCEMENT = "PLATFORM_ANNOUNCEMENT";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";
@@ -102,6 +104,8 @@ public class Notification {
     public static final String REF_STOCKTAKE = "STOCKTAKE";
     public static final String REF_OUTBOUND = "OUTBOUND";
     public static final String REF_ARBITRATION = "ARBITRATION";
+    /** P5-A W3：平台公告跳转（消息中心公告分组；refId=公告 id，无详情落地页） */
+    public static final String REF_ANNOUNCEMENT = "ANNOUNCEMENT";
     /** R8 意向单作废通知跳转（BE-W2） */
     public static final String REF_INQUIRY = "INQUIRY";
     /** P3b T4-W2：批次下钻跳转（临期/到期通知） */

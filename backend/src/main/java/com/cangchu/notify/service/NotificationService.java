@@ -35,8 +35,21 @@ public interface NotificationService {
     void sendToAll(Long tenantId, java.util.Collection<Long> recipientUserIds, String type,
                    String title, String content, String refType, Long refId);
 
-    /** 我的消息列表（recipient=当前用户，倒序；unreadOnly 只看未读）。 */
-    Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly);
+    /**
+     * 我的消息列表（recipient=当前用户，倒序；unreadOnly 只看未读）。
+     *
+     * @param group 分组筛选（P5-A W3，18-p5-design §4.4）：null/空/ALL=全部；
+     *              BIZ=业务（非公告）；ANNOUNCE=公告；SYS=系统（本期无，返回空）
+     */
+    Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly, String group);
+
+    /** 兼容重载（group=null 全量，P5-A 前既有调用方/测试不破坏）。 */
+    default Page<NotificationVo> listMine(Long userId, int page, int size, boolean unreadOnly) {
+        return listMine(userId, page, size, unreadOnly, null);
+    }
+
+    /** 全部已读（P5-A W3，本人 scope，幂等）。 */
+    void readAll(Long userId);
 
     /** 我的未读数（角标/轮询）。 */
     long unreadCount(Long userId);

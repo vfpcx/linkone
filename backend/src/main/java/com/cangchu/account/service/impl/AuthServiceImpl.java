@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -130,6 +131,33 @@ public class AuthServiceImpl implements AuthService {
         return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
                         .eq(UserRole::getTenantId, tenantId)
                         .eq(UserRole::getRole, "ST")
+                        .eq(UserRole::getStatus, "ACTIVE")).stream()
+                .map(UserRole::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    @Override
+    public List<Long> listActiveUserIdsByRoles(Collection<String> roles) {
+        // P5-A W3（18-p5-design §3.2）：平台公告发布收件人推导——平台级反查（无租户过滤），
+        // 角色白名单由 notify 域（AnnouncementServiceImpl.resolveRecipientIds）保证
+        if (roles == null || roles.isEmpty()) {
+            return List.of();
+        }
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                        .in(UserRole::getRole, roles)
+                        .eq(UserRole::getStatus, "ACTIVE")).stream()
+                .map(UserRole::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    @Override
+    public List<Long> listAllActiveUserIds() {
+        // P5-A W3（18-p5-design §3.2）：平台公告 target_roles=ALL 收件人推导——全部 ACTIVE 用户
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
                         .eq(UserRole::getStatus, "ACTIVE")).stream()
                 .map(UserRole::getUserId)
                 .filter(java.util.Objects::nonNull)
