@@ -144,3 +144,23 @@
 - 后端：http://localhost:8080（spring-boot:run，profiles=dev,local，自 main 启动）
 - 前端：http://localhost:5173（主仓 frontend vite dev，@cangchu/admin）
 - MySQL cangchu_dev + Redis(Memurai) 127.0.0.1:6379 在跑
+
+---
+
+## 9. 后续增量（2026-09-02）：WA 一账号多仓 + 手动测试修复 M-01/M-02
+
+> P5-A 收官后的独立增量波，产品决策 2026-09-01（手机号=账号唯一标识，一账号可入驻多仓）。Team Lead 于工作区核对发现并整体验证后分提交合入。
+
+**提交**：`036d133`（backend）/ `3461e58`（frontend）/ `943f8fd`（docs）；此前手动测试登记 `15-manual-test-findings.md`（11058f0 建模板）。
+
+**一账号多仓**：
+- V37 迁移（h2/mysql 双份）：`uk_applicant_pending` 由 (applicant_user_id, pending_flag) → **(applicant_user_id, tenant_id, pending_flag)**，同仓仍至多 1 条 PENDING，跨仓可并存
+- 入驻/代建/审批（WholesalerApplicationServiceImpl）仅拦**同仓重复**（50204 文案改「该账号已入驻本仓库批发商」）；`doCreatePending` 计数按 (账号, 目标租户) 与索引维度一致
+- 数据隔离：`AuthService.listActiveWholesalerIds/We` 新增 tenantId 重载，WA/WE 的 inquiry/inbound/outbound/return/batches/billing/员工/退驻等 `requireOwnWholesaler` 系列按 `TenantContext.tenantId`（X-Tenant-Id）收敛当前仓；无上下文回退单仓、多仓无上下文明确提示「请先在顶栏选择当前仓库」（PERMISSION_TENANT_001）
+- 登录响应：`roles[].storeName` 实际下发（`LoginVo.RoleInfo` 新增，`doLogin` 经 `TenantService` 填充，同租户多角色共享一次查询）；前端 auth.ts 登录补写 `currentTenant`、切换器跨仓切换整页刷新，`http.ts` 既有 X-Tenant-Id 注入生效
+
+**手动测试修复（登记 `15-manual-test-findings.md`）**：
+- **M-01**（前端）：TA 端 16 页各自维护侧边菜单，9 页缺「入库」项（Dashboard/Wholesalers/WholesalerApplications/Skus/Pricing/Settings/Employees/Messages/BillsOverview），仓管员登录默认页看不到入库 → 9 页补 `{key:'/ta/inbound', label:'入库'}` + 跳转白名单
+- **M-02**（后端）：登录响应从不携带 `tenantInfo` → WA 入库登记弹窗只显示占位「当前入驻仓库」→ `doLogin` 取首个有 tenantId 的角色经 `TenantService` 填充 `LoginVo.tenantInfo`（跨域走 service，G-S1/G-S2；OPS/RT 无租户角色 NON_NULL 省略）
+
+**验证**：后端 `mvn clean test` **51 类 472 例全绿**（OnboardingScenarioTest 新增多仓场景：跨仓申请不被 50204 拦截、双仓 X-Tenant-Id 列表收敛）；前端 `vue-tsc --noEmit && vite build` 通过（components.d.ts 同步移除无使用的 ElPopover）。

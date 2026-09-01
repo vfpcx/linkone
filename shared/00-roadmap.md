@@ -40,6 +40,7 @@
 - **定价**：客户专属价((rt_phone,sku))、议价沉淀(询价确认内沉淀)、批量调价(涨降%/改值, Redisson锁)、调价历史、价格匹配≤200ms(Redis缓存)
 - WE（批发商员工）账号与权限
 - 产出：入驻（`shared/archive/task_plan-p2-onboarding.md`，Wave1 主链 + Wave2 R13/R14，158/158 绿）；定价（`test-plan/06-p2-pricing-delivery-report.md`，127 绿 + 视觉验收）
+- **2026-09-02 增量 · WA 一账号多仓**（产品决策 2026-09-01）：V37 `uk_applicant_pending` 按 (账号, 目标租户) 维度；入驻/代建/审批仅拦同仓重复（50204 文案改「本仓库」）；WA/WE 各接口按 `X-Tenant-Id` 收敛当前仓（inquiry/inbound/outbound/return/batches/billing/员工/退驻）；登录响应 `roles[].storeName` 实际下发 + `tenantInfo`（M-02）；前端工作空间切换跨仓整页刷新。验证：后端 472 全绿（OnboardingScenarioTest 增多仓场景）+ 前端 typecheck/build 通过（提交 036d133/3461e58/943f8fd）
 
 ## P3 · 完整单据与履约异常 ✅
 - 入库：WK 代建 72h 默认接受 + WA 异议 → 反向冲销 + TA 仲裁；拍照入库 + 展示图同步
@@ -95,3 +96,4 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v2.2 | 2026-09-01 | P5 拍板 P5-A 并启动：进度总览改进行中；正文增 P5-A 三段进度（W3 后端✅ 457 绿，W4/W5 待排期）|
 | v2.3 | 2026-09-01 | P5-A W4 完成：撮合配置+storefront 出参（b2cb572，468 绿）+ 公告租户过滤修复（4fc717b）+ 前端四件套与登录即弹修复（6f0ca67/315257c）+ E2E 公告 13/13 撮合 7/7（ad2c915）+ 契约文档补齐（a595db4）；W3 公告错误码校正为实测 50501-50503（草案 50701-50703 作废）|
 | v2.4 | 2026-09-01 | **P5-A 全绿收官**：W5 全量回归 470 后端 + 129 E2E + 8 视觉（6bf99b9/9ee9eb7/1dd627e/8ba046a）+ 历史链路修复 ONB-E2E-02（9104adf）/ ONB-E2E-04（9ee9eb7）+ 375 适配（27bad02）+ 交付报告定稿（d2c1483）+ manual findings 模板（11058f0）；P5 余下子项（viewer 脱敏/ASR/OSS/小程序/Dashboard）仍待拍板 |
+| v2.5 | 2026-09-02 | **WA 一账号多仓落地**（产品决策 2026-09-01）：V37 uk 维度调整 + 入驻同仓唯一 + 各接口 X-Tenant-Id 收敛 + 登录下发 storeName/tenantInfo；M-01/M-02 手动测试修复验证通过（472 后端全绿 + 前端 typecheck/build）；提交 036d133（backend）/3461e58（frontend）/943f8fd（docs） |
