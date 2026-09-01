@@ -278,6 +278,24 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
 
 无 body。`userId` 取自登录态，注销 token。响应 `R<Void>`。
 
+### 5.9 跨域 Service 契约（内部接口，非 HTTP）
+
+> 以下为 account 域提供给其他业务域的 **内部 Service 出口**（原则 4「接口即契约」/ 08 §3 G-S2：跨域只走 Service 接口，不依赖 entity/mapper）。非 HTTP 接口、不经过 Controller；拆分为微服务时平滑替换为远程 API。调用方：notify 域（P5-A W3，18-p5-design §3.2）。
+
+**`java.util.List<Long> listActiveUserIdsByRoles(java.util.Collection<String> roles)`**（P5-A W3 新增）
+
+- 语义：列出**全平台**具有任一指定角色的 `user_roles` 且 `status=ACTIVE` 的 userId（distinct、去重）。与 `listActiveStUserIdsOfTenant` 同构但**不带租户过滤**。
+- 等价 SQL：`select user_id from user_roles where role in (?) and status='ACTIVE'`（投影 userId 后 distinct）。
+- `roles` 为 null/空时返回空列表（不抛错）。
+- 角色白名单由调用方（notify 域 `AnnouncementServiceImpl.resolveRecipientIds`）保证：仅传具体账号角色（OPS/TA/WK/ST/WA/WE），不传组 KEY。
+- 用途：平台公告（OPS）发布时目标角色收件人推导。
+
+**`java.util.List<Long> listAllActiveUserIds()`**（P5-A W3 新增）
+
+- 语义：列出全平台全部 `user_roles` 且 `status=ACTIVE` 的 userId（distinct、去重），无角色过滤。
+- 等价 SQL：`select user_id from user_roles where status='ACTIVE'`（投影 userId 后 distinct）。
+- 用途：平台公告 `target_roles=ALL` 的收件人推导。
+
 ---
 
 ## 6. 错误码（账号相关，详见 05-error-codes.md）
@@ -331,3 +349,4 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
 | v1 | 2026-06-28 | 首版：固化账号模块以实现为准的请求/响应/错误码契约。本轮对齐：登录/注册响应 **`roleList` → `roles`**；primaryRouter 路由表前后端统一（OPS→/ops/dashboard，TA/ST 对应 dashboard，WK/WA/WE/RT 兜底 /ta/dashboard）；补充 `isNew`、`tenantInfo`、RoleInfo 字段与前端可选扩展 `storeName/pendingCount`；标注实际路径 `/api/v1/account/**` 与 dev mock 短信码 `888888`；§7 列出 5 项待对齐不一致项。 |
 | v1.1 | 2026-06-28 | **D-11 密码强度规则三处统一为 6–20 位**（以后端正则为权威）：修正 §7.3 不一致项为已解决；前端 3 处 zod 校验 `max(32)→max(20)`（Register/ForgotPassword/Login），前端 `error-codes` 文案与 `05-error-codes.md` `VALIDATION_FORMAT_002` 文案由 8–32 改为 6–20。 |
 | v1.2 | 2026-06-28 | **批次三账号契约对齐（以后端实现为准）**：① **D-16** 注册 DTO 补齐 `realName / tenantName / wholesalerName / targetTenantId / agreedTerms`，更新 §5.2 请求示例与字段表（标注 `agreedTerms` 必填且必须 true、各字段类型/可选性以 `RegisterDto` 为准）；新增 §5.2.1「TA 注册建 PENDING 租户壳 + apply 复用不二次建仓」流程说明；§7.2 注册字段不一致标记为已解决。② **D-13** `LoginVo.expireAt` 由 `LocalDateTime` 改为 `OffsetDateTime`（ISO-8601 带 `+08:00`），更新 §1 通用约定、§3 响应示例、§3.1 字段说明；§7.4 expireAt 时区不一致标记为已解决。③ §7 新增第 6 项待决点：WA 入驻字段（`wholesalerName/targetTenantId`）后端仅接收+记日志、未持久化，待批发商入驻模块落地。 |
+| v1.3 | 2026-09-01 | **P5-A W3 跨域 Service 契约登记（18-p5-design §3.2/§4.4）**：新增 §5.9——account 域平台级反查出口 `AuthService.listActiveUserIdsByRoles`（全平台按角色反查 ACTIVE userId，distinct）与 `listAllActiveUserIds`（全平台全部 ACTIVE userId），供 notify 域公告发布收件人推导。 |
