@@ -73,7 +73,10 @@ public class MybatisPlusConfig {
             "bills",
             "bill_items",
             "payment_records",
-            "bill_disputes"
+            "bill_disputes",
+            // P5-A W4（18-p5-design §2.2 V36）：店铺撮合配置纳入兜底隔离
+            // （storefront RT 匿名浏览无 TenantContext → 不注入，由 tenant 域 Service 显式 tenantId 过滤）
+            "storefront_featured"
     );
 
     @Bean

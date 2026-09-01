@@ -16,15 +16,20 @@ import com.cangchu.tenant.entity.Store;
 import com.cangchu.tenant.entity.Tenant;
 import com.cangchu.tenant.mapper.StoreMapper;
 import com.cangchu.tenant.mapper.TenantMapper;
+import com.cangchu.tenant.service.StorefrontFeatureService;
 import com.cangchu.tenant.service.WholesalerService;
+import com.cangchu.tenant.vo.StorefrontFeatureVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -52,6 +57,8 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     private final SkuService skuService;
     private final InventoryService inventoryService;
     private final PricingService pricingService;
+    // P5-A W4：撮合配置读 tenant 域 Service 出口（G-S2，禁跨域 mapper 直连 / 禁跨域 entity 直用）
+    private final StorefrontFeatureService storefrontFeatureService;
 
     @Override
     public StoreFrontVo getStorePage(Long storeId, String code) {
@@ -61,8 +68,9 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     @Override
     public StoreFrontVo getStorePage(Long storeId, String code, String rtPhone) {
         ResolvedStore rs = resolve(storeId, code);
+        StorefrontFeatureVo featured = storefrontFeatureService.getFeatured(rs.tenantId(), rs.store().getId());
 
-        List<StoreWholesalerVo> wholesalers = aggregateWholesalers(rs.tenantId(), null, rtPhone);
+        List<StoreWholesalerVo> wholesalers = aggregateWholesalers(rs.tenantId(), null, rtPhone, featured);
 
         return StoreFrontVo.builder()
                 .storeId(rs.store().getId())
@@ -74,14 +82,17 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                 .businessHours(rs.store().getBusinessHours())
                 .status(rs.store().getStatus())
                 .wholesalers(wholesalers)
+                .featuredSkuIds(featured.getMainSkuIds())
+                .pinnedWholesalerIds(featured.getPinWaIds())
                 .build();
     }
 
     @Override
     public List<StoreWholesalerVo> listWholesalers(Long storeId, String code) {
         ResolvedStore rs = resolve(storeId, code);
-        // 不含 SKU 的轻量列表：仅店内 ACTIVE 批发商
-        return wholesalerService.listByTenant(rs.tenantId()).stream()
+        StorefrontFeatureVo featured = storefrontFeatureService.getFeatured(rs.tenantId(), rs.store().getId());
+        // 不含 SKU 的轻量列表：仅店内 ACTIVE 批发商（置顶前置）
+        List<StoreWholesalerVo> wholesalers = wholesalerService.listByTenant(rs.tenantId()).stream()
                 .filter(w -> "ACTIVE".equals(w.getStatus()))
                 .map(w -> StoreWholesalerVo.builder()
                         .wholesalerId(w.getId())
@@ -89,8 +100,10 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                         .intro(w.getIntro())
                         .status(w.getStatus())
                         .skus(List.of())
+                        .pinned(isPinned(featured, w.getId()))
                         .build())
                 .toList();
+        return reorderPinnedFirst(wholesalers, featured);
     }
 
     @Override
@@ -111,7 +124,8 @@ public class StoreFrontServiceImpl implements StoreFrontService {
             // 不属于本店或非 ACTIVE：返回空，不泄漏跨店信息
             return List.of();
         }
-        return buildOnSaleSkus(rs.tenantId(), wholesalerId, rtPhone);
+        StorefrontFeatureVo featured = storefrontFeatureService.getFeatured(rs.tenantId(), rs.store().getId());
+        return buildOnSaleSkus(rs.tenantId(), wholesalerId, rtPhone, featured);
     }
 
     // ==================== 聚合 ====================
@@ -120,9 +134,11 @@ public class StoreFrontServiceImpl implements StoreFrontService {
      * 聚合店内（仅 ACTIVE）批发商 + 各自在售 SKU。
      * @param wholesalerId 可空；非空则仅聚合该商户
      * @param rtPhone      可空；已登录 RT 手机号，用于解析各 SKU 的专属价 matchedPrice
+     * @param featured     P5-A W4 撮合配置（可空=无配置，行为与旧版一致）
      */
-    private List<StoreWholesalerVo> aggregateWholesalers(Long tenantId, Long wholesalerId, String rtPhone) {
-        return wholesalerService.listByTenant(tenantId).stream()
+    private List<StoreWholesalerVo> aggregateWholesalers(Long tenantId, Long wholesalerId, String rtPhone,
+                                                         StorefrontFeatureVo featured) {
+        List<StoreWholesalerVo> wholesalers = wholesalerService.listByTenant(tenantId).stream()
                 .filter(w -> "ACTIVE".equals(w.getStatus()))
                 .filter(w -> wholesalerId == null || w.getId().equals(wholesalerId))
                 .map(w -> StoreWholesalerVo.builder()
@@ -130,9 +146,11 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                         .name(w.getName())
                         .intro(w.getIntro())
                         .status(w.getStatus())
-                        .skus(buildOnSaleSkus(tenantId, w.getId(), rtPhone))
+                        .skus(buildOnSaleSkus(tenantId, w.getId(), rtPhone, featured))
+                        .pinned(isPinned(featured, w.getId()))
                         .build())
                 .toList();
+        return reorderPinnedFirst(wholesalers, featured);
     }
 
     /**
@@ -145,7 +163,7 @@ public class StoreFrontServiceImpl implements StoreFrontService {
      *
      * @param rtPhone 已登录 RT 手机号；匿名传 null
      */
-    List<StoreSkuVo> buildOnSaleSkus(Long tenantId, Long wholesalerId, String rtPhone) {
+    List<StoreSkuVo> buildOnSaleSkus(Long tenantId, Long wholesalerId, String rtPhone, StorefrontFeatureVo featured) {
         // A2：仅 listed=true + 公开价，按 tenantId 显式隔离
         List<SkuVo> listedSkus = skuService.listByTenantForRt(tenantId, wholesalerId);
         if (listedSkus.isEmpty()) {
@@ -157,7 +175,10 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                 .filter(inv -> inv.getQty() != null && inv.getQty() > 0)
                 .collect(Collectors.toMap(InventoryVo::getSkuId, InventoryVo::getQty, (a, b) -> a));
 
-        return listedSkus.stream()
+        List<Long> featuredSkuIds = featured != null ? featured.getMainSkuIds() : null;
+        Set<Long> featuredSet = featuredSkuIds == null ? Set.of() : new HashSet<>(featuredSkuIds);
+
+        List<StoreSkuVo> skus = listedSkus.stream()
                 .filter(sku -> stockBySku.containsKey(sku.getId()))   // 库存 qty>0 才算在售
                 .map(sku -> StoreSkuVo.builder()
                         .skuId(sku.getId())
@@ -170,8 +191,67 @@ public class StoreFrontServiceImpl implements StoreFrontService {
                         .moqQty(sku.getMoqQty())
                         .stockQty(stockBySku.get(sku.getId()))
                         .matchedPrice(resolveMatchedPrice(wholesalerId, sku, rtPhone))
+                        .featured(featuredSet.contains(sku.getId()))
                         .build())
                 .toList();
+        return reorderFeaturedFirst(skus, featuredSkuIds);
+    }
+
+    /**
+     * 置顶批发商前置：按配置顺序（sort_order）把店内存在的置顶批发商提到列表最前，未置顶保持原序。
+     * 无配置 / 空配置时原样返回（行为与旧版一致）。
+     */
+    private List<StoreWholesalerVo> reorderPinnedFirst(List<StoreWholesalerVo> wholesalers, StorefrontFeatureVo featured) {
+        if (featured == null || featured.getPinWaIds() == null || featured.getPinWaIds().isEmpty()) {
+            return wholesalers;
+        }
+        List<Long> pinnedIds = featured.getPinWaIds();
+        Set<Long> pinnedSet = new HashSet<>(pinnedIds);
+        List<StoreWholesalerVo> ordered = new ArrayList<>(wholesalers.size());
+        for (Long id : pinnedIds) {
+            for (StoreWholesalerVo w : wholesalers) {
+                if (id.equals(w.getWholesalerId())) {
+                    ordered.add(w);
+                    break;
+                }
+            }
+        }
+        for (StoreWholesalerVo w : wholesalers) {
+            if (!pinnedSet.contains(w.getWholesalerId())) {
+                ordered.add(w);
+            }
+        }
+        return ordered;
+    }
+
+    /**
+     * 主推 SKU 前置：按配置顺序（sort_order）把在售的主推 SKU 提到该商户列表最前，未主推保持原序。
+     * 无配置 / 空配置时原样返回（行为与旧版一致）。
+     */
+    private List<StoreSkuVo> reorderFeaturedFirst(List<StoreSkuVo> skus, List<Long> featuredSkuIds) {
+        if (featuredSkuIds == null || featuredSkuIds.isEmpty()) {
+            return skus;
+        }
+        Set<Long> featuredSet = new HashSet<>(featuredSkuIds);
+        List<StoreSkuVo> ordered = new ArrayList<>(skus.size());
+        for (Long id : featuredSkuIds) {
+            for (StoreSkuVo s : skus) {
+                if (id.equals(s.getSkuId())) {
+                    ordered.add(s);
+                    break;
+                }
+            }
+        }
+        for (StoreSkuVo s : skus) {
+            if (!featuredSet.contains(s.getSkuId())) {
+                ordered.add(s);
+            }
+        }
+        return ordered;
+    }
+
+    private boolean isPinned(StorefrontFeatureVo featured, Long wholesalerId) {
+        return featured != null && featured.getPinWaIds() != null && featured.getPinWaIds().contains(wholesalerId);
     }
 
     /**

@@ -12,6 +12,8 @@ import java.math.BigDecimal;
  *
  * <p>给 C2 询价对齐：RT 提交询价时以 (storeId, wholesalerId, skuId, qty) 为入参，
  * skuId 即本对象的 skuId，moqQty 为起批量（前端可据此做最小起订校验）。
+ *
+ * <p>P5-A W4（18-p5-design §4.4）：{@link #featured} 主推标记；某商户列表内主推 SKU 前置。
  */
 @Data
 @Builder
@@ -49,4 +51,7 @@ public class StoreSkuVo {
      * 前端有值即展示"您的专属价"，null 则仅展示公开价。qty 恒按 1 解析（进店浏览态无数量）。
      */
     private BigDecimal matchedPrice;
+
+    /** 是否主推商品（P5-A W4 撮合配置 MAIN_SKU；该 SKU 出现在 featuredSkuIds 中） */
+    private Boolean featured;
 }

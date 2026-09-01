@@ -241,7 +241,13 @@ public enum ErrorCode {
     // ==================== P5-A 平台公告（18-p5-design §5，50500+，归属 notify 域） ====================
     ANNOUNCEMENT_NOT_FOUND(50501, "公告不存在"),
     ANNOUNCEMENT_STATE_INVALID(50502, "公告状态不允许此操作"),
-    ANNOUNCEMENT_TARGET_ROLES_INVALID(50503, "目标角色组非法");
+    ANNOUNCEMENT_TARGET_ROLES_INVALID(50503, "目标角色组非法"),
+
+    // ==================== P5-A W4 撮合运营（18-p5-design §5，5071x，归属 tenant 域） ====================
+    STOREFRONT_MAIN_SKU_LIMIT(50711, "主推商品数量超出上限（最多 20 个）"),
+    STOREFRONT_PIN_WA_LIMIT(50712, "置顶批发商数量超出上限（最多 5 个）"),
+    STOREFRONT_FEATURED_DUPLICATED(50713, "主推/置顶条目重复"),
+    STOREFRONT_REF_INVALID(50714, "引用无效（非本店在售商品或非本店入驻批发商）");
 
     private final int code;
     private final String message;

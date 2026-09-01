@@ -14,6 +14,10 @@ import java.util.List;
  * 进店，后端解析到 tenantId，再聚合：店铺基本信息 + 店内 ACTIVE 批发商 + 每个批发商的在售 SKU
  * （listed=true 且 库存 qty>0）+ 公开价 + 当前库存量。
  *
+ * <p>P5-A W4（18-p5-design §4.4）：叠加撮合配置——{@link #featuredSkuIds}（主推商品 id 序）、
+ * {@link #pinnedWholesalerIds}（置顶批发商 id 序）；店内列表按主推/置顶前置排序，
+ * 单个批发商/ SKU 带 featured/pinned 布尔标记。
+ *
  * <p>所有 id（storeId/tenantId/wholesalerId/skuId）均以字符串序列化，避免 JS 大整数精度丢失。
  */
 @Data
@@ -39,6 +43,14 @@ public class StoreFrontVo {
 
     private String status;
 
-    /** 店内批发商（仅 ACTIVE），各自带在售 SKU 列表 */
+    /** 店内批发商（仅 ACTIVE），各自带在售 SKU 列表（置顶批发商前置） */
     private List<StoreWholesalerVo> wholesalers;
+
+    /** 主推商品 id 序（MAIN_SKU，按 sort_order；P5-A W4 撮合配置） */
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
+    private List<Long> featuredSkuIds;
+
+    /** 置顶批发商 id 序（PIN_WA，按 sort_order；P5-A W4 撮合配置） */
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
+    private List<Long> pinnedWholesalerIds;
 }

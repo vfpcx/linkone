@@ -362,6 +362,35 @@ GET /api/v1/common/files/sts-token?scene=VOICE
 | GET  | `/api/v1/tenant/approval-center` | 审批中心聚合（待审批入库 / 盘点 / 清库） |
 | GET  | `/api/v1/tenant/bills-overview` | 账单总览（全 WA 汇总） |
 | POST | `/api/v1/tenant/inbound-requests/{id}/arbitrate` | 代建入库异议仲裁 |
+| GET  | `/api/v1/tenant/storefront/featured` | 回显主推商品/置顶批发商 id 序（P5-A W4，TA） |
+| PUT  | `/api/v1/tenant/storefront/featured` | 覆盖保存主推/置顶（P5-A W4，TA；50711-50714 写前校验，幂等） |
+
+#### 4.3.1 店铺撮合配置（P5-A W4，18-p5-design §4.3/§4.4）
+
+- 鉴权：TA（登录态推导的租户上下文即店铺上下文；无店铺/非 TA → 50210 / 42101）
+- 语义：覆盖保存（DELETE + INSERT 同事务），以本次列表为最终态；幂等
+
+`GET /api/v1/tenant/storefront/featured` 响应：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "mainSkuIds": ["1900000000000000001", "1900000000000000002"],
+    "pinWaIds": ["1800000000000000001"]
+  }
+}
+```
+
+`PUT /api/v1/tenant/storefront/featured` 请求体（与响应同构；空数组/缺省即清空对应列表）：
+
+```json
+{ "mainSkuIds": ["1900000000000000001", "1900000000000000002"], "pinWaIds": ["1800000000000000001"] }
+```
+
+- 校验（写前，幂等）：`mainSkuIds` ≤ 20 → 50711；`pinWaIds` ≤ 5 → 50712；重复项 → 50713；引用非本店在售 SKU / 非本店入驻批发商 → 50714
+- 主推/置顶均为有序（按数组顺序落 `sort_order`，GET 按 `sort_order` 升序返回）；id 一律字符串
 
 ### 4.4 WK（/api/v1/tenant/wk/**）
 
@@ -453,11 +482,11 @@ WE 受限角色，路径复用 WA 的子集：
 | 方法 | 路径 | 说明 | 鉴权 |
 |---|---|---|---|
 | GET  | `/api/v1/rt/stores` | 仓库广场列表 | 公开 |
-| GET  | `/api/v1/rt/stores/{id}` | 仓库详情（撮合页） | 公开 |
+| GET  | `/api/v1/rt/stores/{id}` | 仓库详情（撮合页；P5-A W4 增 `featuredSkuIds`/`pinnedWholesalerIds` 与 `featured`/`pinned` 标记） | 公开 |
 | GET  | `/api/v1/rt/stores/recommend` | 位置推荐（按距离/容量） | 公开 |
-| GET  | `/api/v1/rt/stores/{id}/wholesalers` | 店内 WA 列表 | 公开 |
+| GET  | `/api/v1/rt/stores/{id}/wholesalers` | 店内 WA 列表（P5-A W4：置顶前置 + `pinned` 标记） | 公开 |
 | GET  | `/api/v1/rt/wholesalers/{id}` | WA 详情 | 公开 |
-| GET  | `/api/v1/rt/wholesalers/{id}/skus` | WA 的 SKU 列表（含价格匹配） | 鉴权（匹配专属价时） |
+| GET  | `/api/v1/rt/wholesalers/{id}/skus` | WA 的 SKU 列表（含价格匹配；P5-A W4：主推前置 + `featured` 标记） | 鉴权（匹配专属价时） |
 | POST | `/api/v1/rt/inquiries` | 提交询价 | 鉴权 |
 | GET  | `/api/v1/rt/inquiries` | 我的意向单列表 | 鉴权 |
 | GET  | `/api/v1/rt/inquiries/{id}` | 意向单详情 | 鉴权 |
