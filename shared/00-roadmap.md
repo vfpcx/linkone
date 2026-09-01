@@ -16,7 +16,7 @@
 | **P2** | 入驻生态 + 定价能力 | ✅ 已完成 |
 | **P3** | 完整单据与履约异常 | ✅ 已完成 |
 | **P4** | 计费结算 | ✅ 已完成 |
-| **P5** | 运营增强与正式多端 | 🟡 进行中（P5-A 已拍板，W3 后端✅）|
+| **P5** | 运营增强与正式多端 | 🟡 进行中（P5-A 已拍板，W3/W4 ✅，W5 收尾）|
 | **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅，仅剩部署侧遗留 W8-L1~L6）|
 
 ---
@@ -57,8 +57,8 @@
 
 ## P5 · 运营增强与正式多端 🟡
 - **P5-A 通知中心 + 平台公告 + 撮合运营**（拍板采纳 D-P5-1~5，D-P5-6/7 暂缓/取消；`product/14-p5-requirements.md` + `architecture/18-p5-design.md`）
-  - **W3 后端 ✅（2026-09-01，457 绿）**：notify 域首次实现——通知中心增强（分组筛选 ANNOUNCE/BIZ/ALL + 全部已读 readAll）；平台公告 `announcements`（V35 迁移）+ OPS 管理（创建/列表/详情/发布/下架）+ 发布同事务批量写目标角色站内信（target_roles 展开收件人）；AuthService 新增平台级收件人反查出口（`listActiveUserIdsByRoles`/`listAllActiveUserIds`）；错误码 50701-50703；通知中心/公告集成测试覆盖收件人推导/状态机/权限/分组
-  - **W4（未开始）**：V36 撮合配置 `storefront_featured` + StorefrontFeature 模块 + storefront 出参前置排序；前端（消息中心页/公告弹窗/公告管理页/店铺撮合区块）；E2E 新增链路
+  - **W3 后端 ✅（2026-09-01，457 绿）**：notify 域首次实现——通知中心增强（分组筛选 ANNOUNCE/BIZ/ALL + 全部已读 readAll）；平台公告 `announcements`（V35 迁移）+ OPS 管理（创建/列表/详情/发布/下架）+ 发布同事务批量写目标角色站内信（target_roles 展开收件人）；AuthService 新增平台级收件人反查出口（`listActiveUserIdsByRoles`/`listAllActiveUserIds`）；错误码 50501-50503（以实测定稿，见 `api-contract-notify.md`）；通知中心/公告集成测试覆盖收件人推导/状态机/权限/分组
+  - **W4 ✅（2026-09-01）**：V36 撮合配置 `storefront_featured`（b2cb572）+ StorefrontFeature 模块（TA 配置 GET/PUT，mainSkuIds≤20/pinWaIds≤5，覆盖保存、数组顺序落 sort_order、校验 50711-50714）+ storefront 出参前置排序与 featured/pinned 标记（B1 租户过滤修复 4fc717b）；前端（6f0ca67）消息中心页/公告管理页/公告弹窗（登录即弹 B3 修复 315257c）/店铺撮合区块；E2E 公告 13/13 + 撮合 7/7 全绿（ad2c915）；契约文档补齐（a595db4：api-contract-account §5.9 + 新建 api-contract-notify/storefront）
   - **W5**：E2E 全量 + 视觉验收 + 交付报告（`test-plan/14-p5a-delivery-report.md`）
 - 其余（容量公示 viewer 脱敏、语音 ASR 录单、文件/OSS、RT 正式小程序/H5、Dashboard 真实联调）未拍板
 
@@ -93,3 +93,4 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v2 | 2026-09-01 | 进度校正：P1–P4 全 ✅（按交付报告/归档计划）；P5 未拍板保持规划；X 细化 PII 三段式进度（S2/W8 收口完成，main=72c5597，451 绿，V31-V34 发布窗口待环境）+ 硬化 H2–H5 落地状态 |
 | v2.1 | 2026-09-01 | 校准进度总览：X 期改「收尾（PII 全 ✅，仅剩部署侧 W8-L1~L6）」，与正文一致 |
 | v2.2 | 2026-09-01 | P5 拍板 P5-A 并启动：进度总览改进行中；正文增 P5-A 三段进度（W3 后端✅ 457 绿，W4/W5 待排期）|
+| v2.3 | 2026-09-01 | P5-A W4 完成：撮合配置+storefront 出参（b2cb572，468 绿）+ 公告租户过滤修复（4fc717b）+ 前端四件套与登录即弹修复（6f0ca67/315257c）+ E2E 公告 13/13 撮合 7/7（ad2c915）+ 契约文档补齐（a595db4）；W3 公告错误码校正为实测 50501-50503（草案 50701-50703 作废）|

@@ -132,7 +132,7 @@
 |---|---|---|---|---|---|
 | 1 | PII 横切直连 4 域 mapper | `common/pii/*`（4 文件） | 高 | 按 16 文档 W8 收口：下线 Shadow/ReadRouter/Backfill；Reveal 改 cipher 解密；长期目标=PiiService 出口关闭豁免 | B3/B4（进行中） |
 | 2 | storefront 直连 tenant mapper | `storefront/service/impl/StoreFrontServiceImpl.java`（StoreMapper/TenantMapper） | 低 | tenant 域新增只读出口（store→tenant 解析），storefront 改走 Service | 列入技术债队列（非阻塞） |
-| 3 | 跨域 Service 契约归档 | 各域 Service 接口（现状无系统化契约文档，仅 account 有 api-contract） | 低 | 按原则 4 逐步补 `api-contract-*.md`，接口变更走契约流程 | 持续 |
+| 3 | 跨域 Service 契约归档 | 各域 Service 接口（已建 account/notify/storefront 三份 api-contract，其余域待补） | 低 | 按原则 4 逐步补 `api-contract-*.md`，接口变更走契约流程 | 持续 |
 
 ---
 
