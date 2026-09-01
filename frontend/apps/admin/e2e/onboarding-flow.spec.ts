@@ -26,10 +26,17 @@ import {
 } from './helpers/onboarding'
 
 /**
- * PII-W7（15 §4 阶段2-1）：黑名单/审批列表只回打码号（138****1234），
+ * PII-W7（15 §4 阶段2-1）：审批/租户列表只回打码号（138****1234），
  * E2E 行匹配用打码形态，全号断言一律走 API。
  */
 const masked = (p: string) => (p.length >= 7 ? `${p.slice(0, 3)}****${p.slice(7)}` : p)
+
+/**
+ * W8/V34（16 §1.5）：黑名单 PHONE 行 target_value 已改写为 PHONE_****{last4} 摘要
+ * （hmac 尾 4 消歧行含 :{hmac4} 后缀），后端 page() 原样返回、无前端 maskPhone。
+ * 与审批/租户列表的 maskPhone（138****1234）口径不同，行匹配用摘要形态。
+ */
+const blacklistSummary = (p: string) => `PHONE_****${p.slice(-4)}`
 
 /**
  * 仓储云 admin · P2 入驻生态 4 链路 E2E（04-onboarding-test-plan §3）
@@ -113,7 +120,7 @@ test.describe('onboarding E2E-02 黑名单拦截链', () => {
     await dialog.getByPlaceholder('11 位手机号').fill(victim.phone)
     await dialog.getByPlaceholder(/请填写加黑原因/).fill('E2E 黑名单链路测试拉黑')
     await dialog.getByRole('button', { name: '确认加黑' }).click()
-    const blRow = page.locator('.el-table__row', { hasText: masked(victim.phone) })
+    const blRow = page.locator('.el-table__row', { hasText: blacklistSummary(victim.phone) })
     await expect(blRow).toBeVisible({ timeout: 12_000 })
 
     // ---- ② 该手机号提交入驻申请被拒（UI 文案验证）----
@@ -150,11 +157,11 @@ test.describe('onboarding E2E-02 黑名单拦截链', () => {
     // ---- ③ OPS 移除 ----
     await loginAs(page, tenant.ops.phone, tenant.ops.pwd, /\/ops\/dashboard/)
     await page.goto('/ops/blacklist')
-    const rmRow = page.locator('.el-table__row', { hasText: masked(victim.phone) })
+    const rmRow = page.locator('.el-table__row', { hasText: blacklistSummary(victim.phone) })
     await expect(rmRow).toBeVisible({ timeout: 12_000 })
     await rmRow.getByRole('button', { name: '移除' }).click()
     await page.locator('.el-message-box').getByRole('button', { name: '移除' }).click()
-    await expect(page.locator('.el-table__row', { hasText: masked(victim.phone) })).toHaveCount(0, {
+    await expect(page.locator('.el-table__row', { hasText: blacklistSummary(victim.phone) })).toHaveCount(0, {
       timeout: 12_000,
     })
 
