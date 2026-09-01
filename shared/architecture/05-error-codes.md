@@ -211,7 +211,7 @@
 | 50201 | `WHOLESALER_APPLICATION_PENDING` | 200 | 批发商入驻审核中，请勿重复申请 | Duplicate pending application | 等待 TA 审批 |
 | 50202 | `WHOLESALER_WITHDRAWN` | 200 | 批发商已退驻 | Wholesaler withdrawn（Wave2 已落地：已退驻再发起退驻 / 已退驻→已下架等所有 from=WITHDRAWN 的不可达转移统一由状态机抛此码） | 60 天内可恢复或重新入驻 |
 | 50203 | `WHOLESALER_APPLICATION_NOT_AUDITABLE` | 200 | 入驻申请不存在或当前状态不可审核 | Application not found / not PENDING（含跨租户不可见、并发审核被抢占） | 刷新列表 |
-| 50204 | `WHOLESALER_ALREADY_ONBOARDED` | 200 | 该账号已入驻批发商，一个账号仅可入驻一个仓库 | WA already bound to an active wholesaler | — |
+| 50204 | `WHOLESALER_ALREADY_ONBOARDED` | 200 | 该账号已入驻本仓库批发商，请勿重复入驻 | WA already bound to an active wholesaler in this tenant（2026-09-01 多仓：仅拦同仓重复，他仓绑定不冲突） | 切到未入驻仓库再申请 |
 | 50205 | `BLACKLIST_HIT` | 200 | 已被列入平台黑名单，无法入驻 | Blacklist hit（自助申请 / OPS 代建 / TA 自营三路径同检，决策 O-2） | 联系平台 |
 
 ### 黑名单管理（50310–50329，O-3 溢出段，P2 Wave1）

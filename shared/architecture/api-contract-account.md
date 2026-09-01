@@ -69,7 +69,8 @@
         "role": "TA",
         "tenantId": "184237892374820000",
         "wholesalerId": null,
-        "priority": 10
+        "priority": 10,
+        "storeName": "杭州西湖仓"
       }
     ],
     "primaryRouter": "/ta/dashboard",
@@ -105,7 +106,7 @@
 | `tenantId` | string(雪花) \| null | 所属租户；RT 等无租户角色为 null |
 | `wholesalerId` | string(雪花) \| null | 所属批发商；非 WA/WE 为 null |
 | `priority` | int | 角色优先级，数字小优先级高：TA=10 / ST=20 / WK=30 / WA=40 / WE=50 / RT=60 |
-| `storeName` | string | **前端可选扩展**：店铺名（后端 MVP 当前未下发，前端切换器用，留作扩展） |
+| `storeName` | string \| null | 该角色绑定租户的仓库名；多仓（2026-09-01）后随登录响应下发（`doLogin` 经 `TenantService.getTenantName` 填充，同租户多角色共享一次查询）；RT/OPS 等无租户角色为 null（NON_NULL 省略）。前端工作空间切换器按此展示仓库名，不再依赖 `tenantInfo` 单值 |
 | `pendingCount` | int | **前端可选扩展**：待办数（同上，留作扩展） |
 
 > 多角色判定：`roles.length > 1` ⇒ 前端可弹角色切换器。前端取字段务必空值守卫（`roles?.length`）。
@@ -350,3 +351,4 @@ Query 参数（非 body）：`?phone=13900139000&code=888888`
 | v1.1 | 2026-06-28 | **D-11 密码强度规则三处统一为 6–20 位**（以后端正则为权威）：修正 §7.3 不一致项为已解决；前端 3 处 zod 校验 `max(32)→max(20)`（Register/ForgotPassword/Login），前端 `error-codes` 文案与 `05-error-codes.md` `VALIDATION_FORMAT_002` 文案由 8–32 改为 6–20。 |
 | v1.2 | 2026-06-28 | **批次三账号契约对齐（以后端实现为准）**：① **D-16** 注册 DTO 补齐 `realName / tenantName / wholesalerName / targetTenantId / agreedTerms`，更新 §5.2 请求示例与字段表（标注 `agreedTerms` 必填且必须 true、各字段类型/可选性以 `RegisterDto` 为准）；新增 §5.2.1「TA 注册建 PENDING 租户壳 + apply 复用不二次建仓」流程说明；§7.2 注册字段不一致标记为已解决。② **D-13** `LoginVo.expireAt` 由 `LocalDateTime` 改为 `OffsetDateTime`（ISO-8601 带 `+08:00`），更新 §1 通用约定、§3 响应示例、§3.1 字段说明；§7.4 expireAt 时区不一致标记为已解决。③ §7 新增第 6 项待决点：WA 入驻字段（`wholesalerName/targetTenantId`）后端仅接收+记日志、未持久化，待批发商入驻模块落地。 |
 | v1.3 | 2026-09-01 | **P5-A W3 跨域 Service 契约登记（18-p5-design §3.2/§4.4）**：新增 §5.9——account 域平台级反查出口 `AuthService.listActiveUserIdsByRoles`（全平台按角色反查 ACTIVE userId，distinct）与 `listAllActiveUserIds`（全平台全部 ACTIVE userId），供 notify 域公告发布收件人推导。 |
+| v1.4 | 2026-09-01 | **一账号多仓（产品决策）**：登录响应 `roles[].storeName` 由「前端扩展占位」改为**实际下发**（`LoginVo.RoleInfo` 新增字段，`doLogin` 填充）；§3 响应示例同步。多仓下 `roles[]` 含同一角色（如 WA）的多条记录（不同 `tenantId/wholesalerId`），`tenantInfo` 仍为「默认工作空间」单值（优先级最高角色所在仓），前端切换工作空间后自行维护当前仓（见 §3.2 说明）。 |
