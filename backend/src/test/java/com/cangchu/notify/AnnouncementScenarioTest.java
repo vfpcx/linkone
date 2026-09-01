@@ -246,6 +246,28 @@ class AnnouncementScenarioTest {
     }
 
     @Test
+    @DisplayName("回归（E2E 全链实证）：登录态 TA（带 TenantContext）可见平台公告 tenant_id=null 站内信")
+    void platformAnnouncement_visibleUnderTenantContext() {
+        Ctx c = seed();
+        Long id = announcementService.create(c.opsUserId(), dto(List.of(Announcement.GROUP_TA)));
+        announcementService.publish(c.opsUserId(), id);
+
+        // 模拟 TA 真实登录态（TenantContext 注入后 TenantLine 生效）：
+        // 平台级公告站内信 tenant_id=null，不应被 `tenant_id = ?` 行级过滤隐藏
+        TenantContext.set(TenantContext.TenantInfo.of(c.tenantId(), c.taUserId(), "TA"));
+        Page<NotificationVo> announce = notificationService.listMine(c.taUserId(), 1, 20, false, "ANNOUNCE");
+        assertThat(announce.getRecords())
+                .as("登录态 TA 可见平台公告站内信")
+                .extracting(NotificationVo::getType)
+                .contains(Notification.TYPE_PLATFORM_ANNOUNCEMENT);
+        assertThat(notificationService.unreadCount(c.taUserId())).isGreaterThan(0);
+
+        // 本人 scope 不因租户过滤放开而改变：非目标角色（WK）仍不可见
+        Page<NotificationVo> other = notificationService.listMine(c.wkUserId(), 1, 20, false, "ANNOUNCE");
+        assertThat(other.getRecords()).isEmpty();
+    }
+
+    @Test
     @DisplayName("公告列表/详情：OPS 可分页查询并按状态过滤")
     void pageAndDetail_opsOnly() {
         Ctx c = seed();

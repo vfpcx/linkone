@@ -48,10 +48,13 @@ public class MybatisPlusConfig {
             "wholesaler_applications",
             // P2 入驻 Wave2：退驻申请表含 tenant_id，同样纳入兜底隔离。
             "wholesaler_withdraw_applications",
-            // P3 BE-W1（12 §4.1/§4.3）：仲裁单 + 站内信纳入兜底隔离。
+            // P3 BE-W1（12 §4.1/§4.3）：仲裁单纳入兜底隔离。
             // OPS 跨租户查询（客诉仲裁）与 72h Job（系统态）无 TenantContext → 不注入，符合先例。
             "arbitrations",
-            "notifications",
+            // notifications 不纳入租户行级过滤（P5-A W3 18 §4.2 语义修正，E2E 实证）：
+            // 平台级公告站内信 tenant_id=null，登录态 TenantLine 注入 `tenant_id = ?` 会把它过滤掉，
+            // 导致 TA/WK/WA 全部看不到平台公告。本表隔离边界是 recipient_user_id：
+            // listMine/unreadCount/readAll 均按登录者本人 scope，markRead 有本人校验，无跨人/跨租户泄漏路径。
             // P3b T1-BE（13 §4.1 V19）：R3 登记纠错单纳入兜底隔离
             "inbound_corrections",
             // P3b T3-W1（13 §4.1 V20）：退货单纳入兜底隔离
