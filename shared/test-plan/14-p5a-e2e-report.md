@@ -70,7 +70,7 @@
 
 ## 6. 全量回归（W5 收尾，e2e-qa 2026-09-01）
 
-> 覆盖 `frontend/apps/admin/e2e/` 全部 19 个 spec（129 例，含 frontend-dev 视觉矩阵 8 例），串行 `--workers=1`。
+> 覆盖 `frontend/apps/admin/e2e/` 全部 18 个 spec（129 例，含 frontend-dev 视觉矩阵 8 例），串行 `--workers=1`。
 > 前端 dev server 5173（main）+ 后端 8080（dev,local，终验重启至含 9104adf 的最新 main）运行中。
 
 ### 6.1 环境版本
@@ -82,7 +82,7 @@
 | Node / Playwright | v24.14.1 / 1.61.1 |
 | 执行 | `npx playwright test --workers=1 --reporter=list`（fullyParallel:false, workers:1） |
 
-### 6.2 全量 spec×结果（19 spec / 129 例）
+### 6.2 全量 spec×结果（18 spec / 129 例）
 
 | spec | 用例数 | 结果 |
 |---|---|---|
