@@ -154,6 +154,13 @@ http.interceptors.response.use(
   },
 )
 
+/**
+ * 会话级去重：41001 等登出级 AUTH 错误若并发到达（如被禁用账号刷新页面时多个
+ * 并行请求同时 41001），此前会堆叠多个「请重新登录」ElMessageBox，上层遮罩
+ * 会拦截下层按钮导致无法退出（ONB-E2E-04）。加标志位只弹一个。
+ */
+let logoutAlertPending = false
+
 /** 按错误码分类路由 */
 function handleBusinessError(body: ApiResponse): Promise<never> {
   const { code, message, details, traceId } = body
@@ -165,14 +172,20 @@ function handleBusinessError(body: ApiResponse): Promise<never> {
       if (isLogoutRequired(code)) {
         const auth = useAuthStore()
         auth.clear()
-        // 避免 message 风暴
-        ElMessageBox.alert(userMsg, '请重新登录', {
-          confirmButtonText: '去登录',
-          showClose: false,
-          callback: () => {
-            window.location.href = '/login'
-          },
-        })
+        // 会话级去重：并发 41001 只弹一个（ONB-E2E-04）；确认后跳登录，关闭/取消复位标志
+        if (!logoutAlertPending) {
+          logoutAlertPending = true
+          ElMessageBox.alert(userMsg, '请重新登录', {
+            confirmButtonText: '去登录',
+            showClose: false,
+          })
+            .then(() => {
+              window.location.href = '/login'
+            })
+            .finally(() => {
+              logoutAlertPending = false
+            })
+        }
       } else {
         // 41101 账号密码错误、41102 锁定、41201 验证码 等 → 由业务页面 catch 处理（字段红边）
         ElMessage.warning(userMsg)
