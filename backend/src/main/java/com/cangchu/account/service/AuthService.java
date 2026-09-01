@@ -53,6 +53,14 @@ public interface AuthService {
     java.util.List<Long> listActiveWholesalerIds(Long userId, String role);
 
     /**
+     * 多仓（2026-09-01）：按当前工作空间（租户）收敛的「我管的批发商」集合。
+     * tenantId 为 null 时等价于 {@link #listActiveWholesalerIds}（全量，兼容单仓/无上下文直调）；
+     * tenantId 非空时仅返回该租户下 role=WA 的 ACTIVE wholesaler_id（同仓唯一，size ≤ 1）。
+     * 供 listForWa / requireOwnWholesaler 等按 X-Tenant-Id 隔离数据。
+     */
+    java.util.List<Long> listActiveWholesalerIds(Long userId, String role, Long tenantId);
+
+    /**
      * 上下文查询（批发商维度反查，P3 缺陷修复）：列出绑定到该批发商的全部 ACTIVE <b>WA</b> 用户 id（去重）。
      * 与 {@link #listActiveUserIdsOfWholesaler} 同构但仅取 role=WA——「归属 WA」通知收件人
      * 以 user_roles 绑定为唯一可信来源：SELF_OPERATED 商户的 {@code wholesalers.owner_user_id}
@@ -127,6 +135,12 @@ public interface AuthService {
      * 语义等价于 listActiveWholesalerIds(userId, "WE")——单独列出以明确调用意图。
      */
     java.util.List<Long> listActiveWeWholesalerIds(Long userId);
+
+    /**
+     * 多仓（2026-09-01）：按当前工作空间（租户）收敛的 WE 绑定批发商集合，
+     * 等价于 listActiveWholesalerIds(userId, "WE", tenantId)。
+     */
+    java.util.List<Long> listActiveWeWholesalerIds(Long userId, Long tenantId);
 
     /**
      * 角色-批发商绑定（幂等，返回角色记录 id）：确保用户拥有一条

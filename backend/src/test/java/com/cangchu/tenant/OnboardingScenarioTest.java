@@ -7,6 +7,7 @@ import com.cangchu.common.response.R;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.tenant.dto.TenantApplyDto;
 import com.cangchu.tenant.dto.WholesalerCreateDto;
+import com.cangchu.tenant.vo.EmployeeInviteVo;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>覆盖（task_plan Wave1 验收面）：
  * <ul>
- *   <li>申请成功 → TA 通过 → WA 角色生效（再次申请命中 50204 重复入驻）。</li>
+ *   <li>申请成功 → TA 通过 → WA 角色生效（同仓再次申请命中 50204 重复入驻）。</li>
+ *   <li>多仓（2026-09-01）：一账号可入驻多仓，跨仓申请不被 50204 拦截；登录 roles[] 带全量
+ *       WA 绑定 + storeName。</li>
  *   <li>驳回带理由；驳回缺 remark 拒绝；驳回后可重新申请。</li>
  *   <li>重复 PENDING 申请 → 50201。</li>
  *   <li>黑名单拦截自助申请 + 拦截 OPS 代建（决策 O-2）→ 50205；解除后放行。</li>
@@ -75,6 +78,7 @@ class OnboardingScenarioTest {
     private String baseTaApps;
     private String baseAdminWholesalers;
     private String baseOpsBlacklist;
+    private String baseWholesaler;
 
     @BeforeEach
     void setUp() {
@@ -82,6 +86,7 @@ class OnboardingScenarioTest {
         baseAccount = base + "/api/v1/account";
         baseTenant = base + "/api/v1/tenant";
         baseWaApply = base + "/api/v1/wholesaler/applications";
+        baseWholesaler = base + "/api/v1/wholesaler";
         baseTaApps = base + "/api/v1/tenant/wholesaler-applications";
         baseAdminWholesalers = base + "/api/v1/admin/wholesalers";
         baseOpsBlacklist = base + "/api/v1/ops/blacklist";
@@ -92,6 +97,7 @@ class OnboardingScenarioTest {
     private static final ParameterizedTypeReference<R<List<Map<String, Object>>>> LIST =
             new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<R<Void>> VOID = new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<R<EmployeeInviteVo>> EMP_INVITE = new ParameterizedTypeReference<>() {};
 
     private String uniquePhone(String prefix) {
         long n = SEQ.incrementAndGet();
@@ -102,6 +108,39 @@ class OnboardingScenarioTest {
         HttpHeaders h = new HttpHeaders();
         h.set("Authorization", token);
         return h;
+    }
+
+    /** 多仓（2026-09-01）：带 X-Tenant-Id（当前工作空间）的鉴权头。 */
+    private HttpHeaders bearer(String token, Long tenantId) {
+        HttpHeaders h = new HttpHeaders();
+        h.set("Authorization", token);
+        if (tenantId != null) h.set("X-Tenant-Id", tenantId.toString());
+        return h;
+    }
+
+    /** WA 在「当前工作空间」（X-Tenant-Id）下生成 WE 注册码 → 绑定当前仓商户。 */
+    private R<EmployeeInviteVo> createWeInvite(String token, Long tenantId) {
+        return restTemplate.exchange(baseWholesaler + "/employee-invites", HttpMethod.POST,
+                new HttpEntity<>(new LinkedHashMap<String, Object>(), bearer(token, tenantId)), EMP_INVITE).getBody();
+    }
+
+    /** WA 在「当前工作空间」下的 WE 注册码列表（隔离断言：各仓只见本仓码）。 */
+    private List<Map<String, Object>> listWeInvites(String token, Long tenantId) {
+        R<List<Map<String, Object>>> body = restTemplate.exchange(baseWholesaler + "/employee-invites",
+                HttpMethod.GET, new HttpEntity<>(bearer(token, tenantId)), LIST).getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.getCode()).isEqualTo(0);
+        return body.getData();
+    }
+
+    /** 带 X-Tenant-Id 的批发商侧列表请求（data 为数组）。 */
+    private R<List<Map<String, Object>>> getList(String token, Long tenantId, String url) {
+        return restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(bearer(token, tenantId)), LIST).getBody();
+    }
+
+    /** 带 X-Tenant-Id 的批发商侧对象请求（data 为对象，如 BatchListVo）。 */
+    private R<Map<String, Object>> getMap(String token, Long tenantId, String url) {
+        return restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(bearer(token, tenantId)), MAP).getBody();
     }
 
     private R<LoginVo> register(String phone, String password, String role) {
@@ -120,6 +159,16 @@ class OnboardingScenarioTest {
         assertThat(body).isNotNull();
         assertThat(body.getCode()).as("register %s role=%s", phone, role).isEqualTo(0);
         return body.getData().getToken();
+    }
+
+    /** 密码登录（返回完整 LoginVo，供 roles[] 断言）。 */
+    private R<LoginVo> login(String phone, String password) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("phone", phone);
+        dto.put("password", password);
+        dto.put("device", "PC");
+        return restTemplate.exchange(baseAccount + "/login", HttpMethod.POST,
+                new HttpEntity<>(dto), LOGIN_VO).getBody();
     }
 
     private record TaContext(String phone, String token, Long tenantId) {}
@@ -250,10 +299,109 @@ class OnboardingScenarioTest {
         assertThat(created.get("status")).isEqualTo("ACTIVE");
         assertThat(created.get("source")).isEqualTo("SELF_APPLY");
 
-        // WA 角色已生效 → 再次申请命中重复入驻 50204
+        // WA 角色已生效 → 同仓再次申请命中重复入驻 50204
         R<Map<String, Object>> again = selfApply(wa, ta.tenantId(), "批发商甲二店-" + wa.phone(), null, null);
         assertThat(again).isNotNull();
-        assertThat(again.getCode()).as("已入驻账号重复申请应拒 50204").isEqualTo(50204);
+        assertThat(again.getCode()).as("同仓重复申请应拒 50204").isEqualTo(50204);
+    }
+
+    @Test
+    @DisplayName("ONB-01b 多仓：一账号入驻两仓均成功；同仓重复申请仍 50204；登录 roles[] 含全量 WA+storeName")
+    void s1b_waMultiWarehouse() {
+        TaContext ta1 = registerTaWithTenant();
+        TaContext ta2 = registerTaWithTenant();
+        WaContext wa = registerWa();
+
+        // 第一仓：申请 → TA 通过 → ACTIVE
+        R<Map<String, Object>> a1 = selfApply(wa, ta1.tenantId(), "多仓甲-" + wa.phone(), null, null);
+        assertThat(a1).isNotNull();
+        assertThat(a1.getCode()).isEqualTo(0);
+        String app1 = a1.getData().get("applicationId").toString();
+        assertThat(audit(ta1.token(), app1, "APPROVED", "多仓-1").getCode()).isEqualTo(0);
+
+        // 第二仓：跨仓申请不再被 50204 拦截（2026-09-01 多仓决策）→ 正常 PENDING 并通过
+        R<Map<String, Object>> a2 = selfApply(wa, ta2.tenantId(), "多仓乙-" + wa.phone(), null, null);
+        assertThat(a2).isNotNull();
+        assertThat(a2.getCode()).as("一账号可入驻多仓：跨仓申请应成功").isEqualTo(0);
+        String app2 = a2.getData().get("applicationId").toString();
+        assertThat(audit(ta2.token(), app2, "APPROVED", "多仓-2").getCode()).isEqualTo(0);
+
+        // 两仓均已绑定 → 向任一已入驻仓重复申请 → 50204（同仓重复仍拦截）
+        R<Map<String, Object>> again1 = selfApply(wa, ta1.tenantId(), "多仓甲二-" + wa.phone(), null, null);
+        assertThat(again1).isNotNull();
+        assertThat(again1.getCode()).as("同仓重复入驻仍应拒 50204").isEqualTo(50204);
+        R<Map<String, Object>> again2 = selfApply(wa, ta2.tenantId(), "多仓乙二-" + wa.phone(), null, null);
+        assertThat(again2).isNotNull();
+        assertThat(again2.getCode()).as("同仓重复入驻仍应拒 50204").isEqualTo(50204);
+
+        // 登录响应 roles[] 携带全量 WA 绑定 + storeName（前端工作空间切换器数据源）
+        R<LoginVo> login = login(wa.phone(), "WaPass123");
+        assertThat(login).isNotNull();
+        assertThat(login.getCode()).isEqualTo(0);
+        List<LoginVo.RoleInfo> waRoles = login.getData().getRoles().stream()
+                .filter(r -> "WA".equals(r.getRole()))
+                .toList();
+        assertThat(waRoles).as("两仓绑定应均为 ACTIVE WA 角色").hasSize(2);
+        assertThat(waRoles).extracting(LoginVo.RoleInfo::getTenantId)
+                .containsExactlyInAnyOrder(ta1.tenantId(), ta2.tenantId());
+        assertThat(waRoles).allSatisfy(r ->
+                assertThat(r.getStoreName()).as("角色级 storeName 应下发仓库名").isNotBlank());
+    }
+
+    @Test
+    @DisplayName("ONB-01c 多仓数据隔离：WE 注册码按当前仓(X-Tenant-Id)定位；各批发商列表按仓收敛")
+    void s1c_waMultiWarehouseDataIsolation() {
+        TaContext ta1 = registerTaWithTenant();
+        TaContext ta2 = registerTaWithTenant();
+        WaContext wa = registerWa();
+
+        // 入驻两仓（商户 A / 商户 B 互异）
+        String app1 = selfApply(wa, ta1.tenantId(), "多仓隔离甲-" + wa.phone(), null, null)
+                .getData().get("applicationId").toString();
+        assertThat(audit(ta1.token(), app1, "APPROVED", "OK").getCode()).isEqualTo(0);
+        String app2 = selfApply(wa, ta2.tenantId(), "多仓隔离乙-" + wa.phone(), null, null)
+                .getData().get("applicationId").toString();
+        assertThat(audit(ta2.token(), app2, "APPROVED", "OK").getCode()).isEqualTo(0);
+
+        // 带 X-Tenant-Id=仓1 生成 WE 码 → 绑定仓1 商户（requireOwnWholesalerId 按当前仓定位）
+        R<EmployeeInviteVo> inv1 = createWeInvite(wa.token(), ta1.tenantId());
+        assertThat(inv1).isNotNull();
+        assertThat(inv1.getCode()).isEqualTo(0);
+        assertThat(inv1.getData().getTenantId()).as("码应落仓1").isEqualTo(ta1.tenantId());
+        Long w1 = inv1.getData().getWholesalerId();
+
+        // 带 X-Tenant-Id=仓2 生成 WE 码 → 绑定仓2 商户（与仓1 商户互异）
+        R<EmployeeInviteVo> inv2 = createWeInvite(wa.token(), ta2.tenantId());
+        assertThat(inv2).isNotNull();
+        assertThat(inv2.getCode()).isEqualTo(0);
+        assertThat(inv2.getData().getTenantId()).as("码应落仓2").isEqualTo(ta2.tenantId());
+        Long w2 = inv2.getData().getWholesalerId();
+        assertThat(w1).as("两仓商户应互异").isNotEqualTo(w2);
+
+        // WE 码列表隔离：带仓1 只见仓1 码；带仓2 只见仓2 码
+        List<Map<String, Object>> l1 = listWeInvites(wa.token(), ta1.tenantId());
+        List<Map<String, Object>> l2 = listWeInvites(wa.token(), ta2.tenantId());
+        assertThat(l1).hasSize(1);
+        assertThat(l2).hasSize(1);
+        assertThat(String.valueOf(l1.get(0).get("wholesalerId"))).isEqualTo(String.valueOf(w1));
+        assertThat(String.valueOf(l2.get(0).get("wholesalerId"))).isEqualTo(String.valueOf(w2));
+
+        // 各批发商列表接口带两仓 X-Tenant-Id 均正常（收敛不报错；数据随仓隔离）
+        // inquiry → List；inbound/outbound/return/batches → Page/BatchListVo（对象）
+        assertThat(getList(wa.token(), ta1.tenantId(), baseTenant + "/inquiry").getCode()).isEqualTo(0);
+        assertThat(getList(wa.token(), ta2.tenantId(), baseTenant + "/inquiry").getCode()).isEqualTo(0);
+        String[] pageLists = {
+                baseWholesaler + "/inbound-requests",
+                baseWholesaler + "/outbound-requests",
+                baseWholesaler + "/return-requests",
+                baseWholesaler + "/batches",
+        };
+        for (String url : pageLists) {
+            assertThat(getMap(wa.token(), ta1.tenantId(), url).getCode())
+                    .as("仓1 列表 %s 应 0", url).isEqualTo(0);
+            assertThat(getMap(wa.token(), ta2.tenantId(), url).getCode())
+                    .as("仓2 列表 %s 应 0", url).isEqualTo(0);
+        }
     }
 
     // ======================================================================

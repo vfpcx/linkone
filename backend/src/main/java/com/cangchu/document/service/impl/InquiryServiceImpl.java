@@ -8,6 +8,7 @@ import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
 import com.cangchu.document.entity.InquiryItem;
@@ -393,10 +394,12 @@ public class InquiryServiceImpl implements InquiryService {
 
     @Override
     public List<InquiryVo> listForWa(Long tenantId, Long waUserId) {
-        // 该用户作为 WA 归属的所有 wholesaler（跨租户集合，随后按 tenantId 过滤 inquiry）；
+        // 该用户作为 WA/WE 归属的 wholesaler（多仓 2026-09-01：按当前工作空间 X-Tenant-Id 收敛，
+        // 切仓后仅取当前仓绑定；随后仍按入参 tenantId 过滤 inquiry）；
         // P2 Wave3：WE 员工同看本商户询价列表（只读不限授权位，确认在 requireWaRole 卡授权）
-        List<Long> waWholesalerIds = new ArrayList<>(authService.listActiveWholesalerIds(waUserId, "WA"));
-        waWholesalerIds.addAll(authService.listActiveWeWholesalerIds(waUserId));
+        Long scopedTenant = TenantContext.getTenantId();
+        List<Long> waWholesalerIds = new ArrayList<>(authService.listActiveWholesalerIds(waUserId, "WA", scopedTenant));
+        waWholesalerIds.addAll(authService.listActiveWeWholesalerIds(waUserId, scopedTenant));
         if (waWholesalerIds.isEmpty()) {
             return List.of();
         }

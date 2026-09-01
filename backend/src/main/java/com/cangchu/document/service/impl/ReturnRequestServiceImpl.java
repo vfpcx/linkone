@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.ReturnCreateDto;
 import com.cangchu.document.dto.ReturnRegisterDto;
@@ -162,10 +163,12 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
     @Override
     public Page<ReturnRequestVo> listForWa(Long userId, String status, int page, int size) {
-        // 「我管的商户」= WA 绑定 ∪ WE 绑定（WE 只读可见，13 §5.2；写操作 D-9 一律拒）
+        // 「我管的商户」= WA 绑定 ∪ WE 绑定（WE 只读可见，13 §5.2；写操作 D-9 一律拒）；
+        // 多仓（2026-09-01）：按当前工作空间 X-Tenant-Id 收敛
+        Long scopedTenant = TenantContext.getTenantId();
         java.util.LinkedHashSet<Long> wholesalerIds = new java.util.LinkedHashSet<>();
-        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA"));
-        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId));
+        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA", scopedTenant));
+        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId, scopedTenant));
         Page<ReturnRequestVo> empty = new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100), 0);
         if (wholesalerIds.isEmpty()) {
             return empty;

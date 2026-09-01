@@ -32,7 +32,9 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -658,13 +660,38 @@ public class AccountServiceImpl implements AccountService {
                 .orderByAsc(UserRole::getPriority));
 
         List<LoginVo.RoleInfo> roleList = new ArrayList<>();
+        // 多仓（2026-09-01）：角色级 storeName 供前端工作空间切换器显示仓库名——
+        // 同租户多角色（如 TA+WK）共享一次租户名查询，避免重复查库。
+        Map<Long, String> tenantNameCache = new HashMap<>();
         for (UserRole r : roles) {
+            String storeName = null;
+            if (r.getTenantId() != null) {
+                storeName = tenantNameCache.computeIfAbsent(r.getTenantId(), tenantService::getTenantName);
+            }
             roleList.add(LoginVo.RoleInfo.builder()
                     .role(r.getRole())
                     .tenantId(r.getTenantId())
                     .wholesalerId(r.getWholesalerId())
                     .priority(r.getPriority())
+                    .storeName(storeName)
                     .build());
+        }
+
+        // M-02：登录响应携带租户上下文——取首个有 tenantId 的角色（WA/WE 即其入驻仓库，
+        // TA/WK/ST 即其默认仓），供前端顶栏/入库登记展示仓库名。
+        // 跨域查询走 TenantService（G-S1/G-S2，不直连 mapper）；OPS/RT 无租户角色保持缺省，
+        // LoginVo @JsonInclude(NON_NULL) 序列化时自动省略，不影响既有响应。
+        LoginVo.TenantInfo tenantInfo = null;
+        for (LoginVo.RoleInfo r : roleList) {
+            if (r.getTenantId() == null) continue;
+            String tenantName = tenantService.getTenantName(r.getTenantId());
+            if (tenantName == null) continue;
+            tenantInfo = LoginVo.TenantInfo.builder()
+                    .tenantId(r.getTenantId())
+                    .tenantName(tenantName)
+                    .tenantSimpleCode(tenantService.getSimpleCode(r.getTenantId()))
+                    .build();
+            break;
         }
 
         // 记录登录会话
@@ -686,6 +713,7 @@ public class AccountServiceImpl implements AccountService {
                 .primaryRole(primaryRole)
                 .roles(roleList)
                 .primaryRouter(router)
+                .tenantInfo(tenantInfo)
                 .expireAt(tokenExpireAt())
                 .build();
     }

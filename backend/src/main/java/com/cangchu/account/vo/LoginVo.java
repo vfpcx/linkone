@@ -47,6 +47,9 @@ public class LoginVo {
         private Long wholesalerId;
 
         private Integer priority;
+
+        /** 多仓（2026-09-01）：该角色绑定租户的仓库名，供前端工作空间切换器展示；无租户角色省略 */
+        private String storeName;
     }
 
     @Data

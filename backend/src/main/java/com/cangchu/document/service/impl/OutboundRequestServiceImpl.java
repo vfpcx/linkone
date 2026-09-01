@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.OutboundComplainDto;
 import com.cangchu.document.dto.OutboundSubmitDto;
@@ -156,9 +157,11 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
 
     @Override
     public Page<OutboundRequestVo> listForWa(Long userId, String status, String source, int page, int size) {
+        // 多仓（2026-09-01）：按当前工作空间 X-Tenant-Id 收敛，切仓后仅返回当前仓单据
+        Long scopedTenant = TenantContext.getTenantId();
         Set<Long> wholesalerIds = new LinkedHashSet<>();
-        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA"));
-        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId));
+        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA", scopedTenant));
+        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId, scopedTenant));
         Page<OutboundRequestVo> empty = new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100), 0);
         if (wholesalerIds.isEmpty()) {
             return empty;

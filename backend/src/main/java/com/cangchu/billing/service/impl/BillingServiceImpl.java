@@ -36,6 +36,7 @@ import com.cangchu.billing.vo.PaymentRecordVo;
 import com.cangchu.billing.vo.StorageLineVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.file.AttachmentUrls;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.service.DocumentNumberService;
@@ -1149,7 +1150,8 @@ public class BillingServiceImpl implements BillingService {
     }
 
     private List<Long> requireWaWholesalerIds(Long userId) {
-        List<Long> ids = authService.listActiveWholesalerIds(userId, "WA");
+        // 多仓（2026-09-01）：按当前工作空间 X-Tenant-Id 收敛，账单列表/详情仅返回当前仓
+        List<Long> ids = authService.listActiveWholesalerIds(userId, "WA", TenantContext.getTenantId());
         if (ids.isEmpty()) {
             if (authService.hasRole(userId, "WE")) {
                 // WE 对账单整域拒绝（WEM-S4-03 防回归）

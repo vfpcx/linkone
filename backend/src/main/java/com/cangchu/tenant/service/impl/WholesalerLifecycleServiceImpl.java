@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.service.InquiryService;
 import com.cangchu.inventory.service.InventoryService;
@@ -529,11 +530,19 @@ public class WholesalerLifecycleServiceImpl implements WholesalerLifecycleServic
         }
     }
 
-    /** S4：以登录态推导本人唯一的 WA 商户（不信任客户端传 wholesalerId）。 */
+    /**
+     * S4：以登录态推导「当前工作空间」下的 WA 商户（不信任客户端传 wholesalerId）。
+     * 多仓（2026-09-01）：优先按 TenantContext.tenantId（X-Tenant-Id）收敛到当前仓绑定；
+     * 无上下文（单仓直调/旧客户端）回退全量，多仓无上下文则明确提示先选仓库。
+     */
     private Wholesaler requireOwnWholesaler(Long userId) {
-        List<Long> ids = authService.listActiveWholesalerIds(userId, "WA");
+        Long tenantId = TenantContext.getTenantId();
+        List<Long> ids = authService.listActiveWholesalerIds(userId, "WA", tenantId);
         if (ids.isEmpty()) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND, "您没有已入驻的批发商商户");
+        }
+        if (tenantId == null && ids.size() > 1) {
+            throw new BizException(ErrorCode.PERMISSION_TENANT_001, "您已入驻多个仓库，请先在顶栏选择当前仓库");
         }
         Wholesaler wholesaler = wholesalerMapper.selectById(ids.get(0));
         if (wholesaler == null) {

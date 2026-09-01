@@ -85,6 +85,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public List<Long> listActiveWholesalerIds(Long userId, String role, Long tenantId) {
+        // 多仓（2026-09-01）：tenantId 为 null 时条件恒真 → 等价无租户版本（全量），
+        // 非 null 时按当前工作空间收敛（单租户下同仓唯一，size ≤ 1）。
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                        .eq(UserRole::getUserId, userId)
+                        .eq(UserRole::getRole, role)
+                        .eq(UserRole::getStatus, "ACTIVE")
+                        .eq(tenantId != null, UserRole::getTenantId, tenantId)).stream()
+                .map(UserRole::getWholesalerId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    @Override
     public List<Long> listActiveUserIdsOfWholesaler(Long wholesalerId) {
         // WDR-S1-02：不加 role 条件——该商户下 WA 与 WE 一并返回（漏踢 WE 是高危漏点）
         return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
@@ -179,6 +193,12 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public List<Long> listActiveWeWholesalerIds(Long userId) {
         return listActiveWholesalerIds(userId, "WE");
+    }
+
+    @Override
+    public List<Long> listActiveWeWholesalerIds(Long userId, Long tenantId) {
+        // 多仓（2026-09-01）：按当前工作空间收敛 WE 绑定
+        return listActiveWholesalerIds(userId, "WE", tenantId);
     }
 
     @Override

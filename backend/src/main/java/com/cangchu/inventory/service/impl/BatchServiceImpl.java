@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.inventory.dto.BatchBackfillDto;
 import com.cangchu.inventory.dto.BatchToggleDto;
@@ -686,10 +687,12 @@ public class BatchServiceImpl implements BatchService {
 
     @Override
     public BatchListVo listForWholesaler(Long userId, Long skuId, String status) {
-        // WA 绑定 ∪ WE 绑定（只读列表，listForWa 先例）
+        // WA 绑定 ∪ WE 绑定（只读列表，listForWa 先例）；
+        // 多仓（2026-09-01）：按当前工作空间 X-Tenant-Id 收敛，使「本仓唯一下→未入池量可算」
+        Long scopedTenant = TenantContext.getTenantId();
         java.util.LinkedHashSet<Long> wholesalerIds = new java.util.LinkedHashSet<>();
-        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA"));
-        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId));
+        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA", scopedTenant));
+        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId, scopedTenant));
         if (wholesalerIds.isEmpty()) {
             return BatchListVo.builder().list(List.of()).build();
         }

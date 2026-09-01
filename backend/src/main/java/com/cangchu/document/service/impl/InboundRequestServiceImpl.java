@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.common.file.AttachmentUrls;
 import com.cangchu.document.dto.InboundDisputeDto;
@@ -300,10 +301,12 @@ public class InboundRequestServiceImpl implements InboundRequestService {
 
     @Override
     public Page<InboundRequestVo> listForWa(Long userId, String status, String source, int page, int size) {
-        // 「我管的商户」= WA 绑定 ∪ WE 绑定（WE 队列只读可见；confirm/dispute/withdraw 时再校验授权位）
+        // 「我管的商户」= WA 绑定 ∪ WE 绑定（WE 队列只读可见；confirm/dispute/withdraw 时再校验授权位）；
+        // 多仓（2026-09-01）：按当前工作空间 X-Tenant-Id 收敛，切仓后仅返回当前仓待确认/单据
+        Long scopedTenant = TenantContext.getTenantId();
         java.util.LinkedHashSet<Long> wholesalerIds = new java.util.LinkedHashSet<>();
-        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA"));
-        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId));
+        wholesalerIds.addAll(authService.listActiveWholesalerIds(userId, "WA", scopedTenant));
+        wholesalerIds.addAll(authService.listActiveWeWholesalerIds(userId, scopedTenant));
         Page<InboundRequestVo> empty = new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100), 0);
         if (wholesalerIds.isEmpty()) {
             return empty;

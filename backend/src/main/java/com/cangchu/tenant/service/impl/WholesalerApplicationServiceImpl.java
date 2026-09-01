@@ -44,8 +44,9 @@ import java.util.Map;
  *   <li>租户隔离：wholesaler_applications 已入 TenantLine 白名单兜底 + 本类查询显式 eq(tenant_id)
  *       双保险；跨租户审批按「不可见即不存在」返回 50203，不泄漏他租户申请存在性。</li>
  *   <li>D-05 状态机：仅 PENDING 可审（50203）；驳回必填 remark（40003）。</li>
- *   <li>S6 唯一性：一个 WA 账号仅一个 ACTIVE 入驻（50204）/一个 PENDING 申请（50201）；
- *       通过建主体撞 uk_wholesaler_tenant_id_name → 50231。</li>
+ *   <li>S6 唯一性（多仓 2026-09-01）：一个 WA 账号可入驻多仓，仅拦「同仓重复」——该租户下已有
+ *       ACTIVE 入驻（50204）/ 该租户下已有 PENDING 申请（50201，uk_applicant_pending 按
+ *       applicant_user_id+tenant_id 维度，V37）；通过建主体撞 uk_wholesaler_tenant_id_name → 50231。</li>
  *   <li>R-04 黑名单：自助申请与 OPS 代建同检（决策 O-2），命中 50205。</li>
  * </ul>
  */
@@ -193,11 +194,12 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         app.setAuditRemark(dto.getRemark());
 
         if ("APPROVED".equals(action)) {
-            // F4 复查：申请提交与审批之间该账号可能已被 OPS 代建/他仓通过——
-            // 已有 ACTIVE 入驻绑定则拒绝通过（50204，抛出随事务回滚 CAS 翻转）
-            if (!authService.listActiveWholesalerIds(app.getApplicantUserId(), "WA").isEmpty()) {
+            // F4 复查：申请提交与审批之间该账号可能已被 OPS 代建/同仓重复绑定——
+            // 该租户下已有 ACTIVE 绑定则拒绝通过（50204，抛出随事务回滚 CAS 翻转）。
+            // 多仓规则（2026-09-01）：他仓绑定不冲突，仅拦同仓重复。
+            if (authService.hasRole(app.getApplicantUserId(), "WA", tenantId)) {
                 throw new BizException(ErrorCode.WHOLESALER_ALREADY_ONBOARDED,
-                        "该申请账号已有生效的入驻绑定，不可重复通过");
+                        "该账号已入驻本仓库，不可重复通过");
             }
 
             // 建主体：ACTIVE / SELF_APPLY，owner = 申请人（CAS 抢占成功后才落主体，失败随事务回滚）
@@ -259,9 +261,9 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
             throw new BizException(ErrorCode.BLACKLIST_HIT);
         }
 
-        // 幂等查/建 WA 用户；已有 ACTIVE 入驻绑定则拒（一个 WA 账号只入驻一个仓库）
+        // 幂等查/建 WA 用户；该租户下已有 ACTIVE 绑定则拒（多仓规则 2026-09-01：他仓绑定不冲突）
         Long waUserId = wholesalerService.ensureWaUser(dto.getWaPhone());
-        if (!authService.listActiveWholesalerIds(waUserId, "WA").isEmpty()) {
+        if (authService.hasRole(waUserId, "WA", tenantId)) {
             throw new BizException(ErrorCode.WHOLESALER_ALREADY_ONBOARDED);
         }
 
@@ -335,14 +337,17 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
     /** 建 PENDING 申请单（自助/注册直申共用）：先做重复入驻/重复申请校验。 */
     private WholesalerApplication doCreatePending(Long applicantUserId, Long tenantId, String name,
                                                   String contactName, String contactPhone, String license) {
-        // 一个 WA 账号只能入驻一个仓库：已有 ACTIVE WA 绑定即拒（50204）
-        if (!authService.listActiveWholesalerIds(applicantUserId, "WA").isEmpty()) {
+        // 多仓（2026-09-01 产品决策）：一个批发商账号可入驻多个仓库，仅拦「同仓库重复入驻」——
+        // 该租户下已有 ACTIVE WA 绑定即拒（50204）；他仓绑定不冲突。
+        if (authService.hasRole(applicantUserId, "WA", tenantId)) {
             throw new BizException(ErrorCode.WHOLESALER_ALREADY_ONBOARDED);
         }
-        // 一个账号仅一个 PENDING 申请（50201）。申请人尚无租户绑定 → TenantContext 为空，
-        // TenantLine 不注入条件，此计数为全平台维度（与「只能入驻一个仓库」规则一致）。
+        // 一个账号同一仓库仅一个 PENDING 申请（50201）。申请人尚无租户绑定 → TenantContext 为空，
+        // TenantLine 不注入条件；计数按 (账号, 目标租户) 维度，与 V37 uk_applicant_pending
+        // 唯一索引 (applicant_user_id, tenant_id, pending_flag) 一致。
         long pending = applicationMapper.selectCount(new LambdaQueryWrapper<WholesalerApplication>()
                 .eq(WholesalerApplication::getApplicantUserId, applicantUserId)
+                .eq(WholesalerApplication::getTenantId, tenantId)
                 .eq(WholesalerApplication::getStatus, "PENDING"));
         if (pending > 0) {
             throw new BizException(ErrorCode.WHOLESALER_APPLICATION_PENDING);

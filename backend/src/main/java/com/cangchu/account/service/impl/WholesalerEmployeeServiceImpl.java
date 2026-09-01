@@ -12,6 +12,7 @@ import com.cangchu.account.vo.WholesalerEmployeeVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.WePermissions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -151,18 +152,24 @@ public class WholesalerEmployeeServiceImpl implements WholesalerEmployeeService 
 
     // ==================== 私有 ====================
 
-    /** 登录 WA 的己方商户 id（第一条 ACTIVE WA 绑定）；未入驻拒绝。 */
+    /** 登录 WA 的「当前工作空间」商户 id（多仓 2026-09-01：按 X-Tenant-Id 收敛，无上下文回退单仓）；未入驻拒绝。 */
     private Long requireOwnWholesalerId(Long waUserId) {
-        UserRole wa = userRoleMapper.selectOne(new LambdaQueryWrapper<UserRole>()
+        Long tenantId = TenantContext.getTenantId();
+        List<UserRole> roles = userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
                 .eq(UserRole::getUserId, waUserId)
                 .eq(UserRole::getRole, "WA")
                 .eq(UserRole::getStatus, "ACTIVE")
                 .isNotNull(UserRole::getWholesalerId)
-                .last("LIMIT 1"));
-        if (wa == null) {
+                .eq(tenantId != null, UserRole::getTenantId, tenantId)
+                // 多仓：多取一条用于「多仓未选仓」判定（同仓唯一，tenantId 非空时至多 1 条）
+                .last("LIMIT 2"));
+        if (roles.isEmpty()) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND, "您没有已入驻的批发商商户");
         }
-        return wa.getWholesalerId();
+        if (tenantId == null && roles.size() > 1) {
+            throw new BizException(ErrorCode.PERMISSION_TENANT_001, "您已入驻多个仓库，请先在顶栏选择当前仓库");
+        }
+        return roles.get(0).getWholesalerId();
     }
 
     /** 目标员工行：必须存在、role=WE、且归属操作者商户（SEC-S4-10 跨商户按不存在处理）。 */

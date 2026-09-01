@@ -8,6 +8,7 @@ import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
+import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.*;
@@ -560,11 +561,15 @@ public class TenantServiceImpl implements TenantService {
         log.info("[P2][WE 注册码] WA {} 作废 WE 码 {}（商户 {}）", waUserId, inviteId, wholesaler.getId());
     }
 
-    /** 登录 WA 的己方商户（第一条 ACTIVE WA 绑定）；未入驻拒绝。与 lifecycle 域同语义。 */
+    /** 登录 WA 的「当前工作空间」商户（多仓 2026-09-01：按 X-Tenant-Id 收敛，无上下文回退单仓）；未入驻拒绝。与 lifecycle 域同语义。 */
     private Wholesaler requireOwnWholesaler(Long waUserId) {
-        List<Long> ids = authService.listActiveWholesalerIds(waUserId, "WA");
+        Long tenantId = TenantContext.getTenantId();
+        List<Long> ids = authService.listActiveWholesalerIds(waUserId, "WA", tenantId);
         if (ids.isEmpty()) {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND, "您没有已入驻的批发商商户");
+        }
+        if (tenantId == null && ids.size() > 1) {
+            throw new BizException(ErrorCode.PERMISSION_TENANT_001, "您已入驻多个仓库，请先在顶栏选择当前仓库");
         }
         Wholesaler wholesaler = wholesalerMapper.selectById(ids.get(0));
         if (wholesaler == null) {
