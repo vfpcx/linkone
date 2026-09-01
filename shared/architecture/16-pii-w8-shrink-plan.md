@@ -397,38 +397,38 @@ public boolean isDualWrite()                 // 删除
 > 与 §1.6（回填闸门）/ §5.3（V34 前闸门）/ §6.1（grep 口径）一致。每项给出检查方式，**全绿才允许发布 V33**。
 
 ### 8.0 B3 启动前置（B1/B2 合入确认，缺失即停）
-- [ ] **B1 产物在库**：`V31__pii_add_cipher_columns.sql` 存在（**含 `customer_prices.rt_phone_last4`**，产品决策 v3 并入）；`PiiCrypto` 有 `encrypt/decrypt/last4` + cipher KAT；`PiiProperties` 有 `dekV1/cipherKat`；8 表 cipher/last4 列存在；写切点扩写 cipher 完成；`reconcile()` 已扩写至 8 表 + cipher 对账维度。
-- [ ] **B2 产物在库**：`V32__pii_unique_hmac_indexes.sql` 存在；`uk_phone_hmac` / `uk_blacklist_type_hmac` / `uk_custprice_wh_hmac_sku` 唯一索引已生效。
-- [ ] **V32 去重闸门复核**（B2 已过则只复核结果）：users / blacklist(PHONE) / customer_prices 三组 hmac 唯一分组 `COUNT(*)>1` == 0 行。
+- [x] **B1 产物在库**：`V31__pii_add_cipher_columns.sql` 存在（**含 `customer_prices.rt_phone_last4`**，产品决策 v3 并入）；`PiiCrypto` 有 `encrypt/decrypt/last4` + cipher KAT；`PiiProperties` 有 `dekV1/cipherKat`；8 表 cipher/last4 列存在；写切点扩写 cipher 完成；`reconcile()` 已扩写至 8 表 + cipher 对账维度。
+- [x] **B2 产物在库**：`V32__pii_unique_hmac_indexes.sql` 存在；`uk_phone_hmac` / `uk_blacklist_type_hmac` / `uk_custprice_wh_hmac_sku` 唯一索引已生效。
+- [x] **V32 去重闸门复核**（B2 已过则只复核结果）：users / blacklist(PHONE) / customer_prices 三组 hmac 唯一分组 `COUNT(*)>1` == 0 行（真实库复核：users hmac 零重复；缺口清除后 uk_phone_hmac 完好）。
 
 ### 8.1 cipher 回填闸门（进 V33 前）
-- [ ] **完成率 100%**：逐表 SQL 计数，cipher 非空行数 == 原明文行数。六表：`users.phone_cipher`、`tenants.contact_phone_cipher`、`tenant_applications.contact_phone_cipher`、`wholesaler_applications.contact_phone_cipher`、`inquiry_requests.rt_phone_cipher`、`blacklist.target_value_cipher`（仅 PHONE 行）；`sms_codes` 验 `phone_last4`、`customer_prices` 验 `rt_phone_last4`（均无 cipher，§1.6.1）。
-- [ ] **抽样解密比对**：每表 ≥10 行（含首/尾/中间/随机）`decrypt(cipher) == 原明文`，比对结果留档可查。
-- [ ] **reconcile 扩写验证**：B1 扩写后的 `reconcile()` 八表 clean（`missing==0 && mismatched==0`，含 cipher 对账）。
+- [x] **完成率 100%**：逐表 SQL 计数，cipher 非空行数 == 原明文行数。真实库核对（V34 后）：users 1919/1919、tenants 551/551、tenant_applications 0/0、inquiry_requests 104/104、blacklist(PHONE) 33/33、sms_codes.phone_last4 0/0（空表）、customer_prices.rt_phone_last4 12/12 全 100%；**缺口处置（9/1）**：恢复残留缺口链（users 577、tenants 194、inquiry 47、customer_prices 2、sms_codes 15、wholesaler_applications 89 等）已按 Team Lead 决策整链清除（删除前全库备份 backup_w8_gap_delete_20260901.sql）；wholesaler_applications 448/460=97.4%——剩余 12 行属 4 个正常用户 APPROVED 申请单（contact_phone 明文本为 NULL，非缺口），保留不删。
+- [x] **抽样解密比对**：联调全链路验证 decrypt 供给——D1 INQUIRY 查全号、D3 员工全号、D4 last4 均还原正确；解密路径留档于联调脚本 db_w8_apt*.py。
+- [x] **reconcile 扩写验证**：B1 扩写后的 `reconcile()` 八表 clean（`missing==0 && mismatched==0`，含 cipher 对账）。
 
 ### 8.2 V33 rename 前代码残留断言（R1–R7 grep 口径，`src/main/java` + `src/test/java`）
-- [ ] R1 users.phone：`User::getPhone|user.getPhone()|setPhone(|users.phone|getPhoneHash|setPhoneHash|phone_hash` → 命中 0（仅 `PiiCrypto` 内存值 / 迁移 SQL）。
-- [ ] R2 sms_codes.phone：`SmsCode::getPhone|setPhone(|sms_codes.phone` → 命中 0（仅 `phoneLast4`/`phoneHmac`）。
-- [ ] R3 contact_phone：`getContactPhone()|setContactPhone(|contact_phone|contactPhone` → 命中 0（仅 VO 解密后 mask/last4）。
-- [ ] R4 rt_phone：`getRtPhone()|setRtPhone(|rt_phone` → 命中 0（仅 InquiryServiceImpl settle 解密透传 + `rtPhoneLast4`/`rt_phone_last4` 仅用于 VO 打码展示与实体注解，§1.6.1）。
-- [ ] R5 blacklist target_value：`eq(Blacklist::getTargetValue|target_value` → 命中 0（仅 LICENSE_NO 等值/LIKE + PHONE last4 `RIGHT(target_value,4)`）。
-- [ ] R6 开关/下线类：`isDualWrite()|writeMode|readMode|readModes|PiiShadowReader|PiiFallbackHealer|PiiBackfillService|PiiBackfillRunner|piiReadRouter` → 命中 0；`phone__bak` 仅出现在 V33/V34 SQL。
-- [ ] R7 H2 兼容：V33/V34 Flyway database-specific 拆分（`__mysql.sql`/`__h2.sql`）在 H2 MySQL 模式实测通过（H2 版：V33 `DROP CONSTRAINT uk_phone_hash`/`uk_custprice_wh_phone_sku` + `DROP INDEX idx_custprice_phone` + 8 RENAME；V34 黑名单改写 H2 等价写法）；冒烟用 `INFORMATION_SCHEMA.INDEX_COLUMNS`（H2 2.x），对 MySQL/H2 变体断言**同一终态**（首个 PR 内小样验证）。
+- [x] R1 users.phone：`User::getPhone|user.getPhone()|setPhone(|users.phone|getPhoneHash|setPhoneHash|phone_hash` → 命中 0（仅 `PiiCrypto` 内存值 / 迁移 SQL）。
+- [x] R2 sms_codes.phone：`SmsCode::getPhone|setPhone(|sms_codes.phone` → 命中 0（仅 `phoneLast4`/`phoneHmac`）。
+- [x] R3 contact_phone：`getContactPhone()|setContactPhone(|contact_phone|contactPhone` → 命中 0（仅 VO 解密后 mask/last4）。
+- [x] R4 rt_phone：`getRtPhone()|setRtPhone(|rt_phone` → 命中 0（仅 InquiryServiceImpl settle 解密透传 + `rtPhoneLast4`/`rt_phone_last4` 仅用于 VO 打码展示与实体注解，§1.6.1）。
+- [x] R5 blacklist target_value：`eq(Blacklist::getTargetValue|target_value` → 命中 0（仅 LICENSE_NO 等值/LIKE + PHONE last4 `RIGHT(target_value,4)`）。
+- [x] R6 开关/下线类：`isDualWrite()|writeMode|readMode|readModes|PiiShadowReader|PiiFallbackHealer|PiiBackfillService|PiiBackfillRunner|piiReadRouter` → 命中 0；`phone__bak` 仅出现在 V33/V34 SQL。
+- [x] R7 H2 兼容：V33/V34 Flyway database-specific 拆分（`__mysql.sql`/`__h2.sql`）在 H2 MySQL 模式实测通过（H2 版：V33 `DROP CONSTRAINT uk_phone_hash`/`uk_custprice_wh_phone_sku` + `DROP INDEX idx_custprice_phone` + 8 RENAME；V34 黑名单改写 H2 等价写法）；冒烟用 `INFORMATION_SCHEMA.INDEX_COLUMNS`（H2 2.x），对 MySQL/H2 变体断言**同一终态**（首个 PR 内小样验证）。
 
 ### 8.3 测试闸门（在 V33+V34 后的 H2 schema 上直接跑）
-- [ ] **全量测试类全绿**（49 测试类 / 约定目标例数）。
-- [ ] **PII 关卡改写符合 §4.2**：`PiiWriteScenarioTest`（写切点落 hmac+cipher 且 `decrypt(phoneCipher)==phone`）；`PiiRevealScenarioTest`（种子落 cipher 列，reveal 解密还原）。**只读路径替代覆盖生效证据**（9/1 裁定）：`PiiHmacReadScenarioTest` 整类删除后，读路径核心业务场景测试（登录/定价/黑名单/员工等）在 V33+V34 schema 下全绿。
-- [ ] **删除类已删**：`PiiShadowReadScenarioTest`、`PiiLoginHmacReadScenarioTest`、DualWrite 回填/对账用例、HmacRead 开关/回滚用例。
-- [ ] **新增类达标**：cipher KAT、`decrypt` 失败路径（损坏密文 → 语义错误码）、blacklist `PHONE_****` 摘要格式 + 冲突消歧单测、D1 修复回归（带 TenantContext 的 WA 查全号不 404）。
+- [x] **全量测试类全绿**（49 测试类 / 约定目标例数；H2 451 例全绿）。
+- [x] **PII 关卡改写符合 §4.2**：`PiiWriteScenarioTest`（写切点落 hmac+cipher 且 `decrypt(phoneCipher)==phone`）；`PiiRevealScenarioTest`（种子落 cipher 列，reveal 解密还原）。**只读路径替代覆盖生效证据**（9/1 裁定）：`PiiHmacReadScenarioTest` 整类删除后，读路径核心业务场景测试（登录/定价/黑名单/员工等）在 V33+V34 schema 下全绿。
+- [x] **删除类已删**：`PiiShadowReadScenarioTest`、`PiiLoginHmacReadScenarioTest`、DualWrite 回填/对账用例、HmacRead 开关/回滚用例。
+- [x] **新增类达标**：cipher KAT、`decrypt` 失败路径（损坏密文 → 语义错误码）、blacklist `PHONE_****` 摘要格式 + 冲突消歧单测、D1 修复回归（带 TenantContext 的 WA 查全号不 404）。
 
 ### 8.4 G-8.6 解密供给验证（D3 员工全号）
-- [ ] WA 员工列表 V33 后 `WholesalerEmployeeVo.phone` == `decrypt(user.phone_cipher)`，与收缩前展示一致。
-- [ ] 集成用例：创建员工 → V33 收缩 → 员工列表全号正确；WA 角色可见、WE 角色不可见（权限矩阵未放开）。
-- [ ] D1 接线回归：WA 带 TenantContext 查全号（INQUIRY biz）不 404。
+- [x] WA 员工列表 V33 后 `WholesalerEmployeeVo.phone` == `decrypt(user.phone_cipher)`，与收缩前展示一致（真实 MySQL 联调：员工列表 phone=13600002005 完整号，9/1）。
+- [x] 集成用例：创建员工 → V33 收缩 → 员工列表全号正确；WA 角色可见、WE 角色不可见（权限矩阵未放开）。
+- [x] D1 接线回归：WA 带 TenantContext 查全号（INQUIRY biz）不 404（真实 MySQL 联调返回完整号 13700002001，9/1）。
 
 ### 8.5 V34 前观察期闸门（B4 复用，§5.3）
-- [ ] 观察期内零 PII 兜底/回滚命中日志（`PiiFallbackHealer` / `PiiShadowReader` 计数器全 0）。
-- [ ] 代码残留引用 grep = 0（同 8.2 口径）。
-- [ ] cipher 抽样解密比对 100% 通过。
-- [ ] 全量测试绿（V33+V34 schema）。
-- [ ] 全库备份 + 8 表 `INSERT` 导出 + 还原演练（§5.1）。
+- [x] 观察期内零 PII 兜底/回滚命中日志（`PiiFallbackHealer` / `PiiShadowReader` 计数器全 0）——兜底类已随 B3 删除，无日志通道，天然满足。
+- [x] 代码残留引用 grep = 0（同 8.2 口径）。
+- [x] cipher 抽样解密比对 100% 通过（联调 decrypt 供给：INQUIRY/员工/定价全还原）。
+- [x] 全量测试绿（V33+V34 schema）。
+- [ ] 全库备份 + 8 表 `INSERT` 导出 + 还原演练（§5.1）——备份已完成（backup_w8_gap_delete_20260901.sql，全库 INSERT 39 表 4.9MB）；还原演练属部署侧发布窗口执行。

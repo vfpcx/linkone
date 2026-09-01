@@ -2,7 +2,7 @@
 
 > 真源：`architecture/15-pii-hardening-v2.md`（V26 基线实测+八波次）。P4 计划已归档 `shared/archive/task_plan-p4.md`。
 > 基线：main=acad899，后端 **419 测试全绿**（45 个测试类，0 失败/0 错误/0 跳过），V1-V27。
-> 当前：main=**44fb080**（PII-W7 阶段 2 前置已交付），后端 **49 类全绿**，已 push origin，工作区干净。
+> 当前：main=**72c5597**（PII-W8 收口 8954049 + G-8.6 保全 691908d + 团队文档 fd3cc97 + F1 前端 72c5597），后端 **451 绿**（47 测试类，0 失败/0 错误/0 跳过，SKIP=0），工作区干净。
 
 ## 阶段
 
@@ -50,8 +50,8 @@
   - **关卡测试** ✅ `PiiDualWriteBackfillScenarioTest` +5 例（15→20）：C1 新建 / C1 命中既有行机会性回填 / SMS 真端点 `POST /api/v1/account/sms-code` / C2 `submitByRt` / V30 三表回填幂等。切点一律真调，不用 mapper 造行代替。JSON 红线用例扩到三表；对账基线拉平改走 `flattenBackfillBaseline()` 覆盖五表（多个兄弟场景类直接 mapper 造 customer_prices / inquiry_requests，绕过双写切点，hmac 天然 NULL）
   - 2026-08-25 全量 **439 绿**（434+5，0 失败/0 错误/0 跳过，零回归）
   - 遗留：~~`PiiShadowReader` **未**给这三表接影子切点~~ → **2026-08-27 W5 已收口**：customer_prices / sms_codes 各自的读切点已接（见上方 W5 条目），inquiry_requests 经核实主代码无按 rt_phone 的读路径、无切点可接。生产首跑注意 `sms_codes` 行数随发码量线性增长，回填全表成本由 `backfill-batch-size` 控制（刻意不按「未过期」缩小分母，否则闸门口径随时间漂移）
-- [待办] **PII-S2 收口（PII-W8，唯一不可逆段）**：V29 明文收缩（`RENAME COLUMN`→观察→DROP：users.phone/phone_hash+uk、sms_codes.phone、tenants/tenant_applications/wholesaler_applications.contact_phone、inquiry_requests.rt_phone、customer_prices.rt_phone+旧唯一键、blacklist PHONE 行改写 last4 摘要）+ 删双写/开关代码 + `PiiRevealService` 改 cipher 解密（接口形态不变）。**前置**：全库备份 + rename 过渡期干净；无生产环境下按既定决策压缩（本地全量回归 + rename 观察）。**未决**：wa/ 侧 `Inquiry.vue`/`PriceSettleDialog.vue` 查全号展开（是否放开由产品定）、`wa/Staff.vue` 例外项确认（当前建议保留全号）；`05-secure-coding-guardrails` 防回潮规约增补
-- [待办] **验收**：全量 + E2E 45×2 + PII 交付报告（test-plan/13-）；上线检查单余项复核（prod 冒烟 / CVE 复扫 / graceful shutdown / Redis ACL·密码 属部署侧待环境）
+- [完成] **PII-S2 收口（PII-W8，2026-09-01，8954049 + 72c5597）**：V31 补 cipher/last4 列（含 `customer_prices.rt_phone_last4`，决策 v3）→ V32 hmac 唯一索引（`uk_phone_hmac`/`uk_blacklist_type_hmac`/`uk_custprice_wh_hmac_sku`）→ V33 明文列 RENAME `*__bak`（8 列，Flyway H2/MySQL 双变体）→ V34 DROP + blacklist PHONE 行改 `PHONE_****{last4}` 摘要（含 hmac 尾 4 消歧）。删双写/开关代码：6 类整删（PiiShadowReader/PiiReadRouter/PiiModule/PiiFallbackHealer/PiiBackfillService/PiiBackfillRunner）+ `isDualWrite()`/read-mode/read-modes/write-mode 全清；Account/User/Blacklist/Inquiry 4 Service 直连 `PiiHmacQueries`；`PiiRevealService` 改 cipher 解密 + D1 接线 `selectInquiryIgnoreTenant`；`PiiCrypto` AES-GCM + 确定性 cipher KAT（`AAAAAAAAAAAAAAAA/0CZM...` 三源闭环）。前端 D1/D4 落地（72c5597）。全量 **451 绿**（455−4 占位，SKIP=0 无占位残留）。决策 D1-D4 全部定稿落地（G-8.6 登记 691908d）。架构师 §8.2 终验三项 + 复核三点全部闭环。**真实 MySQL 执行完成（9/1）**：V31-V34 已执行；§8.1 真实库核对——恢复残留缺口链（users 577、tenants 194、inquiry 47、customer_prices 2、sms_codes 15、wholesaler_applications 89 等）按 Team Lead 决策整链清除（删除前全库备份 `backup_w8_gap_delete_20260901.sql`），7/8 表 100% 覆盖，wholesaler_applications 97.4%（12 行正常用户 APPROVED 申请单，contact_phone 明文本为 NULL，保留）；§8.4 F1 联调 D1/D3/D4 全过（真实库新造数据链，测试账号 TA 13800002001/OPS 15800002001/WA 15900002003/WE 13600002005）。**剩余发布窗口项**：§8.5 V34 观察期闸门（还原演练/观察）+ prod 冒烟/CVE/graceful shutdown/Redis ACL 属部署侧待环境
+- [进行中] **验收**：全量 ✅（W8 收口后 main 72c5597 跑 451 绿）；**F1 联调 ✅（2026-09-01 真实 MySQL 全链路：D1 查全号 / D3 员工全号 / D4 打码展示全过，§8.4 G-8.6 解密供给验证闭环）；E2E 45×2 自动化、PII 交付报告（test-plan/13-，未产出）、上线检查单余项（prod 冒烟 / CVE 复扫 / graceful shutdown / Redis ACL·密码 属部署侧待环境）待执行**
 
 ## 验证
 
