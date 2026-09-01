@@ -97,7 +97,7 @@ watch(
     :close-on-click-modal="false"
     :close-on-press-escape="true"
     :show-close="true"
-    width="520px"
+    width="min(520px, 92vw)"
     class="announce-dialog"
     data-test="login-announcement-dialog"
     @close="onClose"
