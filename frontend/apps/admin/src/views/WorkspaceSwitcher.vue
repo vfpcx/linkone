@@ -43,7 +43,13 @@ const ROLE_ICON: Record<Role, string> = {
 }
 
 const handleEnter = (entry: LoginRoleEntry) => {
+  const prevTenant = auth.tenantInfo?.tenantId
   auth.switchActiveRole(entry)
+  if (entry.tenantId && prevTenant && entry.tenantId !== prevTenant) {
+    // 跨仓切换（多仓 2026-09-01）：整页刷新，让当前页 onMounted 携带新 X-Tenant-Id 重新拉取该仓数据
+    window.location.reload()
+    return
+  }
   router.replace(auth.primaryRouter)
 }
 </script>

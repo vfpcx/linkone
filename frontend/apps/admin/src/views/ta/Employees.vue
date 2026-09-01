@@ -27,6 +27,7 @@ import {
   Plus,
   CopyDocument,
   Stamp,
+  Box,
   Van,
   RefreshLeft,
   Checked,
@@ -92,6 +93,7 @@ const menus: MenuItem[] = [
   { key: '/ta/wholesalers', label: '入驻商户', icon: Shop },
   { key: '/ta/wholesaler-applications', label: '入驻审批', icon: Stamp },
   { key: '/ta/skus', label: '商品', icon: Goods },
+  { key: '/ta/inbound', label: '入库', icon: Box },
   { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
   { key: '/ta/stocktake', label: '盘点', icon: Checked },
@@ -115,6 +117,7 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/wholesalers' ||
     key === '/ta/wholesaler-applications' ||
     key === '/ta/approvals' ||
+    key === '/ta/inbound' ||
     key === '/ta/outbound' ||
     key === '/ta/returns' ||
     key === '/ta/stocktake' ||

@@ -116,7 +116,11 @@ export interface LoginResponse {
   roles: LoginRoleEntry[]
   primaryRouter: string
   expireAt: string
-  /** NON_NULL：无租户上下文时后端不下发 */
+  /**
+   * M-02（2026-09-01）：有租户角色的登录/注册现下发 tenantInfo（取首个有 tenantId 的角色，
+   * TA/WK/ST 为其默认仓、WA/WE 为其入驻仓库），供顶栏/入库登记展示仓库名。
+   * NON_NULL：OPS/RT 等无租户角色仍不下发。
+   */
   tenantInfo?: {
     tenantId: SnowflakeId
     tenantName: string

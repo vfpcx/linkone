@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import type { LoginResponse, LoginRoleEntry, Role } from '@cangchu/api-types'
+import { readCurrentTenant, writeCurrentTenant } from '@/utils/currentTenant'
 
 interface AuthState {
   token: string | null
@@ -42,6 +43,13 @@ export const useAuthStore = defineStore('auth', {
       this.primaryRouter = payload.primaryRouter || this.defaultRouterFor(payload.primaryRole)
       this.expireAt = payload.expireAt
       this.tenantInfo = payload.tenantInfo ?? null
+      // 多仓（2026-09-01）：当前仓记录缺失或属上一用户时，以「默认工作空间」角色补写，
+      // 使 http 拦截器能注入 X-Tenant-Id（批发商端必需；TA 端 fetchWarehouses 会再按名下列表校正）
+      const tenant = readCurrentTenant()
+      if ((!tenant || tenant.userId !== payload.userId) && payload.userId) {
+        const def = (payload.roles ?? []).find((r) => r.tenantId)
+        if (def?.tenantId) writeCurrentTenant(payload.userId, def.tenantId)
+      }
     },
 
     /** 多角色切换器：选择角色后调用 */
@@ -51,6 +59,10 @@ export const useAuthStore = defineStore('auth', {
       if (role.tenantId && this.tenantInfo) {
         this.tenantInfo.tenantId = role.tenantId
         if (role.storeName) this.tenantInfo.tenantName = role.storeName
+      }
+      // 多仓（2026-09-01）：同步当前工作空间 → http 拦截器注入新的 X-Tenant-Id
+      if (role.tenantId && this.userId) {
+        writeCurrentTenant(this.userId, role.tenantId)
       }
       this.switcherVisible = false
     },

@@ -28,6 +28,7 @@ import {
   TrendCharts,
   Goods,
   Stamp,
+  Box,
   Refresh,
   Van,
   RefreshLeft,
@@ -109,6 +110,7 @@ const menus = computed<MenuItem[]>(() => [
     badge: menuBadgeTotal.value,
   },
   { key: '/ta/skus', label: '商品', icon: Goods },
+  { key: '/ta/inbound', label: '入库', icon: Box },
   { key: '/ta/outbound', label: '出库作业', icon: Van },
   { key: '/ta/returns', label: '退货受理', icon: RefreshLeft },
   { key: '/ta/stocktake', label: '盘点', icon: Checked },
@@ -132,6 +134,7 @@ const ROUTABLE = new Set([
   '/ta/wholesalers',
   '/ta/skus',
   '/ta/approvals',
+  '/ta/inbound',
   '/ta/outbound',
   '/ta/messages',
 ])
