@@ -204,6 +204,51 @@ export async function registerWaPlain(phone = uniqPhone()): Promise<WaSeed> {
   return { phone, pwd: SEED_PWD, login, wholesalerName: 'OnbWS' + phone.slice(-4) }
 }
 
+/**
+ * 查询 OPS 黑名单当前全部 PHONE 摘要尾号集合（ACTIVE + REMOVED）。
+ *
+ * 规避已知后端缺陷（W8/V34 摘要与 uk_blacklist_type_value 不一致）：
+ * `BlacklistServiceImpl.summarizePhoneValue` 只查 ACTIVE 行占位，若新手机号尾号与某条
+ * REMOVED 行的摘要 `PHONE_****{last4}` 撞车，插入会抛 DuplicateKeyException（前端 50310），
+ * 「加入黑名单」弹窗不关闭、列表行不出现，E2E 偶发失败（详见 14-p5a-e2e-report 全量回归）。
+ */
+export async function blacklistPhoneLast4Set(opsToken: string): Promise<Set<string>> {
+  const set = new Set<string>()
+  for (const status of ['ACTIVE', 'REMOVED'] as const) {
+    let page = 1
+    for (;;) {
+      const data = ok(
+        await apiGet<{
+          records: Array<{ targetType: string; targetValue: string }>
+          total: number
+        }>('/ops/blacklist', opsToken, { status, page, size: 100 }),
+        `黑名单 ${status} 列表`,
+      )
+      for (const r of data.records ?? []) {
+        if (r.targetType !== 'PHONE') continue
+        const m = r.targetValue.match(/PHONE_\*{4}(\d{4})(?::|$)/)
+        if (m) set.add(m[1])
+      }
+      if ((data.records ?? []).length < 100) break
+      page++
+    }
+  }
+  return set
+}
+
+/** 生成一个尾号不与既有黑名单摘要冲突的 WA 手机号（规避 REMOVED 行 uk 撞车） */
+export async function blacklistSafeWaPhone(opsToken: string): Promise<string> {
+  const taken = await blacklistPhoneLast4Set(opsToken)
+  let phone = uniqPhone()
+  for (let guard = 0; guard < 100 && taken.has(phone.slice(-4)); guard++) {
+    phone = uniqPhone()
+  }
+  if (taken.has(phone.slice(-4))) {
+    throw new Error('[onb-seed] 黑名单尾号碰撞耗尽（>100 次），需人工清理测试黑名单数据')
+  }
+  return phone
+}
+
 // ============================== 申请 / 审批 ==============================
 
 export interface ApplicationRow {
