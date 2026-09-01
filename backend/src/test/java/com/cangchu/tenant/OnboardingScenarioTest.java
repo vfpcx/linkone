@@ -384,6 +384,45 @@ class OnboardingScenarioTest {
         assertThat(denied.getCode()).isEqualTo(42002);
     }
 
+    @Test
+    @DisplayName("ONB-E2E-02 同尾号手机移除后重新加黑 → 成功（REMOVED 摘要行不撞 uk 误报 50310）")
+    void blk_05_sameTailReaddAfterRemove() {
+        String ops = registerOps();
+        // 唯一同尾号对：不同完整号、相同尾 4 位（修复前第二个 add 会撞 REMOVED 行
+        // uk_blacklist_type_value → 50310；尾号若被既有 ACTIVE 行占用则换号重试）
+        R<Map<String, Object>> first = null;
+        String tail = null;
+        String phoneA = null;
+        String phoneB = null;
+        for (int attempt = 0; attempt < 8; attempt++) {
+            long seed = System.nanoTime() + attempt;
+            tail = String.format("%04d", (seed & 0x7FFFFFFF) % 10000);
+            String middle = String.format("%05d", ((seed >>> 1) & 0x7FFFFFFF) % 100000);
+            phoneA = "13" + middle + tail;
+            phoneB = "14" + middle + tail;
+            first = addBlacklist(ops, "PHONE", phoneA, "ONB-E2E-02 首加");
+            if (first.getCode() == 0) {
+                break;
+            }
+        }
+        assertThat(first).isNotNull();
+        assertThat(first.getCode()).as("首个加黑应成功（尾号被既有 ACTIVE 行占用则换号重试）").isEqualTo(0);
+        String entryId = first.getData().get("id").toString();
+
+        // 移除（仅置 REMOVED，摘要行保留，供 uk 冲突复现）
+        R<Void> removed = restTemplate.exchange(baseOpsBlacklist + "/" + entryId, HttpMethod.DELETE,
+                new HttpEntity<>(bearer(ops)), VOID).getBody();
+        assertThat(removed).isNotNull();
+        assertThat(removed.getCode()).isEqualTo(0);
+
+        // 同尾号、不同完整号再加黑：不得误报 50310（base 摘要被 REMOVED 行占用时须走 hmac4 消歧）
+        R<Map<String, Object>> second = addBlacklist(ops, "PHONE", phoneB, "ONB-E2E-02 同尾号");
+        assertThat(second).isNotNull();
+        assertThat(second.getCode()).as("同尾号新手机在旧行 REMOVED 后应可加黑").isEqualTo(0);
+        assertThat(second.getData().get("targetValue").toString())
+                .startsWith("PHONE_****" + tail);
+    }
+
     // ======================================================================
     // S4 OPS 代建
     // ======================================================================

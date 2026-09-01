@@ -117,10 +117,11 @@ public class BlacklistServiceImpl implements BlacklistService {
             existing.setOperatorUserId(opsUserId);
             existing.setRemovedAt(null);
             // W8（16 §3.5）：B2 复活 PHONE 行无条件刷新 hmac + cipher + 摘要（收口后无开关门控）
+            // ONB-E2E-02：复活须排除自身行占位，否则会被自己的 REMOVED 摘要误加 hmac4 后缀
             if ("PHONE".equals(type)) {
                 existing.setTargetValueHmac(piiCrypto.phoneHmac(value));
                 existing.setTargetValueCipher(piiCrypto.encrypt(value));
-                existing.setTargetValue(summarizePhoneValue(value));
+                existing.setTargetValue(summarizePhoneValue(value, existing.getId()));
             }
             blacklistMapper.updateById(existing);
             log.info("[黑名单] OPS {} 复活条目 {} {}={}", opsUserId, existing.getId(), type, value);
@@ -168,15 +169,28 @@ public class BlacklistServiceImpl implements BlacklistService {
     }
 
     /**
-     * W8（16 §1.5）：PHONE 行 target_value 摘要（{@code PHONE_****{last4}}）；基础摘要已被 ACTIVE
-     * 行占用时追加 hmac 尾 4 消歧（{@code PHONE_****{last4}:{hmac4}}），与 V34 迁移 8.1/8.2 口径一致。
+     * W8（16 §1.5）：PHONE 行 target_value 摘要（{@code PHONE_****{last4}}）；基础摘要已被 ACTIVE/
+     * REMOVED 行占用时追加 hmac 尾 4 消歧（{@code PHONE_****{last4}:{hmac4}}），与 V34 迁移 8.1/8.2
+     * 口径一致。调用方为复活场景时传 {@code excludeId} 排除自身行，避免被自己的 REMOVED 摘要占位。
      */
     private String summarizePhoneValue(String phone) {
+        return summarizePhoneValue(phone, null);
+    }
+
+    private String summarizePhoneValue(String phone, Long excludeId) {
         String base = "PHONE_****" + phone.substring(phone.length() - 4);
+        // ONB-E2E-02：uk_blacklist_type_value(type,target_value) 对 REMOVED 行同样生效，但摘要占位
+        // 判定原只查 ACTIVE——同尾号新手机在旧行被 remove（仅改状态不删行）后仍会撞 uk 误报 50310。
+        // 占位判定须同时计 ACTIVE+REMOVED，且仅计 hmac 非空的行：hmac 存在才能确认占位行是「另一台
+        // 手机」（可安全走 hmac4 消歧）；hmac 缺失的存量 REMOVED 行无法排除同号重复，不参与占位，
+        // 留给 uk 兜底 50310（W8 写侧关卡 dualWrite_b2_blacklistAdd_hmacMissingRowFallsBackToUkCollision
+        // 断言该语义）。复活分支传 excludeId 排除自身，避免自身 REMOVED 行占位误加后缀。
         boolean baseTaken = blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()
                 .eq(Blacklist::getTargetType, "PHONE")
                 .eq(Blacklist::getTargetValue, base)
-                .eq(Blacklist::getStatus, "ACTIVE")) > 0;
+                .in(Blacklist::getStatus, "ACTIVE", "REMOVED")
+                .isNotNull(Blacklist::getTargetValueHmac)
+                .ne(excludeId != null, Blacklist::getId, excludeId)) > 0;
         if (!baseTaken) {
             return base;
         }
