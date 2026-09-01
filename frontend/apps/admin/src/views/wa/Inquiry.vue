@@ -34,6 +34,7 @@ import type { Inquiry, InquiryStatus, ConfirmInquiryRequest } from '@cangchu/api
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { inquiryApi } from '@/api/inquiry'
+import { piiApi } from '@/api/pii'
 import { accountApi } from '@/api/account'
 import PriceSettleDialog from './PriceSettleDialog.vue'
 
@@ -134,6 +135,18 @@ const fetchList = async () => {
     // 全局 toast 已提示
   } finally {
     loading.value = false
+  }
+}
+
+/** PII-W8 查全号（D1）：列表只回打码号，WA 线下联系买家需要时经 phone-reveal 取全号（权限+归属+审计在服务端） */
+const revealBuyerPhone = async (row: Inquiry) => {
+  try {
+    const { phone } = await piiApi.revealPhone('INQUIRY', row.id)
+    await ElMessageBox.alert(phone, `完整买家电话（询价单 ${row.docNo}）`, {
+      confirmButtonText: '关闭',
+    })
+  } catch {
+    /* 无权限/对象不存在 → http.ts 已 toast */
   }
 }
 
@@ -260,9 +273,16 @@ onMounted(fetchList)
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="买家电话" width="150">
+            <el-table-column label="买家电话" min-width="180">
               <template #default="{ row }">
                 <span class="cell-muted">{{ row.rtPhone || '—' }}</span>
+                <el-button
+                  v-if="row.rtPhone"
+                  link
+                  type="primary"
+                  class="reveal-link"
+                  @click="revealBuyerPhone(row as Inquiry)"
+                >查看完整号</el-button>
               </template>
             </el-table-column>
             <el-table-column label="明细" width="90" align="right">
