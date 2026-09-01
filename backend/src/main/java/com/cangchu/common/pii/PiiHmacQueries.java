@@ -11,8 +11,8 @@ import com.cangchu.tenant.entity.Blacklist;
  *
  * <p><b>为什么单独收一个类</b>：影子期用来比对的那条 hmac 查询，与切读后真正出结果的那条，必须
  * 逐字节是同一条。否则「7 天 / 3 天 mismatch=0」证明的是 A 查询，上线跑的是 B 查询，闸门就是自欺。
- * 把谓词收在这里之后，{@link PiiShadowReader}（比对用）与 {@link PiiReadRouter}（出结果用）各自
- * 只在其上追加要取的列，谓词无从分叉。
+ * 把谓词收在这里之后，影子比对与正式出结果共用同一构造入口，谓词无从分叉（W8 收口后
+ * 影子/路由已删，本类即 hmac 读路径的唯一入口）。
  *
  * <p>每次调用新建 wrapper，调用方可继续链式追加 {@code .select(...)}；逻辑删除行两边都由
  * MyBatis-Plus 自动排除。
@@ -25,13 +25,10 @@ public final class PiiHmacQueries {
     /**
      * A1–A6 登录链：按 {@code phone_hmac} 取行（15 §4 Step 3 / 波次 PII-W6）。
      *
-     * <p>明文侧口径是 {@code eq(phone_hash)} 的单行查询，故此处同样单行。影子期比对只在其上追加
-     * {@code .select(id)}；切读后 {@link PiiReadRouter#user} 取整行——登录要用 {@code password_hash}
-     * / {@code status} 等列，与明文分支拿到的必须是同一个对象形状。
+     * <p>W8 收口后本查询即登录链 hmac 读路径的唯一入口（V34 明文列已删，无旧列分支）。
      *
-     * <p>本方法是 Step 3 才补上的：{@code checkUser} 的影子查询原先手搓在 {@link PiiShadowReader}
-     * 里，早于本类存在。登录链一旦切读，「影子期比对的谓词」与「上线出结果的谓词」必须逐字节相同，
-     * 否则 Step 1 那道 7 天闸门证明的是另一条查询。
+     * <p>本方法是 Step 3 才补上的（影子比对实现已随 W8 收口删除）；登录链切读后「影子期比对的
+     * 谓词」与「上线出结果的谓词」必须逐字节相同，否则 Step 1 那道 7 天闸门证明的是另一条查询。
      */
     public static LambdaQueryWrapper<User> user(String phoneHmac) {
         return new LambdaQueryWrapper<User>()
@@ -74,13 +71,13 @@ public final class PiiHmacQueries {
                 .last("LIMIT 1");
     }
 
-    /** C3 批量调价按 rtPhone 圈选（多行）：skuId 传 null 表示本次不按 SKU 收窄，与主路条件一致。 */
+    /** C3 批量调价按 rtPhone 圈选（多行）：skuId / rtPhoneHmac 传 null 表示本次不按该项收窄，与主路条件一致。 */
     public static LambdaQueryWrapper<CustomerPrice> customerPriceRows(Long wholesalerId, Long skuId,
                                                                       String rtPhoneHmac) {
         return new LambdaQueryWrapper<CustomerPrice>()
                 .eq(CustomerPrice::getWholesalerId, wholesalerId)
                 .eq(skuId != null, CustomerPrice::getSkuId, skuId)
-                .eq(CustomerPrice::getRtPhoneHmac, rtPhoneHmac);
+                .eq(rtPhoneHmac != null && !rtPhoneHmac.isBlank(), CustomerPrice::getRtPhoneHmac, rtPhoneHmac);
     }
 
     /** SMS 验证码校验：scene / code / 未核销 / 取最新一条逐条照抄明文口径，只换手机号那一列。 */

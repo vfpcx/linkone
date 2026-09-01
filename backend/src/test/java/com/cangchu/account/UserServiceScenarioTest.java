@@ -1,6 +1,5 @@
 package com.cangchu.account;
 
-import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.dto.RegisterDto;
@@ -8,6 +7,7 @@ import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
 import com.cangchu.account.vo.LoginVo;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.response.R;
 import com.cangchu.tenant.dto.TenantApplyDto;
 import com.cangchu.tenant.dto.TenantCreateDto;
@@ -68,6 +68,10 @@ class UserServiceScenarioTest {
     @Autowired
     private UserMapper userMapper;
 
+    /** W8（16 §2.2）：users.phone/phone_hash 明文列已删，断言改走 phone_hmac/phone_cipher */
+    @Autowired
+    private PiiCrypto piiCrypto;
+
     // ^1[3-9]\d{9}$：1 + 前缀位 + 5 位时间戳尾段 + 4 位自增；各流程不同前缀避免相互污染
     private static final String P_SVC = "18" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
     private static final String P_TA  = "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
@@ -92,14 +96,14 @@ class UserServiceScenarioTest {
         return h;
     }
 
-    private User findByPhoneHash(String phone) {
+    private User findByPhoneHmac(String phone) {
         return userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, DigestUtil.sha256Hex(phone)));
+                .eq(User::getPhoneHmac, piiCrypto.phoneHmac(phone)));
     }
 
-    private long countByPhoneHash(String phone) {
+    private long countByPhoneHmac(String phone) {
         return userMapper.selectCount(new LambdaQueryWrapper<User>()
-                .eq(User::getPhoneHash, DigestUtil.sha256Hex(phone)));
+                .eq(User::getPhoneHmac, piiCrypto.phoneHmac(phone)));
     }
 
     private R<LoginVo> register(String phone, String password, String role) {
@@ -165,11 +169,11 @@ class UserServiceScenarioTest {
         assertThat(ensured.isNew()).isTrue();
         assertThat(ensured.userId()).isNotNull();
 
-        User row = findByPhoneHash(phone);
+        User row = findByPhoneHmac(phone);
         assertThat(row).isNotNull();
         assertThat(row.getId()).isEqualTo(ensured.userId());
-        assertThat(row.getPhone()).isEqualTo(phone);
-        assertThat(row.getPhoneHash()).isEqualTo(DigestUtil.sha256Hex(phone));
+        assertThat(piiCrypto.decrypt(row.getPhoneCipher())).isEqualTo(phone);
+        assertThat(row.getPhoneHmac()).isEqualTo(piiCrypto.phoneHmac(phone));
         assertThat(row.getNickname()).as("昵称=手机号后4位（原直连语义）")
                 .isEqualTo(phone.substring(phone.length() - 4));
         assertThat(row.getStatus()).isEqualTo("ACTIVE");
@@ -185,15 +189,15 @@ class UserServiceScenarioTest {
     void us_s1_idempotentHit() {
         String phone = uniquePhone(P_SVC);
         UserService.EnsuredUser first = userService.ensureUserByPhone(phone, "WA_PROVISION");
-        User before = findByPhoneHash(phone);
+        User before = findByPhoneHmac(phone);
 
         // 第二次换来源调用：命中即返回，userId 一致、isNew=false、行内容不被覆写
         UserService.EnsuredUser second = userService.ensureUserByPhone(phone, "OPS_PROXY");
         assertThat(second.isNew()).isFalse();
         assertThat(second.userId()).isEqualTo(first.userId());
-        assertThat(countByPhoneHash(phone)).isEqualTo(1);
+        assertThat(countByPhoneHmac(phone)).isEqualTo(1);
 
-        User after = findByPhoneHash(phone);
+        User after = findByPhoneHmac(phone);
         assertThat(after.getPasswordHash()).as("幂等命中不得重新生成临时密码")
                 .isEqualTo(before.getPasswordHash());
         assertThat(after.getRegisterSource()).as("幂等命中不得覆写注册来源")
@@ -267,7 +271,7 @@ class UserServiceScenarioTest {
         assertThat(body.getData().get("isNewUser")).isEqualTo(true);
         assertThat(body.getData().get("status")).isEqualTo("ACTIVE");
 
-        User row = findByPhoneHash(taPhone);
+        User row = findByPhoneHmac(taPhone);
         assertThat(row).isNotNull();
         assertThat(row.getId().toString()).isEqualTo(body.getData().get("taUserId").toString());
         assertThat(row.getRegisterSource()).isEqualTo("OPS_PROXY");
@@ -281,7 +285,7 @@ class UserServiceScenarioTest {
     void taProxy_reuseRegisteredUser() {
         String taPhone = uniquePhone(P_TA);
         Long registeredUserId = register(taPhone, "TaPass123", "TA").getData().getUserId();
-        User before = findByPhoneHash(taPhone);
+        User before = findByPhoneHmac(taPhone);
 
         String opsToken = register(uniquePhone(P_OPS), "OpsPass123", "OPS").getData().getToken();
         R<Map<String, Object>> body = createTenantByOps(opsToken, taPhone, "OPS代建复用-" + taPhone);
@@ -290,8 +294,8 @@ class UserServiceScenarioTest {
         assertThat(body.getData().get("isNewUser")).isEqualTo(false);
         assertThat(body.getData().get("taUserId").toString()).isEqualTo(registeredUserId.toString());
 
-        User after = findByPhoneHash(taPhone);
-        assertThat(countByPhoneHash(taPhone)).isEqualTo(1);
+        User after = findByPhoneHmac(taPhone);
+        assertThat(countByPhoneHmac(taPhone)).isEqualTo(1);
         assertThat(after.getPasswordHash()).as("已注册用户密码不得被临时密码覆写")
                 .isEqualTo(before.getPasswordHash());
         assertThat(after.getRegisterSource()).as("已注册用户来源不得被覆写为 OPS_PROXY")
@@ -311,7 +315,7 @@ class UserServiceScenarioTest {
 
         assertThat(second.getData().get("isNewUser")).isEqualTo(false);
         assertThat(second.getData().get("taUserId")).isEqualTo(first.getData().get("taUserId"));
-        assertThat(countByPhoneHash(taPhone)).isEqualTo(1);
+        assertThat(countByPhoneHmac(taPhone)).isEqualTo(1);
     }
 
     // ======================================================================
@@ -329,7 +333,7 @@ class UserServiceScenarioTest {
         assertThat(body.getCode()).isEqualTo(0);
         assertThat(body.getData().get("waUserId")).isNotNull();
 
-        User row = findByPhoneHash(waPhone);
+        User row = findByPhoneHmac(waPhone);
         assertThat(row).isNotNull();
         assertThat(row.getRegisterSource()).isEqualTo("WA_PROVISION");
         assertThat(row.getStatus()).isEqualTo("ACTIVE");
@@ -347,7 +351,7 @@ class UserServiceScenarioTest {
 
         R<Map<String, Object>> first = createWholesalerWithWa(ta, "WA甲-" + waPhone, waPhone);
         assertThat(first.getCode()).isEqualTo(0);
-        User before = findByPhoneHash(waPhone);
+        User before = findByPhoneHmac(waPhone);
 
         R<Map<String, Object>> second = createWholesalerWithWa(ta, "WA乙-" + waPhone, waPhone);
         assertThat(second.getCode()).isEqualTo(0);
@@ -355,8 +359,8 @@ class UserServiceScenarioTest {
         // 两次必然不同；用户级幂等以 users 表行数与密码不变为准。
         assertThat(second.getData().get("waUserId")).isNotNull();
 
-        assertThat(countByPhoneHash(waPhone)).as("同号重复开通不得重建用户").isEqualTo(1);
-        assertThat(findByPhoneHash(waPhone).getPasswordHash())
+        assertThat(countByPhoneHmac(waPhone)).as("同号重复开通不得重建用户").isEqualTo(1);
+        assertThat(findByPhoneHmac(waPhone).getPasswordHash())
                 .as("重复开通不得重新生成临时密码")
                 .isEqualTo(before.getPasswordHash());
     }

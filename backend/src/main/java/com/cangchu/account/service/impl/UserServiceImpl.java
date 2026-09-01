@@ -1,13 +1,11 @@
 package com.cangchu.account.service.impl;
 
 import cn.hutool.core.util.RandomUtil;
-import cn.hutool.crypto.digest.DigestUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.account.entity.User;
 import com.cangchu.account.mapper.UserMapper;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiReadRouter;
+import com.cangchu.common.pii.PiiHmacQueries;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -35,9 +33,6 @@ public class UserServiceImpl implements UserService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // PII 硬化阶段 0：HMAC 盲索引双写（切点 A6 代建幂等开号；读路径仍走 phone_hash）
     private final PiiCrypto piiCrypto;
-    // PII 读路由单入口：A6 读切点。login 模块拨到 hmac 即由 phone_hmac 判幂等，
-    // 未命中则回落 phone_hash 兜底；非 hmac 模式由它内部触发影子双查（Step1 口径不变）
-    private final PiiReadRouter piiReadRouter;
 
     /** BCrypt cost 12（与 AccountServiceImpl / 原 tenant 直连点一致） */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -46,23 +41,18 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public EnsuredUser ensureUserByPhone(String phone, String registerSource) {
         String p = phone.trim();
-        String phoneHash = DigestUtil.sha256Hex(p);
         // PII 阶段 1 Step3 · A6（W6）：代建开号的幂等判定。硬切漏填会把老账号当成不存在而重新建号
-        // ——撞 uk_users_phone_hash 之余，原账号的租户/商户绑定也就此失联
-        User user = piiReadRouter.user("A6-ensure-user", p,
-                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
-                        .eq(User::getPhoneHash, phoneHash)));
+        // ——原账号的租户/商户绑定就此失联（V33/V34 后 phone_hash 已 DROP，兜底回落 hmac 同谓词）
+        User user = userMapper.selectOne(PiiHmacQueries.user(piiCrypto.phoneHmac(p)));
         if (user != null) {
             return new EnsuredUser(user.getId(), false);
         }
         user = new User();
         user.setId(snowflakeIdUtil.nextId());
-        user.setPhone(p);
-        user.setPhoneHash(phoneHash);
-        // PII 阶段 0 双写（切点 A6 WA/OPS 代建开号）：legacy 模式不写（回滚口径）
-        if (piiCrypto.isDualWrite()) {
-            user.setPhoneHmac(piiCrypto.phoneHmac(p));
-        }
+        // W8 收口（16 §2.5）：A6 WA/OPS 代建开号无条件写 hmac + cipher + last4（V33/V34 明文列已删）
+        user.setPhoneHmac(piiCrypto.phoneHmac(p));
+        user.setPhoneCipher(piiCrypto.encrypt(p));
+        user.setPhoneLast4(piiCrypto.last4(p));
         // 临时密码只进 BCrypt 落库与（后续）短信通道；不返回、不打日志（F7）
         String tempPwd = RandomUtil.randomString(8);
         user.setPasswordHash(PASSWORD_ENCODER.encode(tempPwd));
@@ -81,7 +71,7 @@ public class UserServiceImpl implements UserService {
             return null;
         }
         User user = userMapper.selectById(userId);
-        return user == null ? null : user.getPhone();
+        return user == null ? null : piiCrypto.decrypt(user.getPhoneCipher());
     }
 
     @Override

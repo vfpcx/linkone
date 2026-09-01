@@ -6,6 +6,7 @@ import com.cangchu.CangchuApplication;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.common.TestUniq;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.InboundDisputeDto;
@@ -69,6 +70,8 @@ class WaNotificationRecipientScenarioTest {
     @Autowired
     private TenantMapper tenantMapper;
     @Autowired
+    private PiiCrypto piiCrypto;
+    @Autowired
     private SkuMapper skuMapper;
     @Autowired
     private UserRoleMapper userRoleMapper;
@@ -98,7 +101,7 @@ class WaNotificationRecipientScenarioTest {
         t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setName("仓-" + tenantId);
         t.setContactUserId(taUserId);
-        t.setContactPhone("1" + String.format("%010d", tenantId % 10_000_000_000L));
+        t.setContactPhoneCipher(piiCrypto.encrypt("1" + String.format("%010d", tenantId % 10_000_000_000L)));
         t.setStatus("ACTIVE");
         tenantMapper.insert(t);
         seedRole(taUserId, "TA", tenantId, null, null);

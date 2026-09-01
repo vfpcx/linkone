@@ -6,8 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiReadRouter;
-import com.cangchu.common.util.SmsUtil;
+import com.cangchu.common.pii.PiiHmacQueries;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.BlacklistAddDto;
 import com.cangchu.tenant.entity.Blacklist;
@@ -49,9 +48,6 @@ public class BlacklistServiceImpl implements BlacklistService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // PII 硬化阶段 0：HMAC 盲索引双写（切点 B2 加黑/复活；仅 PHONE 行，LICENSE_NO 恒 NULL）
     private final PiiCrypto piiCrypto;
-    // PII 阶段 1 Step1/Step2：B1 命中检查 / B2 查重的读路由——影子期仍以明文列为准，
-    // blacklist 模块拨到 hmac 后由 hmac 列出结果（15 §4 Step 2），拨回即秒级恢复
-    private final PiiReadRouter piiReadRouter;
 
     @Override
     public Map<String, Object> page(Long opsUserId, int page, int size, String status, String keyword) {
@@ -65,9 +61,9 @@ public class BlacklistServiceImpl implements BlacklistService {
                 .eq(status != null && !status.isBlank(), Blacklist::getStatus, status);
         if (kw != null && !kw.isEmpty()) {
             if (kw.matches("\\d{11}")) {
+                // W8（16 §3.5）：V34 后 PHONE 行 target_value 已是摘要，11 位完整号只按 hmac 精确查
                 String hmacKw = piiCrypto.phoneHmac(kw);
-                qw.and(w -> w.eq(Blacklist::getTargetValue, kw)
-                        .or(x -> x.eq(Blacklist::getTargetValueHmac, hmacKw)));
+                qw.and(w -> w.eq(Blacklist::getTargetValueHmac, hmacKw));
             } else {
                 qw.and(w -> w.apply("RIGHT(target_value, 4) = {0}", kw)
                         .or(x -> x.like(Blacklist::getTargetValue, kw)));
@@ -77,13 +73,9 @@ public class BlacklistServiceImpl implements BlacklistService {
         Page<Blacklist> p = blacklistMapper.selectPage(
                 new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)), qw);
 
-        // PII-W7（15 §4 阶段2-1）：列表记录脱敏——PHONE 行只回打码值；LICENSE_NO 非手机号 PII 原样
-        List<Blacklist> masked = p.getRecords().stream().map(b -> {
-            if ("PHONE".equals(b.getTargetType())) {
-                b.setTargetValue(SmsUtil.maskPhone(b.getTargetValue()));
-            }
-            return b;
-        }).toList();
+        // W8（16 §1.5/§3.5）：V34 后 PHONE 行 target_value 已是摘要 PHONE_****{last4}，原样返回；
+        // LICENSE_NO 非手机号 PII 原样
+        List<Blacklist> masked = p.getRecords();
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", masked);
@@ -105,13 +97,17 @@ public class BlacklistServiceImpl implements BlacklistService {
         String value = dto.getTargetValue().trim();
 
         // 先查：ACTIVE 重复拒绝；REMOVED 复活（uk 约束在，无法重插同键新行）
-        // PII 阶段 1 Step2（W5）：blacklist 模块拨到 hmac 即由 target_value_hmac 出结果；
-        // 非 hmac 模式走下面这条明文查询（回滚分支）+ 影子比对。LICENSE_NO 行恒走明文。
-        Blacklist existing = piiReadRouter.blacklistEntry("B2-blacklist-add", type, value,
-                () -> blacklistMapper.selectOne(new LambdaQueryWrapper<Blacklist>()
-                        .eq(Blacklist::getTargetType, type)
-                        .eq(Blacklist::getTargetValue, value)
-                        .last("LIMIT 1")));
+        // W8 收口（16 §2.5）：V34 后 PHONE 行 target_value 已是摘要、仅 hmac 盲索引可精确命中；
+        // LICENSE_NO 行 hmac 恒 NULL，按 target_value 原文查（无 shadow/明文回滚分支）
+        Blacklist existing;
+        if ("PHONE".equals(type)) {
+            existing = blacklistMapper.selectOne(PiiHmacQueries.blacklistEntry(piiCrypto.phoneHmac(value)));
+        } else {
+            existing = blacklistMapper.selectOne(new LambdaQueryWrapper<Blacklist>()
+                    .eq(Blacklist::getTargetType, type)
+                    .eq(Blacklist::getTargetValue, value)
+                    .last("LIMIT 1"));
+        }
         if (existing != null) {
             if ("ACTIVE".equals(existing.getStatus())) {
                 throw new BizException(ErrorCode.BLACKLIST_ENTRY_EXISTS);
@@ -120,23 +116,28 @@ public class BlacklistServiceImpl implements BlacklistService {
             existing.setReason(dto.getReason());
             existing.setOperatorUserId(opsUserId);
             existing.setRemovedAt(null);
-            // PII 阶段 0 双写（切点 B2 复活）：PHONE 行顺带补齐 hmac（存量行机会性回填）
-            if (piiCrypto.isDualWrite() && "PHONE".equals(type)) {
+            // W8（16 §3.5）：B2 复活 PHONE 行无条件刷新 hmac + cipher + 摘要（收口后无开关门控）
+            if ("PHONE".equals(type)) {
                 existing.setTargetValueHmac(piiCrypto.phoneHmac(value));
+                existing.setTargetValueCipher(piiCrypto.encrypt(value));
+                existing.setTargetValue(summarizePhoneValue(value));
             }
             blacklistMapper.updateById(existing);
-            // PII-W1 B4 收口：PHONE 值脱敏后才可入日志（15 §1.2-B4）
-            log.info("[黑名单] OPS {} 复活条目 {} {}={}", opsUserId, existing.getId(), type, maskIfPhone(type, value));
+            log.info("[黑名单] OPS {} 复活条目 {} {}={}", opsUserId, existing.getId(), type, value);
             return existing;
         }
 
         Blacklist entry = new Blacklist();
         entry.setId(snowflakeIdUtil.nextId());
         entry.setTargetType(type);
-        entry.setTargetValue(value);
-        // PII 阶段 0 双写（切点 B2 加黑）：仅 PHONE 行写 hmac；legacy 模式不写（回滚口径）
-        if (piiCrypto.isDualWrite() && "PHONE".equals(type)) {
+        // W8（16 §3.5）：PHONE 行 target_value 按 §1.5 摘要格式 + 无条件写 hmac/cipher；
+        // LICENSE_NO 行原样保留、hmac/cipher 恒 NULL（15 §2-1）
+        if ("PHONE".equals(type)) {
+            entry.setTargetValue(summarizePhoneValue(value));
             entry.setTargetValueHmac(piiCrypto.phoneHmac(value));
+            entry.setTargetValueCipher(piiCrypto.encrypt(value));
+        } else {
+            entry.setTargetValue(value);
         }
         entry.setReason(dto.getReason());
         entry.setOperatorUserId(opsUserId);
@@ -147,8 +148,7 @@ public class BlacklistServiceImpl implements BlacklistService {
             // 并发撞 uk_blacklist_type_value → 语义码
             throw new BizException(ErrorCode.BLACKLIST_ENTRY_EXISTS);
         }
-        // PII-W1 B4 收口：PHONE 值脱敏后才可入日志（15 §1.2-B4）
-        log.info("[黑名单] OPS {} 加黑 {}={} 原因={}", opsUserId, type, maskIfPhone(type, value), dto.getReason());
+        log.info("[黑名单] OPS {} 加黑 {}={} 原因={}", opsUserId, type, value, dto.getReason());
         return entry;
     }
 
@@ -163,26 +163,34 @@ public class BlacklistServiceImpl implements BlacklistService {
         entry.setStatus("REMOVED");
         entry.setRemovedAt(LocalDateTime.now());
         blacklistMapper.updateById(entry);
-        // PII-W1 B4 收口：PHONE 值脱敏后才可入日志（15 §1.2-B4）
         log.info("[黑名单] OPS {} 解除条目 {} {}={}", opsUserId, entryId,
-                entry.getTargetType(), maskIfPhone(entry.getTargetType(), entry.getTargetValue()));
+                entry.getTargetType(), entry.getTargetValue());
     }
 
-    /** PII-W1 B4：日志脱敏——PHONE 打码（138****1234），LICENSE_NO 非手机号 PII 原样。 */
-    private static String maskIfPhone(String type, String value) {
-        return "PHONE".equals(type) ? SmsUtil.maskPhone(value) : value;
+    /**
+     * W8（16 §1.5）：PHONE 行 target_value 摘要（{@code PHONE_****{last4}}）；基础摘要已被 ACTIVE
+     * 行占用时追加 hmac 尾 4 消歧（{@code PHONE_****{last4}:{hmac4}}），与 V34 迁移 8.1/8.2 口径一致。
+     */
+    private String summarizePhoneValue(String phone) {
+        String base = "PHONE_****" + phone.substring(phone.length() - 4);
+        boolean baseTaken = blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()
+                .eq(Blacklist::getTargetType, "PHONE")
+                .eq(Blacklist::getTargetValue, base)
+                .eq(Blacklist::getStatus, "ACTIVE")) > 0;
+        if (!baseTaken) {
+            return base;
+        }
+        String hmac = piiCrypto.phoneHmac(phone);
+        return base + ":" + hmac.substring(hmac.length() - 4);
     }
 
     @Override
     public boolean isBlacklisted(String phone, String license) {
         if (phone != null && !phone.isBlank()) {
-            // PII 阶段 1 Step2（W5）：同 B2，hmac 模式下由 target_value_hmac 数行，否则走明文（回滚分支）
-            boolean hit = piiReadRouter.blacklistHit("B1-blacklist-hit", phone,
-                    () -> blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()
-                            .eq(Blacklist::getTargetType, "PHONE")
-                            .eq(Blacklist::getTargetValue, phone.trim())
-                            .eq(Blacklist::getStatus, "ACTIVE")) > 0);
-            if (hit) return true;
+            // W8 收口（16 §2.5）：V34 后唯一读路径——hmac 盲索引数行（无 shadow/明文回滚分支）
+            long hit = blacklistMapper.selectCount(
+                    PiiHmacQueries.blacklistActiveHit(piiCrypto.phoneHmac(phone.trim())));
+            if (hit > 0) return true;
         }
         if (license != null && !license.isBlank()) {
             long hit = blacklistMapper.selectCount(new LambdaQueryWrapper<Blacklist>()

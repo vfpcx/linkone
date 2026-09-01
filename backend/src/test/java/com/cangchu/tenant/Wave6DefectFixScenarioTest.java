@@ -8,6 +8,7 @@ import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.TestUniq;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.response.R;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.tenant.dto.TenantApplyDto;
@@ -56,6 +57,8 @@ class Wave6DefectFixScenarioTest {
     private AuthService authService;
     @Autowired
     private com.cangchu.common.util.SnowflakeIdUtil snowflakeIdUtil;
+    @Autowired
+    private PiiCrypto piiCrypto;
 
     private static final String P_TA =
             "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
@@ -258,25 +261,27 @@ class Wave6DefectFixScenarioTest {
         String ops = registerOps();
         // 平台级共享表：用唯一前缀隔离本用例数据，保证 total 断言确定性
         String prefix = "199" + uniquePhone("").substring(0, 4) + String.format("%03d", SEQ.incrementAndGet() % 1000);
-        // 执照号用独立唯一 token（不含 prefix），避免污染手机号前缀搜索的 total 断言
+        // 执照号共用唯一 token（不含 prefix），供分页圈选；W8（16 §1.5）后 LICENSE_NO 行保留明文，
+        // LIKE 子串检索语义不变（PHONE 行 target_value 已收敛为摘要，不再支持 10 位前缀 LIKE）
         String licToken = "W6L" + prefix.substring(3);
-        String license = "91" + licToken + "IC";
+        String license1 = "91" + licToken + "1IC";
+        String phone = prefix + "2";
         for (int i = 1; i <= 3; i++) {
-            Map<String, Object> dto = Map.of("targetType", "PHONE",
-                    "targetValue", prefix + i, "reason", "Wave6 分页测试" + i);
+            Map<String, Object> dto = Map.of("targetType", "LICENSE_NO",
+                    "targetValue", "91" + licToken + i + "IC", "reason", "Wave6 分页测试" + i);
             R<Map<String, Object>> added = restTemplate.exchange(baseOpsBlacklist, HttpMethod.POST,
                     new HttpEntity<>(dto, bearer(ops)), MAP).getBody();
             assertThat(added).isNotNull();
             assertThat(added.getCode()).isEqualTo(0);
         }
-        Map<String, Object> licDto = Map.of("targetType", "LICENSE_NO",
-                "targetValue", license, "reason", "Wave6 执照搜索测试");
+        Map<String, Object> phDto = Map.of("targetType", "PHONE",
+                "targetValue", phone, "reason", "Wave6 手机号精确检索测试");
         assertThat(restTemplate.exchange(baseOpsBlacklist, HttpMethod.POST,
-                new HttpEntity<>(licDto, bearer(ops)), MAP).getBody().getCode()).isEqualTo(0);
+                new HttpEntity<>(phDto, bearer(ops)), MAP).getBody().getCode()).isEqualTo(0);
 
         // 分页契约：records/total/page/size；size=2 → 第 1 页 2 条、第 2 页 1 条
         R<Map<String, Object>> page1 = restTemplate.exchange(
-                baseOpsBlacklist + "?page=1&size=2&status=ACTIVE&keyword=" + prefix,
+                baseOpsBlacklist + "?page=1&size=2&status=ACTIVE&keyword=" + licToken,
                 HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
         List<Map<String, Object>> recs1 = blacklistRecords(page1);
         assertThat(page1.getData().keySet()).containsExactly("records", "total", "page", "size");
@@ -286,27 +291,26 @@ class Wave6DefectFixScenarioTest {
         assertThat(Long.parseLong(page1.getData().get("size").toString())).isEqualTo(2);
 
         R<Map<String, Object>> page2 = restTemplate.exchange(
-                baseOpsBlacklist + "?page=2&size=2&status=ACTIVE&keyword=" + prefix,
+                baseOpsBlacklist + "?page=2&size=2&status=ACTIVE&keyword=" + licToken,
                 HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
         assertThat(blacklistRecords(page2)).hasSize(1);
 
-        // keyword 精确到单个手机号 → total=1
+        // keyword 完整 11 位手机号 → hmac 精确命中（W8：V34 后 PHONE 行 target_value 为摘要）
         R<Map<String, Object>> byPhone = restTemplate.exchange(
-                baseOpsBlacklist + "?page=1&size=10&keyword=" + prefix + "2",
+                baseOpsBlacklist + "?page=1&size=10&keyword=" + phone,
                 HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
         List<Map<String, Object>> phoneRecs = blacklistRecords(byPhone);
         assertThat(phoneRecs).hasSize(1);
-        // PII-W7：黑名单列表打码（138****1234），全号走 phone-reveal 接口
-        assertThat(phoneRecs.get(0).get("targetValue")).isEqualTo(SmsUtil.maskPhone(prefix + "2"));
+        assertThat(phoneRecs.get(0).get("targetValue")).isEqualTo("PHONE_****" + phone.substring(7));
 
         // keyword 匹配执照号子串
         R<Map<String, Object>> byLic = restTemplate.exchange(
-                baseOpsBlacklist + "?page=1&size=10&keyword=" + licToken,
+                baseOpsBlacklist + "?page=1&size=10&keyword=" + licToken + "1",
                 HttpMethod.GET, new HttpEntity<>(bearer(ops)), MAP).getBody();
         List<Map<String, Object>> licRecs = blacklistRecords(byLic);
         assertThat(licRecs).hasSize(1);
         assertThat(licRecs.get(0).get("targetType")).isEqualTo("LICENSE_NO");
-        assertThat(licRecs.get(0).get("targetValue")).isEqualTo(license);
+        assertThat(licRecs.get(0).get("targetValue")).isEqualTo(license1);
 
         // 非 OPS 仍拒（越权面不因签名变化回归）
         TaContext ta = registerTaWithTenant();
@@ -331,7 +335,7 @@ class Wave6DefectFixScenarioTest {
         t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setName(name);
         t.setContactUserId(1L);
-        t.setContactPhone("13800000000");
+        t.setContactPhoneCipher(piiCrypto.encrypt("13800000000"));
         t.setStatus(status);
         tenantMapper.insert(t);
         return t;

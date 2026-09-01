@@ -52,15 +52,16 @@ cangchu:
   snowflake:
     worker-id: 9
     datacenter-id: 9
-  # PII 硬化阶段 0：固定测试密钥（Base64("0123456789abcdef0123456789abcdef")），【仅供测试】。
-  # 本文件整体覆盖主配（同名 application.yml），故 write-mode/read-mode 需在此显式登记。
-  # read-mode=shadow：让全量用例都走一遍影子双查——「影子期零行为变化」这句话，
-  # 靠的正是全量在 shadow 下仍全绿（PII-W4 的回归网就是全量本身）。
+  # PII 硬化收口 + W8（V33/V34）：固定测试密钥（Base64("0123456789abcdef0123456789abcdef")），【仅供测试】。
+  # W8 收口后无 write-mode/read-mode 开关——写路径无条件落 hmac/cipher/last4，
+  # 读路径一律走 hmac 盲索引（V33/V34 明文列已删）。
   pii:
-    write-mode: dual
-    read-mode: shadow
     hmac-key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
     hmac-kat: "2aff2a1ede191cf2fd4af900d10f48d1e55f31e69dae59d7938c1ac349641534"
+    # W8-B1（V31）：AES-GCM 数据密钥 + cipher KAT 向量（固定全零 IV 加密 KAT_VECTOR 的确定性密文，
+    # 以 main 裁定口径为准；与 hmac-key 同源 256-bit 测试密钥）
+    dek-v1: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    cipher-kat: "AAAAAAAAAAAAAAAA/0CZMSIybGDfHbECcMUWmD/fMuCvrrY7Ab6B"
 
 # P3 BE-W1：测试附件落到 target（随 clean 清理）
 app:

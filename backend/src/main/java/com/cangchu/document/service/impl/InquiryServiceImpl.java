@@ -137,11 +137,9 @@ public class InquiryServiceImpl implements InquiryService {
         req.setTenantId(tenantId);
         req.setWholesalerId(dto.getWholesalerId());
         req.setStatus(InquiryRequest.STATUS_PENDING);
-        req.setRtPhone(dto.getRtPhone());
-        // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；读路径仍走 rt_phone 明文
-        if (piiCrypto.isDualWrite()) {
-            req.setRtPhoneHmac(piiCrypto.phoneHmac(dto.getRtPhone()));
-        }
+        // W8 收口（16 §2.5）：无条件写 hmac + cipher（V33/V34 后 rt_phone 明文列已 DROP，cipher 即唯一全号源）
+        req.setRtPhoneHmac(piiCrypto.phoneHmac(dto.getRtPhone()));
+        req.setRtPhoneCipher(piiCrypto.encrypt(dto.getRtPhone()));
         try {
             inquiryRequestMapper.insert(req);
         } catch (DuplicateKeyException e) {
@@ -286,12 +284,14 @@ public class InquiryServiceImpl implements InquiryService {
                     .build());
 
             // P2 Wave 3a：议价沉淀。成交价≠提交时公开价快照才落客户专属价（同事务，回滚一并撤销）。
+            // V33/V34 后 rt_phone 明文列已 DROP，议价全号从 cipher 解密取回
+            String rtPhone = piiCrypto.decrypt(inquiry.getRtPhoneCipher());
             if (settle
-                    && inquiry.getRtPhone() != null && !inquiry.getRtPhone().isBlank()
+                    && rtPhone != null && !rtPhone.isBlank()
                     && dealPrice != null
                     && (item.getUnitPriceSnapshot() == null
                         || dealPrice.compareTo(item.getUnitPriceSnapshot()) != 0)) {
-                pricingService.settleFromInquiry(wholesalerId, inquiry.getRtPhone(),
+                pricingService.settleFromInquiry(wholesalerId, rtPhone,
                         item.getSkuId(), dealPrice, inquiry.getDocNo(), waUserId);
             }
         }
@@ -481,7 +481,8 @@ public class InquiryServiceImpl implements InquiryService {
         vo.setWholesalerId(r.getWholesalerId());
         vo.setStatus(r.getStatus());
         // PII-W7（15 §4 阶段2）：VO 层统一脱敏（138****1234），需全号走 /api/v1/pii/phone-reveal
-        vo.setRtPhone(SmsUtil.maskPhone(r.getRtPhone()));
+        // （V33/V34 后明文列已 DROP，脱敏源改为 cipher 解密）
+        vo.setRtPhone(SmsUtil.maskPhone(piiCrypto.decrypt(r.getRtPhoneCipher())));
         vo.setCreatedAt(r.getCreatedAt());
         vo.setConfirmedAt(r.getConfirmedAt());
         vo.setVoidedAt(r.getVoidedAt());

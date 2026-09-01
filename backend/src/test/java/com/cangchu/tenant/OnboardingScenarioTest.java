@@ -374,8 +374,8 @@ class OnboardingScenarioTest {
         assertThat(list.getCode()).isEqualTo(0);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> blRecords = (List<Map<String, Object>>) list.getData().get("records");
-        // PII-W7：黑名单列表打码（138****1234），全号走 phone-reveal 接口
-        assertThat(blRecords).extracting(m -> m.get("targetValue")).contains(SmsUtil.maskPhone(phone));
+        // W8（16 §1.5）：黑名单 PHONE 行 target_value 为摘要 PHONE_****{last4}，全号走 phone-reveal 接口
+        assertThat(blRecords).extracting(m -> m.get("targetValue")).contains("PHONE_****" + phone.substring(7));
 
         // 非 OPS（TA）操作黑名单 → 42002
         TaContext ta = registerTaWithTenant();

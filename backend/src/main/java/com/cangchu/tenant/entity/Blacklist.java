@@ -34,6 +34,10 @@ public class Blacklist {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String targetValueHmac;
 
+    /** W8-B1（V31）：AES-GCM(target_value) 密文影子列——仅 PHONE 行双写/回填，LICENSE_NO 行恒 NULL。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String targetValueCipher;
+
     private String reason;
 
     /** OPS 操作人（created_by 语义） */

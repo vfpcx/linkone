@@ -7,6 +7,7 @@ import com.cangchu.account.dto.RegisterDto;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.account.vo.LoginVo;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.response.R;
 import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SmsUtil;
@@ -75,6 +76,8 @@ class WeEmployeeScenarioTest {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private SnowflakeIdUtil snowflakeIdUtil;
+    @Autowired
+    private PiiCrypto piiCrypto;
 
     private static final String P_TA =
             "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
@@ -434,10 +437,12 @@ class WeEmployeeScenarioTest {
         // 因此改为直插一条 PENDING 询价行以命中授权切点。
         long skuId = seedSku(ta.tenantId(), wa.wholesalerId());
         long inqId = snowflakeIdUtil.nextId();
+        // W8（16 §1.3/V34）：V33/V34 已删 rt_phone 明文列，直插 PENDING 询价行改落 hmac + cipher
         jdbcTemplate.update(
-                "INSERT INTO inquiry_requests (id, doc_no, tenant_id, store_id, wholesaler_id, rt_phone, status, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, '18811112222', 'PENDING', NOW())",
-                inqId, "INQ-WE-" + inqId, ta.tenantId(), 0L, wa.wholesalerId());
+                "INSERT INTO inquiry_requests (id, doc_no, tenant_id, store_id, wholesaler_id, rt_phone_hmac, rt_phone_cipher, status, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW())",
+                inqId, "INQ-WE-" + inqId, ta.tenantId(), 0L, wa.wholesalerId(),
+                piiCrypto.phoneHmac("18811112222"), piiCrypto.encrypt("18811112222"));
 
         R<Map<String, Object>> denied = restTemplate.exchange(
                 base + "/api/v1/tenant/inquiry/" + inqId + "/confirm", HttpMethod.POST,

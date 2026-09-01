@@ -11,6 +11,7 @@ import com.cangchu.account.service.WholesalerEmployeeService;
 import com.cangchu.account.vo.WholesalerEmployeeVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.WePermissions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,8 @@ public class WholesalerEmployeeServiceImpl implements WholesalerEmployeeService 
 
     private final UserRoleMapper userRoleMapper;
     private final UserMapper userMapper;
+    // W8 收缩后 users.phone 明文列已 DROP，员工列表手机号从 cipher 解密取回
+    private final PiiCrypto piiCrypto;
 
     @Override
     public List<WholesalerEmployeeVo> listEmployees(Long waUserId) {
@@ -198,7 +201,7 @@ public class WholesalerEmployeeServiceImpl implements WholesalerEmployeeService 
                 .id(role.getId())
                 .userId(role.getUserId())
                 .wholesalerId(role.getWholesalerId())
-                .phone(user != null ? user.getPhone() : null)
+                .phone(user != null ? piiCrypto.decrypt(user.getPhoneCipher()) : null)
                 .nickname(user != null ? user.getNickname() : null)
                 .realName(user != null ? user.getRealName() : null)
                 .permissions(WePermissions.decode(role.getPermissions()))

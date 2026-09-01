@@ -1,0 +1,7 @@
+feat(pii): W8 shrink closure - retire shadow read router & backfill, V31-V34 migration, deterministic cipher-kat
+
+- Delete 6 retired components: PiiShadowReader/PiiReadRouter/PiiModule/PiiFallbackHealer/PiiBackfillService/PiiBackfillRunner
+- Delete 4 phase-1 tests: PiiDualWriteBackfillScenarioTest/PiiHmacReadScenarioTest/PiiLoginHmacReadScenarioTest/PiiShadowReadScenarioTest
+- Add V31-V34 migrations (H2/MySQL dual) + Flyway dialect resolver; AES-GCM dek columns + hmac unique indexes + plaintext shrink
+- PiiCrypto: AES-256-GCM encrypt/decrypt + deterministic cipher KAT (fixed zero IV, main-adjudicated vector)
+- dev/test/prod yml: dek-v1/cipher-kat synced; PiiCryptoTest/PiiWriteScenarioTest green (13+18)

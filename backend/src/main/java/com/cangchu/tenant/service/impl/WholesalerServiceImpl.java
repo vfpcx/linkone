@@ -5,6 +5,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.WholesalerCreateDto;
 import com.cangchu.tenant.dto.WholesalerUpdateDto;
@@ -49,6 +50,8 @@ public class WholesalerServiceImpl implements WholesalerService {
     private final SnowflakeIdUtil snowflakeIdUtil;
     // BLK-S1-05：黑名单拦截 TA 自营路径（平台级检查，防绕过）
     private final com.cangchu.tenant.service.BlacklistService blacklistService;
+    // W8 收缩后 contact_phone 明文列已 DROP，留痕申请单写密文（16 §1.5 口径）
+    private final PiiCrypto piiCrypto;
 
     @Override
     @Transactional
@@ -99,7 +102,7 @@ public class WholesalerServiceImpl implements WholesalerService {
         trace.setTenantId(tenantId);
         trace.setApplicantUserId(waAccount != null ? waAccount.userId() : operatorUserId);
         trace.setName(wholesaler.getName());
-        trace.setContactPhone(dto.getWaPhone());
+        trace.setContactPhoneCipher(piiCrypto.encrypt(dto.getWaPhone()));
         trace.setLicense(dto.getLicense());
         trace.setStatus("APPROVED");
         trace.setSource("TA_SELF_OPERATED");

@@ -68,30 +68,10 @@ cangchu:
   # 仅 dev profile 的 application-dev.yml 提供 mock 开关，prod 永不放行 888888。
   sms:
     mock: false
-  # PII 硬化阶段 0（15 §4）：write-mode=dual 随 V27 一同上线（同写 phone_hash/明文 + hmac 列）。
-  # 回滚口径：拨回 legacy 即止血，读路径始终走旧列，与本开关无关。
-  # hmac-key/hmac-kat 不进主配——dev/test 用固定测试密钥，prod 经环境变量注入（fail-fast）。
-  # PII 阶段 1 Step1（15 §4 / 波次 PII-W4）：read-mode=shadow 影子双查验证期。出结果的仍是
-  # 旧列，只是多用 hmac 列查一遍做比对计数（指标 pii.shadow，见 PiiShadowReader）。
-  # 闸门：生产 mismatch 连续 >=7 天为 0 才可进 Step2 切读。回滚口径：拨回 plain 即停影子查询。
-  pii:
-    write-mode: dual
-    read-mode: shadow
-    # 阶段 1 Step 2/3 分模块切读灰度（15 §4）。**默认全空 = 全部回落上面的 read-mode**，
-    # 也就是说本配置不改变任何现有行为；生产闸门（pricing 全量 + 入驻黑名单用例 + E2E 45×2 全绿，
-    # 观察 ≥3 天）过了之后，逐块把对应环境变量置为 hmac 即可切读，置回 shadow 即秒级回滚。
-    # 之所以在这里显式登记：redis-key 带连字符，不登记就没法用标准环境变量注入，
-    # 「按模块灰度」也就成了纸面能力。
-    # login（Step 3 / W6）与前四块口径不同——它是**双读兜底**而非硬切：hmac 未命中会回落
-    # phone_hash 再查一次并异步补写，故切错不会把人挡在门外。代价是缺陷被兜底掩盖，因此另设
-    # 指标 pii.fallback{verdict=FALLBACK} 承接 Step 1 的七天闸门，切读后须恒为 0（见 PiiFallbackHealer）。
-    # 拨动顺序：redis-key → blacklist → sms → pricing → **login 最后**（爆炸半径最大者殿后）。
-    read-modes:
-      blacklist: ${PII_READ_MODE_BLACKLIST:}
-      sms: ${PII_READ_MODE_SMS:}
-      pricing: ${PII_READ_MODE_PRICING:}
-      redis-key: ${PII_READ_MODE_REDIS_KEY:}
-      login: ${PII_READ_MODE_LOGIN:}
+  # PII 硬化收口（16 §2.5）：W8 后无 write-mode/read-mode/read-modes 开关——写路径无条件
+  # 落 hmac/cipher/last4，读路径一律走 hmac 盲索引（V33/V34 明文列已删）。
+  # 密钥/KAT 不进主配：dev/test 用固定测试密钥，prod 经 PII_HMAC_KEY / PII_HMAC_KAT /
+  # PII_DEK_V1 / PII_CIPHER_KAT 环境变量注入（fail-fast）。
   snowflake:
     worker-id: 1
     datacenter-id: 1

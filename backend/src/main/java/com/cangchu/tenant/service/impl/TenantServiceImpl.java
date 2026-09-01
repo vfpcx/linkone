@@ -7,6 +7,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.*;
@@ -55,6 +56,8 @@ public class TenantServiceImpl implements TenantService {
     private final SmsUtil smsUtil;
     // DEF-1：公开目录端点 IP 限流（沿用短信基建的 Redisson 原子计数+TTL，G-6.1）
     private final org.redisson.api.RedissonClient redissonClient;
+    // W8 收缩后 contact_phone 明文列已 DROP：写密文、读解密、VO 层打码（16 §1.5 口径）
+    private final PiiCrypto piiCrypto;
 
 
     @Override
@@ -89,7 +92,7 @@ public class TenantServiceImpl implements TenantService {
         application.setLegalName(dto.getLegalName());
         application.setLicenseNo(dto.getLicenseNo());
         application.setLicenseUrl(dto.getLicenseUrl());
-        application.setContactPhone(dto.getContactPhone());
+        application.setContactPhoneCipher(piiCrypto.encrypt(dto.getContactPhone()));
         application.setAddressText(dto.getAddressText());
         application.setLng(dto.getLng());
         application.setLat(dto.getLat());
@@ -614,7 +617,8 @@ public class TenantServiceImpl implements TenantService {
                     .legalName(t.getLegalName())
                     .applicantName(applicantName)
                     // PII-W7（15 §4 阶段2）：VO 层统一脱敏，需全号走 phone-reveal 接口
-                    .contactPhone(SmsUtil.maskPhone(t.getContactPhone()))
+                    // （V33/V34 后明文列已 DROP，打码源改为 cipher 解密）
+                    .contactPhone(SmsUtil.maskPhone(piiCrypto.decrypt(t.getContactPhoneCipher())))
                     .addressText(addresses.get(t.getId()))
                     .status(t.getStatus())
                     .appliedAt(t.getCreatedAt())
@@ -810,7 +814,7 @@ public class TenantServiceImpl implements TenantService {
         if (dto.getLegalName() != null) existing.setLegalName(dto.getLegalName());
         if (dto.getLicenseNo() != null) existing.setLicenseNo(dto.getLicenseNo());
         if (dto.getLicenseUrl() != null) existing.setLicenseUrl(dto.getLicenseUrl());
-        if (dto.getContactPhone() != null) existing.setContactPhone(dto.getContactPhone());
+        if (dto.getContactPhone() != null) existing.setContactPhoneCipher(piiCrypto.encrypt(dto.getContactPhone()));
         existing.setUpdatedAt(LocalDateTime.now());
         tenantMapper.updateById(existing);
 
@@ -833,7 +837,7 @@ public class TenantServiceImpl implements TenantService {
         application.setLegalName(dto.getLegalName());
         application.setLicenseNo(dto.getLicenseNo());
         application.setLicenseUrl(dto.getLicenseUrl());
-        application.setContactPhone(dto.getContactPhone());
+        application.setContactPhoneCipher(piiCrypto.encrypt(dto.getContactPhone()));
         application.setAddressText(dto.getAddressText());
         application.setLng(dto.getLng());
         application.setLat(dto.getLat());
@@ -893,7 +897,7 @@ public class TenantServiceImpl implements TenantService {
         tenant.setLicenseNo(licenseNo);
         tenant.setLicenseUrl(licenseUrl);
         tenant.setContactUserId(contactUserId);
-        tenant.setContactPhone(contactPhone);
+        tenant.setContactPhoneCipher(piiCrypto.encrypt(contactPhone));
         tenant.setStatus(createdByOps ? "ACTIVE" : "PENDING");
         tenant.setCreatedByOps(createdByOps ? 1 : 0);
         tenant.setCreatedAt(LocalDateTime.now());

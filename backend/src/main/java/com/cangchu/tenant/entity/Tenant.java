@@ -31,7 +31,9 @@ public class Tenant {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long contactUserId;
 
-    private String contactPhone;
+    /** W8-B1（V31）：AES-GCM(contact_phone) 密文影子列。W8-B3 起为联系人手机号唯一载体（明文列已下线）。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String contactPhoneCipher;
 
     private String status;
 

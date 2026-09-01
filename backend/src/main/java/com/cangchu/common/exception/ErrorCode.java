@@ -234,7 +234,9 @@ public enum ErrorCode {
     // ==================== PII-W7 查全号（15-pii-hardening-v2 §4 阶段2，50400+） ====================
     PII_REVEAL_TYPE_INVALID(50400, "查全号类型不支持"),
     PII_REVEAL_TARGET_NOT_FOUND(50401, "查询对象不存在"),
-    PII_REVEAL_FORBIDDEN(50402, "您没有查看完整手机号的权限");
+    PII_REVEAL_FORBIDDEN(50402, "您没有查看完整手机号的权限"),
+    // W8-B1（16 §2.3）：AES-GCM 密文解不开时给语义码而非 500（展示层用 decryptOrNull 降级不抛）
+    PII_DECRYPT_ERROR(50403, "数据解密失败，请稍后重试");
 
     private final int code;
     private final String message;

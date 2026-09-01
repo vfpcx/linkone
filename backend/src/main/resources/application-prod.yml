@@ -34,6 +34,9 @@ cangchu:
   pii:
     hmac-key: ${PII_HMAC_KEY}
     hmac-kat: ${PII_HMAC_KAT}
+    # W8-B1（V31）：AES-GCM 数据密钥 + cipher KAT 向量，同样【无默认值】——缺失即启动失败（fail-fast）。
+    dek-v1: ${PII_DEK_V1}
+    cipher-kat: ${PII_CIPHER_KAT}
 
 # X硬化 H5 §5.3(3)：prod Actuator 暴露面显式收敛为 health（防升级后默认面漂移）
 management:

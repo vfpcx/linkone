@@ -6,6 +6,7 @@ import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.ConfirmInquiryDto;
@@ -72,6 +73,8 @@ class PricingSettleScenarioTest {
     private CustomerPriceMapper customerPriceMapper;
     @Autowired
     private SnowflakeIdUtil snowflakeIdUtil;
+    @Autowired
+    private PiiCrypto piiCrypto;
 
     private static final String RT_PHONE = "13900002222";
 
@@ -91,7 +94,7 @@ class PricingSettleScenarioTest {
         t.setTenantSimpleCode("S" + String.format("%07d", TENANT_CODE_SEQ.incrementAndGet()));
         t.setName("沉淀仓-" + tenantId);
         t.setContactUserId(snowflakeIdUtil.nextId());
-        t.setContactPhone("13800000000");
+        t.setContactPhoneCipher(piiCrypto.encrypt("13800000000"));
         t.setStatus("ACTIVE");
         tenantMapper.insert(t);
         return tenantId;
@@ -184,7 +187,7 @@ class PricingSettleScenarioTest {
     private List<CustomerPrice> settledRows(long wholesalerId, String rtPhone, long skuId) {
         return customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
                 .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                .eq(CustomerPrice::getRtPhone, rtPhone)
+                .eq(CustomerPrice::getRtPhoneHmac, piiCrypto.phoneHmac(rtPhone))
                 .eq(CustomerPrice::getSkuId, skuId)
                 .eq(CustomerPrice::getSource, CustomerPrice.SOURCE_FROM_INQUIRY));
     }
@@ -193,7 +196,7 @@ class PricingSettleScenarioTest {
     private List<CustomerPrice> allRows(long wholesalerId, String rtPhone, long skuId) {
         return customerPriceMapper.selectList(new LambdaQueryWrapper<CustomerPrice>()
                 .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                .eq(CustomerPrice::getRtPhone, rtPhone)
+                .eq(CustomerPrice::getRtPhoneHmac, piiCrypto.phoneHmac(rtPhone))
                 .eq(CustomerPrice::getSkuId, skuId));
     }
 
@@ -205,7 +208,8 @@ class PricingSettleScenarioTest {
         cp.setTenantId(tenantId);
         cp.setWholesalerId(wholesalerId);
         cp.setSkuId(skuId);
-        cp.setRtPhone(rtPhone);
+        cp.setRtPhoneHmac(piiCrypto.phoneHmac(rtPhone));
+        cp.setRtPhoneLast4(piiCrypto.last4(rtPhone));
         cp.setUnitPrice(price);
         cp.setStatus(CustomerPrice.STATUS_DISABLED);
         cp.setSource(CustomerPrice.SOURCE_MANUAL);

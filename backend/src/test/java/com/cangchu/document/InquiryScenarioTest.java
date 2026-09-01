@@ -6,6 +6,7 @@ import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.dto.SubmitInquiryDto;
@@ -67,6 +68,8 @@ class InquiryScenarioTest {
     private InventoryService inventoryService;
     @Autowired
     private TenantMapper tenantMapper;
+    @Autowired
+    private PiiCrypto piiCrypto;
     @Autowired
     private StoreMapper storeMapper;
     @Autowired
@@ -210,7 +213,7 @@ class InquiryScenarioTest {
         t.setTenantSimpleCode("T" + String.format("%07d", TENANT_CODE_SEQ.incrementAndGet()));
         t.setName("测试仓-" + tenantId);
         t.setContactUserId(snowflakeIdUtil.nextId());
-        t.setContactPhone("13800000000");
+        t.setContactPhoneCipher(piiCrypto.encrypt("13800000000"));
         t.setStatus("ACTIVE");
         tenantMapper.insert(t);
         return tenantId;

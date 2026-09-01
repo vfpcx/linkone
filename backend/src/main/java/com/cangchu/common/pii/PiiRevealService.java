@@ -26,11 +26,11 @@ import java.util.Locale;
  * <p>VO 层默认只回打码号（138****1234），业务确需完整手机号的场景走本服务：
  * 独立端点 + 角色/归属双重校验 + 审计日志（谁、何时、看了哪类哪个对象，不含明文）。
  *
- * <p>数据来源：当前明文列仍是主数据（V29 明文收缩未做），直接读明文列；
- * W8 收缩后改为 cipher 解密，接口形态不变。
+ * <p>数据来源：V33/V34 收缩后明文列已 DROP（blacklist 的 target_value 对 PHONE 行也已掩码），
+ * 全号一律从各表 cipher 列解密取回；接口形态不变。
  *
- * <p>依赖模式照 {@link PiiReadRouter} 先例：PII 横切模块直连各域 mapper（G-S1/G-S2
- * 的既定例外，其余业务代码仍禁止直连他域 mapper）。
+ * <p>依赖模式照既有 PII 横切模块先例：直连各域 mapper（G-S1/G-S2 的既定例外，
+ * 其余业务代码仍禁止直连他域 mapper）。
  */
 @Slf4j
 @Service
@@ -48,6 +48,8 @@ public class PiiRevealService {
     private final TenantMapper tenantMapper;
     private final WholesalerApplicationMapper wholesalerApplicationMapper;
     private final InquiryRequestMapper inquiryRequestMapper;
+    // W8 收缩后全号只存 cipher：查全号=解密密文列（非法密文抛 PII_DECRYPT_ERROR，与写路径同一异常契约）
+    private final PiiCrypto piiCrypto;
 
     /**
      * 查看完整手机号（权限校验 + 审计）。
@@ -87,7 +89,8 @@ public class PiiRevealService {
         if (!"PHONE".equals(b.getTargetType())) {
             throw new BizException(ErrorCode.PII_REVEAL_TYPE_INVALID, "该黑名单条目不是手机号类型");
         }
-        return b.getTargetValue();
+        // V34 后 PHONE 行 target_value 已掩码为 PHONE_****{last4}，全号只能从 cipher 解密取回
+        return piiCrypto.decrypt(b.getTargetValueCipher());
     }
 
     private String revealTenant(Long opsUserId, Long id) {
@@ -98,7 +101,7 @@ public class PiiRevealService {
         if (t == null) {
             throw notFound();
         }
-        return t.getContactPhone();
+        return piiCrypto.decrypt(t.getContactPhoneCipher());
     }
 
     private String revealWaApplication(Long userId, Long id) {
@@ -115,11 +118,13 @@ public class PiiRevealService {
         if (!ops && !owningTa) {
             throw forbidden();
         }
-        return app.getContactPhone();
+        return piiCrypto.decrypt(app.getContactPhoneCipher());
     }
 
     private String revealInquiry(Long userId, Long id) {
-        InquiryRequest inq = inquiryRequestMapper.selectById(id);
+        // 跨租户查询：TenantLine 会对 inquiry_requests 注入当前租户条件，PII 横切场景需要区分
+        // 50401/50402，归属校验在本方法显式完成，故绕过租户线查询（与 revealWaApplication 同一先例）
+        InquiryRequest inq = selectInquiryIgnoreTenant(id);
         if (inq == null) {
             throw notFound();
         }
@@ -130,7 +135,7 @@ public class PiiRevealService {
         if (!wa && !weConfirmed) {
             throw forbidden();
         }
-        return inq.getRtPhone();
+        return piiCrypto.decrypt(inq.getRtPhoneCipher());
     }
 
     /** 跨租户查询申请单（绕过 TenantLine，见 revealWaApplication 注释）。 */

@@ -7,6 +7,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.account.service.UserService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.OpsWholesalerCreateDto;
@@ -62,6 +63,8 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
     private final BlacklistService blacklistService;
     private final WholesalerService wholesalerService;
     private final SnowflakeIdUtil snowflakeIdUtil;
+    // W8 收缩后 contact_phone 明文列已 DROP，写密文、读解密（16 §1.5 口径）
+    private final PiiCrypto piiCrypto;
 
     @Override
     @Transactional
@@ -302,7 +305,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         trace.setApplicantUserId(waUserId);
         trace.setName(wholesaler.getName());
         trace.setContactName(dto.getContactName());
-        trace.setContactPhone(dto.getWaPhone());
+        trace.setContactPhoneCipher(piiCrypto.encrypt(dto.getWaPhone()));
         trace.setLicense(dto.getLicense());
         trace.setStatus("APPROVED");
         trace.setSource("OPS_CREATED");
@@ -351,7 +354,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
         app.setApplicantUserId(applicantUserId);
         app.setName(name);
         app.setContactName(contactName);
-        app.setContactPhone(contactPhone);
+        app.setContactPhoneCipher(piiCrypto.encrypt(contactPhone));
         app.setLicense(license);
         app.setStatus("PENDING");
         app.setPendingFlag(1);
@@ -405,6 +408,8 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
     }
 
     private WholesalerApplicationVo toVo(WholesalerApplication app, boolean masked) {
+        // V33/V34 后明文列已 DROP，全号只能从 cipher 解密取回（无密文返回 null，VO 侧自然为空）
+        String contactPhone = piiCrypto.decrypt(app.getContactPhoneCipher());
         return WholesalerApplicationVo.builder()
                 .id(app.getId())
                 .tenantId(app.getTenantId())
@@ -412,7 +417,7 @@ public class WholesalerApplicationServiceImpl implements WholesalerApplicationSe
                 .name(app.getName())
                 .contactName(app.getContactName())
                 // PII-W7（15 §4 阶段2）：审批列表/操作回传打码；本人申请（listMine）保留全号（本人数据）
-                .contactPhone(masked ? SmsUtil.maskPhone(app.getContactPhone()) : app.getContactPhone())
+                .contactPhone(masked ? SmsUtil.maskPhone(contactPhone) : contactPhone)
                 .license(app.getLicense())
                 .status(app.getStatus())
                 .source(app.getSource())

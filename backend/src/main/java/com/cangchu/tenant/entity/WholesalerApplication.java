@@ -32,7 +32,9 @@ public class WholesalerApplication {
 
     private String contactName;
 
-    private String contactPhone;
+    /** W8-B1（V31）：AES-GCM(contact_phone) 密文影子列。W8-B3 起为联系人手机号唯一载体（明文列已下线）。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String contactPhoneCipher;
 
     /** 营业执照号/凭证（黑名单键之一） */
     private String license;

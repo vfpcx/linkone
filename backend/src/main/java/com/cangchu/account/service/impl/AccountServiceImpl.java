@@ -12,7 +12,7 @@ import com.cangchu.account.vo.LoginVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiReadRouter;
+import com.cangchu.common.pii.PiiHmacQueries;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.service.TenantService;
@@ -56,10 +56,6 @@ public class AccountServiceImpl implements AccountService {
     private final WholesalerApplicationService wholesalerApplicationService;
     // PII 硬化阶段 0：HMAC 盲索引双写（写切点 A1 注册/A4 换绑/A5 RT 自动建号；读路径不消费）
     private final PiiCrypto piiCrypto;
-    // PII 读路由单入口：A1–A5 登录链双读（login 模块，Step3/W6）+ SMS 码校验硬切（sms 模块，Step2/W5）
-    // + 短信/登录限流键的手机号派生物 HMAC 化（C4，redis-key 模块）。
-    // 非 hmac 模式下由它内部回落原 phone_hash/明文查询并触发影子双查，本类不再直连 PiiShadowReader。
-    private final PiiReadRouter piiReadRouter;
 
     /** BCrypt cost >= 10 (per PRD 05 Section 16.2) */
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
@@ -95,10 +91,8 @@ public class AccountServiceImpl implements AccountService {
     public void sendSmsCode(SmsCodeSendDto dto, String clientIp) {
         String phone = dto.getPhone();
         String scene = dto.getScene();
-        String phoneHash = DigestUtil.sha256Hex(phone);
-        // PII 阶段 1 Step2 · C4（W5）：限流键的手机号派生物切 HMAC（redis-key 模块）。
-        // 拨回即恢复 sha256 口径；旧键不清洗，靠各自 TTL 自然消亡（代价见 PiiReadRouter#redisKeyPart）。
-        String rateKeyPart = piiReadRouter.redisKeyPart(phone, phoneHash);
+        // W8 收口（16 §2.5）：限流键的手机号派生物恒定 HMAC（redis-key 模块，C4 无回滚分支）
+        String rateKeyPart = piiCrypto.phoneHmac(phone);
 
         // ---- D-09：Redisson 原子限流，替代「先 select 再 insert」的 DB 计数（消除 TOCTOU 竞态）----
         // 1) 60s 重发冷却（手机号+场景）：RBucket.trySet 原子占位，已存在即冷却中 → 41204
@@ -141,11 +135,10 @@ public class AccountServiceImpl implements AccountService {
         // 存入 sms_codes 表
         SmsCode smsCode = new SmsCode();
         smsCode.setId(snowflakeIdUtil.nextId());
-        smsCode.setPhone(phone);
-        // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；校验读路径仍走 phone 明文
-        if (piiCrypto.isDualWrite()) {
-            smsCode.setPhoneHmac(piiCrypto.phoneHmac(phone));
-        }
+        // W8 收口（16 §2.5）：无条件写 hmac + last4 摘要（sms_codes 无全号消费点，不加 cipher；
+        // V33/V34 明文 phone 列已 DROP，身份/校验读路径一律走 phone_hmac）
+        smsCode.setPhoneHmac(piiCrypto.phoneHmac(phone));
+        smsCode.setPhoneLast4(piiCrypto.last4(phone));
         smsCode.setScene(scene);
         smsCode.setCode(code);
         smsCode.setExpireAt(LocalDateTime.now().plusMinutes(SMS_EXPIRE_MINUTES));
@@ -176,7 +169,6 @@ public class AccountServiceImpl implements AccountService {
     @Transactional
     public LoginVo register(RegisterDto dto) {
         String phone = dto.getPhone();
-        String phoneHash = DigestUtil.sha256Hex(phone);
 
         // D-16 / G-3.1：必须勾选同意协议（null 或 false 均拒绝）才放行注册
         if (!Boolean.TRUE.equals(dto.getAgreedTerms())) {
@@ -205,17 +197,14 @@ public class AccountServiceImpl implements AccountService {
         }
 
         // 检查手机号是否已注册
-        // PII 阶段 1 Step3 · A1（W6）：login 模块拨到 hmac 即由 phone_hmac 查重，未命中则回落
-        // phone_hash 兜底（漏填时若真按未命中放行，会造出重号并撞 uk_users_phone_hash）
-        User existUser = piiReadRouter.user("A1-register", phone,
-                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
-                        .eq(User::getPhoneHash, phoneHash)));
+        // W8 收口（16 §2.5）：A1 查重唯一路径——phone_hmac 盲索引（V33/V34 明文列已删，无回落分支）
+        User existUser = userMapper.selectOne(PiiHmacQueries.user(piiCrypto.phoneHmac(phone)));
         if (existUser != null) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004);
         }
 
         // 创建用户（D-16：realName 独立落库，区别于展示昵称 nickname）
-        User user = createUser(phone, phoneHash, dto.getPassword(), dto.getNickname(), dto.getRealName(), "SELF");
+        User user = createUser(phone, dto.getPassword(), dto.getNickname(), dto.getRealName(), "SELF");
 
         // 创建角色绑定（员工注册码路径：tenant_id 取码上的可信租户，绑定后即可被 requireWkRole 认到 → 解锁 C1 入库）
         UserRole userRole = new UserRole();
@@ -265,17 +254,12 @@ public class AccountServiceImpl implements AccountService {
     @Transactional
     public LoginVo login(LoginDto dto, String clientIp) {
         String phone = dto.getPhone();
-        String phoneHash = DigestUtil.sha256Hex(phone);
 
-        // PII 阶段 1 Step3 · A2（W6）：登录命门。切读后 hmac 未命中会回落 phone_hash 再查一次
-        // ——硬切在这里的代价是「那个人登不上且失败计数照涨到锁定」，故此处独取双读兜底口径。
-        User user = piiReadRouter.user("A2-login", phone,
-                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
-                        .eq(User::getPhoneHash, phoneHash)));
+        // W8 收口（16 §2.5）：A2 登录命门唯一路径——phone_hmac 盲索引（V33/V34 明文列已删，无回落分支）
+        User user = userMapper.selectOne(PiiHmacQueries.user(piiCrypto.phoneHmac(phone)));
 
-        // PII 阶段 1 Step2 · C4（W5）：登录失败计数键的手机号派生物切 HMAC（redis-key 模块）。
-        // 与上面那条读切换互相独立：键的派生方式由 redis-key 模块拨，用户行的读由 login 模块拨。
-        String failKeyPart = piiReadRouter.redisKeyPart(phone, phoneHash);
+        // W8 收口（16 §2.5）：登录失败计数键的手机号派生物恒定 HMAC（redis-key 模块，C4 无回滚分支）
+        String failKeyPart = piiCrypto.phoneHmac(phone);
 
         // D-04: 锁定优先于一切（即便用户不存在也按手机号维度统一处理，防枚举 + 防爆破）
         if (isLoginLocked(failKeyPart)) {
@@ -394,16 +378,12 @@ public class AccountServiceImpl implements AccountService {
     @Transactional
     public void resetPassword(ResetPasswordDto dto) {
         String phone = dto.getPhone();
-        String phoneHash = DigestUtil.sha256Hex(phone);
 
         // 验证验证码
         verifySmsCode(phone, "RESET_PWD", dto.getSmsCode());
 
-        // PII 阶段 1 Step3 · A3（W6）：找回密码。硬切在这里会静默 return（防枚举语义本就不报错），
-        // 用户改不了密码却收不到任何提示——双读兜底正是为这类「无声失败」准备的
-        User user = piiReadRouter.user("A3-reset-password", phone,
-                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
-                        .eq(User::getPhoneHash, phoneHash)));
+        // W8 收口（16 §2.5）：A3 找回密码唯一路径——phone_hmac 盲索引（静默 return 防枚举语义不变）
+        User user = userMapper.selectOne(PiiHmacQueries.user(piiCrypto.phoneHmac(phone)));
         if (user == null) {
             // 不暴露账号存在性
             return;
@@ -454,16 +434,12 @@ public class AccountServiceImpl implements AccountService {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_007);
         }
 
-        // 验证旧手机号验证码
-        verifySmsCode(user.getPhone(), "CHANGE_PHONE", dto.getOldSmsCode());
+        // 验证旧手机号验证码（V33/V34 后明文列已收缩，旧号全号从 cipher 解密取回）
+        verifySmsCode(piiCrypto.decrypt(user.getPhoneCipher()), "CHANGE_PHONE", dto.getOldSmsCode());
 
         // 检查新手机号是否已被注册
-        String newPhoneHash = DigestUtil.sha256Hex(dto.getNewPhone());
-        // PII 阶段 1 Step3 · A4（W6）：换绑查重。硬切漏填会放行换到一个已被占用的号，
-        // 随后撞 uk_users_phone_hash——错误码从「新手机号已被注册」退化成 500
-        User existUser = piiReadRouter.user("A4-change-phone", dto.getNewPhone(),
-                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
-                        .eq(User::getPhoneHash, newPhoneHash)));
+        // W8 收口（16 §2.5）：A4 换绑查重唯一路径——phone_hmac 盲索引
+        User existUser = userMapper.selectOne(PiiHmacQueries.user(piiCrypto.phoneHmac(dto.getNewPhone())));
         if (existUser != null && !existUser.getId().equals(userId)) {
             throw new BizException(ErrorCode.AUTH_ACCOUNT_004, "新手机号已被注册");
         }
@@ -471,13 +447,11 @@ public class AccountServiceImpl implements AccountService {
         // 验证新手机号验证码
         verifySmsCode(dto.getNewPhone(), "CHANGE_PHONE", dto.getNewSmsCode());
 
-        // 更新手机号
-        user.setPhone(dto.getNewPhone());
-        user.setPhoneHash(newPhoneHash);
-        // PII 阶段 0 双写（切点 A4 换绑）：同写 hmac 影子列；legacy 模式不写（回滚口径）
-        if (piiCrypto.isDualWrite()) {
-            user.setPhoneHmac(piiCrypto.phoneHmac(dto.getNewPhone()));
-        }
+        // 更新手机号（V33/V34 后明文列已收缩：身份只落 hmac/cipher/last4 影子列）
+        // W8 收口（16 §2.5）：A4 换绑无条件写 hmac/cipher/last4
+        user.setPhoneHmac(piiCrypto.phoneHmac(dto.getNewPhone()));
+        user.setPhoneCipher(piiCrypto.encrypt(dto.getNewPhone()));
+        user.setPhoneLast4(piiCrypto.last4(dto.getNewPhone()));
         userMapper.updateById(user);
 
         // 踢掉所有 token
@@ -494,17 +468,13 @@ public class AccountServiceImpl implements AccountService {
         // 验证验证码
         verifySmsCode(phone, "RT_LOGIN", code);
 
-        String phoneHash = DigestUtil.sha256Hex(phone);
-        // PII 阶段 1 Step3 · A5（W6）：RT 免密。硬切漏填会当成新用户重新建号——老账号的订单、
-        // 专属价、角色绑定全部失联，且新号立刻撞 uk_users_phone_hash
-        User user = piiReadRouter.user("A5-rt-sms-login", phone,
-                () -> userMapper.selectOne(new LambdaQueryWrapper<User>()
-                        .eq(User::getPhoneHash, phoneHash)));
+        // W8 收口（16 §2.5）：A5 RT 免密唯一路径——phone_hmac 盲索引（防漏填重建号语义不变）
+        User user = userMapper.selectOne(PiiHmacQueries.user(piiCrypto.phoneHmac(phone)));
 
         boolean isNew = false;
         if (user == null) {
             // 自动注册 RT 账号
-            user = createUser(phone, phoneHash, null, "用户" + phone.substring(phone.length() - 4), null, "RT_CODE");
+            user = createUser(phone, null, "用户" + phone.substring(phone.length() - 4), null, "RT_CODE");
             isNew = true;
 
             // 创建 RT 角色
@@ -548,7 +518,7 @@ public class AccountServiceImpl implements AccountService {
             return null;
         }
         User user = userMapper.selectById(userId);
-        return user == null ? null : user.getPhone();
+        return user == null ? null : piiCrypto.decrypt(user.getPhoneCipher());
     }
 
     // ==================== 私有方法 ====================
@@ -562,16 +532,9 @@ public class AccountServiceImpl implements AccountService {
             return;
         }
 
-        // PII 阶段 1 Step1/Step2（W5）：sms 模块拨到 hmac 即由 phone_hmac 取码，且未命中就是未命中
-        // （切读后 41202 等价于"码不对"，不再回退明文列）；非 hmac 模式走下面这条明文查询（回滚分支）+ 影子比对
-        SmsCode smsCode = piiReadRouter.smsCode("SMS-verify", phone, scene, code,
-                () -> smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
-                        .eq(SmsCode::getPhone, phone)
-                        .eq(SmsCode::getScene, scene)
-                        .eq(SmsCode::getCode, code)
-                        .isNull(SmsCode::getVerifiedAt)
-                        .orderByDesc(SmsCode::getCreatedAt)
-                        .last("LIMIT 1")));
+        // W8 收口（16 §2.5）：SMS 校验唯一路径——phone_hmac 取码（PiiHmacQueries.smsCode 含未用/过期过滤 + 取最新）
+        SmsCode smsCode = smsCodeMapper.selectOne(
+                PiiHmacQueries.smsCode(piiCrypto.phoneHmac(phone), scene, code));
         if (smsCode == null) {
             throw new BizException(ErrorCode.AUTH_SMS_002);
         }
@@ -592,8 +555,7 @@ public class AccountServiceImpl implements AccountService {
 
     /**
      * 登录失败计数 key（按手机号派生物，避免明文手机号入 Redis key）。
-     * <p>派生物由调用方经 {@code piiReadRouter.redisKeyPart} 取得：redis-key 模块切读后是 HMAC，
-     * 否则仍是 sha256（C4 回滚分支）。
+     * <p>派生物恒为 HMAC（W8 收口：redis-key 模块 C4 无回滚分支）。
      */
     private String loginFailKey(String keyPart) {
         return LOGIN_FAIL_KEY_PREFIX + keyPart;
@@ -631,15 +593,13 @@ public class AccountServiceImpl implements AccountService {
     }
 
     /** 创建用户 */
-    private User createUser(String phone, String phoneHash, String password, String nickname, String realName, String source) {
+    private User createUser(String phone, String password, String nickname, String realName, String source) {
         User user = new User();
         user.setId(snowflakeIdUtil.nextId());
-        user.setPhone(phone);
-        user.setPhoneHash(phoneHash);
-        // PII 阶段 0 双写（切点 A1 注册 / A5 RT 免密自动建号，经本单一建号入口）
-        if (piiCrypto.isDualWrite()) {
-            user.setPhoneHmac(piiCrypto.phoneHmac(phone));
-        }
+        // W8 收口（16 §2.5）：A1 注册 / A5 RT 免密自动建号，经本单一建号入口无条件写 hmac + cipher + last4
+        user.setPhoneHmac(piiCrypto.phoneHmac(phone));
+        user.setPhoneCipher(piiCrypto.encrypt(phone));
+        user.setPhoneLast4(piiCrypto.last4(phone));
         if (password != null && !password.isEmpty()) {
             user.setPasswordHash(PASSWORD_ENCODER.encode(password));
         }

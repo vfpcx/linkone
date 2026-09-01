@@ -1,6 +1,7 @@
 package com.cangchu.storefront;
 
 import com.cangchu.CangchuApplication;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.inventory.dto.InboundContext;
@@ -69,6 +70,8 @@ class PricingRtMatchScenarioTest {
     private CustomerPriceMapper customerPriceMapper;
     @Autowired
     private SnowflakeIdUtil snowflakeIdUtil;
+    @Autowired
+    private PiiCrypto piiCrypto;
 
     /** 公开价基准：unitPrice=9.90（浏览 qty=1 < moqQty → 走单价），moqPrice=8.50，moqQty=10。 */
     private static final BigDecimal PUBLIC_UNIT_PRICE = new BigDecimal("9.90");
@@ -97,7 +100,7 @@ class PricingRtMatchScenarioTest {
         t.setTenantSimpleCode("R" + String.format("%07d", TENANT_CODE_SEQ.incrementAndGet()));
         t.setName("匹配仓-" + tenantId);
         t.setContactUserId(snowflakeIdUtil.nextId());
-        t.setContactPhone("13800000000");
+        t.setContactPhoneCipher(piiCrypto.encrypt("13800000000"));
         t.setStatus("ACTIVE");
         tenantMapper.insert(t);
 
@@ -147,7 +150,8 @@ class PricingRtMatchScenarioTest {
         cp.setTenantId(ctx.tenantId());
         cp.setWholesalerId(ctx.wholesalerId());
         cp.setSkuId(ctx.skuId());
-        cp.setRtPhone(phone);
+        cp.setRtPhoneHmac(piiCrypto.phoneHmac(phone));
+        cp.setRtPhoneLast4(piiCrypto.last4(phone));
         cp.setUnitPrice(unitPrice);
         cp.setStatus(CustomerPrice.STATUS_ACTIVE);
         cp.setSource(CustomerPrice.SOURCE_MANUAL);

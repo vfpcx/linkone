@@ -6,7 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
-import com.cangchu.common.pii.PiiReadRouter;
+import com.cangchu.common.pii.PiiHmacQueries;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.pricing.dto.BatchCustomerPriceDto;
@@ -78,14 +78,8 @@ public class PricingServiceImpl implements PricingService {
     private final RedissonClient redissonClient;
     private final SnowflakeIdUtil snowflakeIdUtil;
     private final ObjectMapper objectMapper;
-    /** PII 阶段 0（V30）：rt_phone 盲索引双写的唯一产生点；读路径一律不用。 */
+    /** W8（16 §1.6.1）：V34 后 rt_phone 明文列已删，唯一键/写点全部走 hmac + last4。 */
     private final PiiCrypto piiCrypto;
-    /**
-     * PII 阶段 1 Step1/Step2（PII-W5）：定价链读路由。影子期出结果的仍是明文列（探针只计数）；
-     * pricing 模块拨到 hmac 后由 rt_phone_hmac 出结果，拨回即秒级恢复明文分支。
-     * 另兼 C4：{@link #matchKey} 的手机号段派生（redis-key 模块）。
-     */
-    private final PiiReadRouter piiReadRouter;
 
     /** 自注入代理：用于在锁内调用带 @Transactional 的批量事务体（避免 this 自调用使事务失效）。 */
     @Lazy
@@ -119,19 +113,14 @@ public class PricingServiceImpl implements PricingService {
         requirePriceEditor(wholesaler, operatorUserId);
         validatePrice(dto.getUnitPrice());
 
-        // F1：upsert 必须匹配物理唯一键 (wholesaler_id, rt_phone, sku_id)，不按 status 过滤。
+        // F1：upsert 必须匹配物理唯一键 (wholesaler_id, rt_phone_hmac, sku_id)，不按 status 过滤。
         // revoke/批量 DISABLE 只置 status=DISABLED（不软删，行仍在），若按 status=ACTIVE 查会 miss
         // → insert → DuplicateKeyException（未处理 500，且在 confirmByWa 事务内会连累整单回滚）。
         // 命中任一状态的物理行则改价并重置 status=ACTIVE（重新授予被作废/过期的专属价），仅无行时才 insert。
-        // PII 阶段 1 Step1/Step2（W5）：pricing 模块拨到 hmac 即由 rt_phone_hmac 探测唯一键；
-        // 非 hmac 模式走下面这条明文查询（回滚分支）+ 影子比对（15 §1.2-C1）
-        CustomerPrice existing = piiReadRouter.customerPrice("C1-price-set", dto.getWholesalerId(),
-                dto.getRtPhone(), dto.getSkuId(), null,
-                () -> customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                        .eq(CustomerPrice::getWholesalerId, dto.getWholesalerId())
-                        .eq(CustomerPrice::getRtPhone, dto.getRtPhone())
-                        .eq(CustomerPrice::getSkuId, dto.getSkuId())
-                        .last("LIMIT 1")));
+        // W8（16 §1.6.1）：V34 已删 rt_phone 明文列，唯一键按 rt_phone_hmac 探测（C1）
+        CustomerPrice existing = customerPriceMapper.selectOne(
+                PiiHmacQueries.customerPrice(dto.getWholesalerId(),
+                        piiCrypto.phoneHmac(dto.getRtPhone()), dto.getSkuId(), null));
 
         CustomerPrice result;
         if (existing != null) {
@@ -142,10 +131,10 @@ public class PricingServiceImpl implements PricingService {
                     .set(CustomerPrice::getExpireAt, dto.getExpireAt())
                     .set(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
                     .set(CustomerPrice::getSource, CustomerPrice.SOURCE_MANUAL)
-                    // PII 阶段 0（V30）：本分支 rt_phone 不变，但既有行可能是 legacy 期写入 /
-                    // 回填尚未覆盖，hmac 仍为 NULL——顺手补齐（机会性回填，同 blacklist REMOVED 复活分支口径）
-                    .set(piiCrypto.isDualWrite(), CustomerPrice::getRtPhoneHmac,
-                            piiCrypto.phoneHmac(dto.getRtPhone()))
+                    // W8：本分支 rt_phone 不变，但既有行可能是 legacy 期写入 / 回填尚未覆盖，
+                    // hmac/last4 仍为 NULL——顺手补齐（机会性回填，同 blacklist REMOVED 复活分支口径）
+                    .set(CustomerPrice::getRtPhoneHmac, piiCrypto.phoneHmac(dto.getRtPhone()))
+                    .set(CustomerPrice::getRtPhoneLast4, piiCrypto.last4(dto.getRtPhone()))
                     .set(CustomerPrice::getUpdatedAt, now));
             existing.setUnitPrice(dto.getUnitPrice());
             existing.setExpireAt(dto.getExpireAt());
@@ -159,11 +148,9 @@ public class PricingServiceImpl implements PricingService {
             cp.setTenantId(wholesaler.getTenantId());
             cp.setWholesalerId(dto.getWholesalerId());
             cp.setSkuId(dto.getSkuId());
-            cp.setRtPhone(dto.getRtPhone());
-            // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；读路径仍走 rt_phone 明文
-            if (piiCrypto.isDualWrite()) {
-                cp.setRtPhoneHmac(piiCrypto.phoneHmac(dto.getRtPhone()));
-            }
+            // W8（16 §1.6.1）：V34 已删 rt_phone 明文列，无条件写 hmac + last4
+            cp.setRtPhoneHmac(piiCrypto.phoneHmac(dto.getRtPhone()));
+            cp.setRtPhoneLast4(piiCrypto.last4(dto.getRtPhone()));
             cp.setUnitPrice(dto.getUnitPrice());
             cp.setStatus(CustomerPrice.STATUS_ACTIVE);
             cp.setSource(CustomerPrice.SOURCE_MANUAL);
@@ -173,7 +160,7 @@ public class PricingServiceImpl implements PricingService {
             result = cp;
         }
 
-        invalidateAfterCommit(dto.getWholesalerId(), dto.getRtPhone(), dto.getSkuId());
+        invalidateAfterCommit(dto.getWholesalerId(), piiCrypto.phoneHmac(dto.getRtPhone()), dto.getSkuId());
         // X硬化 H4：日志严禁明文手机号（F7 规约，统一走 SmsUtil.maskPhone）
         log.info("[P2] operator {} 设置专属价 wholesaler={} phone={} sku={} price={}",
                 operatorUserId, dto.getWholesalerId(), SmsUtil.maskPhone(dto.getRtPhone()), dto.getSkuId(), dto.getUnitPrice());
@@ -190,18 +177,13 @@ public class PricingServiceImpl implements PricingService {
             throw new BizException(ErrorCode.WHOLESALER_NOT_FOUND);
         }
 
-        // F1：upsert 匹配物理唯一键 (wholesaler_id, rt_phone, sku_id)，不按 status 过滤。
+        // F1：upsert 匹配物理唯一键 (wholesaler_id, rt_phone_hmac, sku_id)，不按 status 过滤。
         // 该方法在 confirmByWa 的 @Transactional 内调用：若因既有 DISABLED/EXPIRED 行 miss→insert
         // 触发 DuplicateKeyException，会连累整个确认事务（含扣库存）回滚。命中任一状态行则改价并
         // 重置 status=ACTIVE、source=from_inquiry（重新授予沉淀价），仅无行时才 insert。
-        // PII 阶段 1 Step1/Step2（W5）：同 setCustomerPrice 口径，hmac 模式下由 rt_phone_hmac 探测唯一键
-        CustomerPrice existing = piiReadRouter.customerPrice("C1-price-settle", wholesalerId, rtPhone,
-                skuId, null,
-                () -> customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                        .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                        .eq(CustomerPrice::getRtPhone, rtPhone)
-                        .eq(CustomerPrice::getSkuId, skuId)
-                        .last("LIMIT 1")));
+        // W8（16 §1.6.1）：同 setCustomerPrice 口径，唯一键按 rt_phone_hmac 探测
+        CustomerPrice existing = customerPriceMapper.selectOne(
+                PiiHmacQueries.customerPrice(wholesalerId, piiCrypto.phoneHmac(rtPhone), skuId, null));
 
         if (existing != null) {
             customerPriceMapper.update(null, new LambdaUpdateWrapper<CustomerPrice>()
@@ -211,9 +193,9 @@ public class PricingServiceImpl implements PricingService {
                     .set(CustomerPrice::getSource, CustomerPrice.SOURCE_FROM_INQUIRY)
                     .set(CustomerPrice::getSourceDocNo, sourceDocNo)
                     .set(CustomerPrice::getExpireAt, (LocalDateTime) null)
-                    // PII 阶段 0（V30）：rt_phone 不变，hmac 顺手补齐（同 setCustomerPrice 口径）
-                    .set(piiCrypto.isDualWrite(), CustomerPrice::getRtPhoneHmac,
-                            piiCrypto.phoneHmac(rtPhone))
+                    // W8：rt_phone 不变，hmac/last4 顺手补齐（同 setCustomerPrice 口径）
+                    .set(CustomerPrice::getRtPhoneHmac, piiCrypto.phoneHmac(rtPhone))
+                    .set(CustomerPrice::getRtPhoneLast4, piiCrypto.last4(rtPhone))
                     .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
         } else {
             CustomerPrice cp = new CustomerPrice();
@@ -221,11 +203,9 @@ public class PricingServiceImpl implements PricingService {
             cp.setTenantId(wholesaler.getTenantId());
             cp.setWholesalerId(wholesalerId);
             cp.setSkuId(skuId);
-            cp.setRtPhone(rtPhone);
-            // PII 阶段 0（V30）：write-mode=dual 才写 hmac 列；读路径仍走 rt_phone 明文
-            if (piiCrypto.isDualWrite()) {
-                cp.setRtPhoneHmac(piiCrypto.phoneHmac(rtPhone));
-            }
+            // W8（16 §1.6.1）：V34 已删 rt_phone 明文列，无条件写 hmac + last4
+            cp.setRtPhoneHmac(piiCrypto.phoneHmac(rtPhone));
+            cp.setRtPhoneLast4(piiCrypto.last4(rtPhone));
             cp.setUnitPrice(dealPrice);
             cp.setStatus(CustomerPrice.STATUS_ACTIVE);
             cp.setSource(CustomerPrice.SOURCE_FROM_INQUIRY);
@@ -234,7 +214,7 @@ public class PricingServiceImpl implements PricingService {
             customerPriceMapper.insert(cp);
         }
 
-        invalidateAfterCommit(wholesalerId, rtPhone, skuId);
+        invalidateAfterCommit(wholesalerId, piiCrypto.phoneHmac(rtPhone), skuId);
         // X硬化 H4：日志严禁明文手机号（F7 规约，统一走 SmsUtil.maskPhone）
         log.info("[P2] operator {} 议价沉淀 wholesaler={} phone={} sku={} price={} src={}",
                 operatorUserId, wholesalerId, SmsUtil.maskPhone(rtPhone), skuId, dealPrice, sourceDocNo);
@@ -267,7 +247,7 @@ public class PricingServiceImpl implements PricingService {
         uw.set(CustomerPrice::getUpdatedAt, now);
         customerPriceMapper.update(null, uw);
 
-        invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+        invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhoneHmac(), cp.getSkuId());
         return toVo(cp);
     }
 
@@ -279,7 +259,7 @@ public class PricingServiceImpl implements PricingService {
                 .eq(CustomerPrice::getId, id)
                 .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
                 .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
-        invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+        invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhoneHmac(), cp.getSkuId());
         log.info("[P2] operator {} 作废专属价 {}", operatorUserId, id);
     }
 
@@ -300,7 +280,7 @@ public class PricingServiceImpl implements PricingService {
                 .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
                 .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
         for (CustomerPrice cp : rows) {
-            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhoneHmac(), cp.getSkuId());
         }
         log.info("[P2] SKU {} 删除级联：作废专属价 {} 行", skuId, rows.size());
         return rows.size();
@@ -323,7 +303,7 @@ public class PricingServiceImpl implements PricingService {
                 .set(CustomerPrice::getStatus, CustomerPrice.STATUS_DISABLED)
                 .set(CustomerPrice::getUpdatedAt, LocalDateTime.now()));
         for (CustomerPrice cp : rows) {
-            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhoneHmac(), cp.getSkuId());
         }
         log.info("[P2][R13] 商户 {} 退驻级联：作废专属价 {} 行（含缓存失效）", wholesalerId, rows.size());
         return rows.size();
@@ -467,13 +447,13 @@ public class PricingServiceImpl implements PricingService {
         } else {
             qw.eq(dto.getSkuId() != null, CustomerPrice::getSkuId, dto.getSkuId())
               .eq(dto.getRtPhone() != null && !dto.getRtPhone().isBlank(),
-                      CustomerPrice::getRtPhone, dto.getRtPhone());
+                      CustomerPrice::getRtPhoneHmac, piiCrypto.phoneHmac(dto.getRtPhone()));
         }
-        // PII 阶段 1 Step1/Step2（W5）：仅当本次真按 rt_phone 圈选时才走 hmac 圈选/影子重查（15 §1.2-C3）；
-        // ids 分支没读明文手机号列，没有可切的读，也不进这个切点的分母。
-        List<CustomerPrice> rows = piiReadRouter.customerPriceRows("C3-price-batch", dto.getWholesalerId(),
-                byExplicitIds ? null : dto.getSkuId(), byExplicitIds ? null : dto.getRtPhone(),
-                () -> customerPriceMapper.selectList(qw));
+        // W8（16 §1.6.1）：V34 已删 rt_phone 明文列，按 rt_phone_hmac 圈选（C3）；ids 分支直接走显式 ids
+        List<CustomerPrice> rows = byExplicitIds
+                ? customerPriceMapper.selectList(qw)
+                : customerPriceMapper.selectList(PiiHmacQueries.customerPriceRows(
+                        dto.getWholesalerId(), dto.getSkuId(), piiCrypto.phoneHmac(dto.getRtPhone())));
 
         List<Map<String, Object>> beforeAfter = new ArrayList<>();
         List<String> rejected = new ArrayList<>();
@@ -508,7 +488,7 @@ public class PricingServiceImpl implements PricingService {
             uw.set(CustomerPrice::getUpdatedAt, now);
             customerPriceMapper.update(null, uw);
             // 失效价格匹配缓存（F3：提交后再删，避免读方回填脏价）
-            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhone(), cp.getSkuId());
+            invalidateAfterCommit(cp.getWholesalerId(), cp.getRtPhoneHmac(), cp.getSkuId());
             recordBeforeAfter(beforeAfter, cp.getId(), before, after);
             affected++;
         }
@@ -536,23 +516,17 @@ public class PricingServiceImpl implements PricingService {
      * 缓存 key 不含 qty；存 unitPrice 字符串或哨兵 NONE。
      */
     private BigDecimal resolveCustomUnitPrice(Long wholesalerId, Long skuId, String rtPhone) {
-        String key = matchKey(wholesalerId, rtPhone, skuId);
+        String key = matchKey(wholesalerId, piiCrypto.phoneHmac(rtPhone), skuId);
         RBucket<String> bucket = redissonClient.getBucket(key);
         String cached = bucket.get();
         if (cached != null) {
             return SENTINEL_NONE.equals(cached) ? null : new BigDecimal(cached);
         }
         // miss：查 DB（唯一键保证 ACTIVE 且未软删 ≤1 条），再判 isActive（含 expireAt）
-        // PII 阶段 1 Step1/Step2（W5）：本切点在缓存 miss 分支内，分母 = 真实 DB 读次数（15 §1.2-C2）。
-        // 两侧都须同带 status=ACTIVE，否则比的/查的不是同一个问题。
-        CustomerPrice cp = piiReadRouter.customerPrice("C2-price-resolve", wholesalerId, rtPhone, skuId,
-                CustomerPrice.STATUS_ACTIVE,
-                () -> customerPriceMapper.selectOne(new LambdaQueryWrapper<CustomerPrice>()
-                        .eq(CustomerPrice::getWholesalerId, wholesalerId)
-                        .eq(CustomerPrice::getRtPhone, rtPhone)
-                        .eq(CustomerPrice::getSkuId, skuId)
-                        .eq(CustomerPrice::getStatus, CustomerPrice.STATUS_ACTIVE)
-                        .last("LIMIT 1")));
+        // W8（16 §1.6.1）：V34 已删 rt_phone 明文列，按 rt_phone_hmac 解析（C2），同带 status=ACTIVE
+        CustomerPrice cp = customerPriceMapper.selectOne(
+                PiiHmacQueries.customerPrice(wholesalerId, piiCrypto.phoneHmac(rtPhone), skuId,
+                        CustomerPrice.STATUS_ACTIVE));
         BigDecimal result = (cp != null && cp.isActive()) ? cp.getUnitPrice() : null;
         bucket.set(result != null ? result.toPlainString() : SENTINEL_NONE,
                 MATCH_CACHE_TTL_SEC, TimeUnit.SECONDS);
@@ -562,18 +536,16 @@ public class PricingServiceImpl implements PricingService {
     /**
      * 专属价匹配缓存 key。
      *
-     * <p>PII 阶段 1 Step2 · C4（W5）：手机号段切 HMAC（redis-key 模块），把明文手机号从 Redis
-     * keyspace 里拿掉。旧键不清洗——换了派生方式旧键就再没人读，60s TTL 自然消亡；清洗反倒要按
-     * 明文手机号扫一遍 keyspace。拨回即恢复旧口径，代价只是缓存重算一轮。
+     * <p>W8（16 §1.6.1）：V34 已删 rt_phone 明文列，key 的手机号段恒为 rt_phone_hmac，明文手机号
+     * 从 Redis keyspace 彻底移除。旧键不清洗——换派生方式旧键就再没人读，60s TTL 自然消亡。
      */
-    private String matchKey(Long wholesalerId, String rtPhone, Long skuId) {
-        return "price:match:" + wholesalerId + ":" + piiReadRouter.redisKeyPart(rtPhone, rtPhone)
-                + ":" + skuId;
+    private String matchKey(Long wholesalerId, String rtPhoneHmac, Long skuId) {
+        return "price:match:" + wholesalerId + ":" + rtPhoneHmac + ":" + skuId;
     }
 
     /** 写后失效专属价匹配缓存（立即删除，用于无事务上下文）。 */
-    private void invalidate(Long wholesalerId, String rtPhone, Long skuId) {
-        redissonClient.getBucket(matchKey(wholesalerId, rtPhone, skuId)).delete();
+    private void invalidate(Long wholesalerId, String rtPhoneHmac, Long skuId) {
+        redissonClient.getBucket(matchKey(wholesalerId, rtPhoneHmac, skuId)).delete();
     }
 
     /**
@@ -584,9 +556,9 @@ public class PricingServiceImpl implements PricingService {
      * 故：有活跃事务时注册 afterCommit 回调删缓存；无事务时立即删除。
      * key 在注册前捕获，避免闭包引用可变状态。
      */
-    private void invalidateAfterCommit(Long wholesalerId, String rtPhone, Long skuId) {
+    private void invalidateAfterCommit(Long wholesalerId, String rtPhoneHmac, Long skuId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            final String key = matchKey(wholesalerId, rtPhone, skuId);
+            final String key = matchKey(wholesalerId, rtPhoneHmac, skuId);
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
@@ -594,7 +566,7 @@ public class PricingServiceImpl implements PricingService {
                 }
             });
         } else {
-            invalidate(wholesalerId, rtPhone, skuId);
+            invalidate(wholesalerId, rtPhoneHmac, skuId);
         }
     }
 
@@ -847,8 +819,8 @@ public class PricingServiceImpl implements PricingService {
                 .id(cp.getId())
                 .wholesalerId(cp.getWholesalerId())
                 .skuId(cp.getSkuId())
-                // PII-W7（15 §4 阶段2）：VO 层统一脱敏，需全号走 phone-reveal 接口
-                .rtPhone(SmsUtil.maskPhone(cp.getRtPhone()))
+                // W8（16 §1.6.1）：V34 已删 rt_phone 明文列，VO 只出脱敏尾号；需全号走 phone-reveal 接口
+                .rtPhone(cp.getRtPhoneLast4() == null ? null : "****" + cp.getRtPhoneLast4())
                 .unitPrice(cp.getUnitPrice())
                 .status(cp.getStatus())
                 .source(cp.getSource())

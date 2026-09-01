@@ -20,15 +20,16 @@ public class SmsCode {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
-    private String phone;
-
     /**
-     * HMAC-SHA256(phone) 盲索引（V30，PII 阶段 0）。
-     * 唯一产生点 {@code PiiCrypto.phoneHmac}；write-mode=dual 时随 phone 同写，读路径不用。
-     * JsonIgnore 保证任何实体直出的响应形状零变化（同 users.phone_hmac 口径）。
+     * HMAC-SHA256(phone) 盲索引（V30；W8-B3 起为发码/校验身份键，phone 明文列已下线）。
+     * 唯一产生点 {@code PiiCrypto.phoneHmac}。
      */
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String phoneHmac;
+
+    /** W8-B1（V31）：phone 尾号 4 位（发码排障日志免解密打码）。JsonIgnore 同上。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String phoneLast4;
 
     private String scene;
 

@@ -38,8 +38,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>查全号端点 /api/v1/pii/phone-reveal：BLACKLIST / TENANT / WA_APPLICATION / INQUIRY
  *       四类 biz 的权限矩阵（OPS / 归属 TA / 归属 WA 可取，越权 50402，非手机号行 50400，不存在 50401）。</li>
- *   <li>黑名单列表打码（PHONE 行 138****1234；LICENSE_NO 非手机号 PII 原样）。</li>
- *   <li>黑名单检索口径切换（15 §4 阶段2-2）：完整 11 位 → hmac/明文精确；last4 → RIGHT 尾号；
+ *   <li>黑名单列表展示（W8/V34：PHONE 行 target_value 已是摘要 PHONE_****{last4} 原样返回；
+ *       LICENSE_NO 非手机号 PII 原样）。</li>
+ *   <li>黑名单检索口径（16 §1.6.1 / R5）：完整 11 位 → target_value_hmac 精确；last4 → RIGHT 尾号；
  *       执照号子串 → LIKE（非 PII 保留）。</li>
  * </ul>
  * 基建沿用 {@code OnboardingScenarioTest}（RANDOM_PORT + TestRestTemplate + H2 + mock 888888）。
@@ -58,6 +59,8 @@ class PiiRevealScenarioTest {
     private BlacklistMapper blacklistMapper;
     @Autowired
     private InquiryRequestMapper inquiryRequestMapper;
+    @Autowired
+    private PiiCrypto piiCrypto;
 
     private static final String P_TA =
             "13" + String.format("%05d", (System.nanoTime() & 0x7FFFFFFF) % 100000);
@@ -286,7 +289,8 @@ class PiiRevealScenarioTest {
         inq.setStoreId(1L);
         inq.setTenantId(ta.tenantId());
         inq.setWholesalerId(wholesalerId);
-        inq.setRtPhone("13800001234");
+        inq.setRtPhoneHmac(piiCrypto.phoneHmac("13800001234"));
+        inq.setRtPhoneCipher(piiCrypto.encrypt("13800001234"));
         inq.setStatus(InquiryRequest.STATUS_PENDING);
         inquiryRequestMapper.insert(inq);
 
@@ -323,17 +327,17 @@ class PiiRevealScenarioTest {
         String phone = uniquePhone(P_OPS);
         addBlacklist(ops, "PHONE", phone);
 
-        // 完整 11 位 → 精确查（明文/hmac 双轨，hmac 漏填也不漏）
+        // 完整 11 位 → target_value_hmac 精确查（W8 唯一等值路径）
         List<Map<String, Object>> byFull = blacklistRecords(searchBlacklist(ops, phone));
         assertThat(byFull).hasSize(1);
-        // 列表打码（138****1234），全号走 phone-reveal
-        assertThat(byFull.get(0).get("targetValue")).isEqualTo(SmsUtil.maskPhone(phone));
-
-        // last4 尾号 → RIGHT 命中
+        // V34 摘要展示（PHONE_****{last4}），全号走 phone-reveal
         String last4 = phone.substring(7);
+        assertThat(byFull.get(0).get("targetValue")).isEqualTo("PHONE_****" + last4);
+
+        // last4 尾号 → RIGHT(target_value,4) 命中
         List<Map<String, Object>> byLast4 = blacklistRecords(searchBlacklist(ops, last4));
         assertThat(byLast4).as("last4=%s 应命中 %s", last4, phone).hasSize(1);
-        assertThat(byLast4.get(0).get("targetValue")).isEqualTo(SmsUtil.maskPhone(phone));
+        assertThat(byLast4.get(0).get("targetValue")).isEqualTo("PHONE_****" + last4);
     }
 
     @Test

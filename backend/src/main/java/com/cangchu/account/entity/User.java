@@ -18,17 +18,19 @@ public class User {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
-    private String phone;
-
-    private String phoneHash;
-
     /**
-     * PII 硬化阶段 0（V27）：HMAC-SHA256 盲索引影子列。write-mode=dual 时双写；
-     * 读路径（登录/查重）仍走 phoneHash，不消费本列。JsonIgnore 保证任何实体直出的
-     * 响应形状零变化。
+     * W8-B3（V33 起）：登录身份唯一索引 = HMAC-SHA256(phone)，phone 明文列已下线。
      */
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String phoneHmac;
+
+    /** W8-B1（V31）：AES-GCM(phone) 密文影子列（G-8.6 员工解密供给等全号消费点用）。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String phoneCipher;
+
+    /** W8-B1（V31）：phone 尾号 4 位（列表/日志免解密打码）。JsonIgnore 同上。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String phoneLast4;
 
     private String passwordHash;
 
