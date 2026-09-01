@@ -38,6 +38,8 @@ import type {
   AuditTenantRequest,
   TenantDirectoryItem,
   TenantDirectoryQuery,
+  StorefrontFeaturedConfig,
+  UpdateStorefrontFeaturedRequest,
 } from '@cangchu/api-types'
 
 // ============================================================
@@ -279,6 +281,28 @@ export const tenantApi = {
     request<void>({
       method: 'POST',
       url: `/tenant/inbound-requests/${id}/arbitrate`,
+      data,
+    }),
+}
+
+// ============================================================
+// P5-A W4 · 撮合运营（18-p5-design §4.3，契约已与 backend-dev 对齐）
+// 端点：GET/PUT /api/v1/tenant/storefront/featured
+// ============================================================
+
+export const storefrontApi = {
+  /** TA 查撮合运营配置（回显 mainSkuIds[]/pinWaIds[] 有序） */
+  getFeatured: () =>
+    request<StorefrontFeaturedConfig>({
+      method: 'GET',
+      url: '/tenant/storefront/featured',
+    }),
+
+  /** TA 覆盖保存撮合配置（mainSkuIds ≤20、pinWaIds ≤5；50711-50714） */
+  updateFeatured: (data: UpdateStorefrontFeaturedRequest) =>
+    request<void>({
+      method: 'PUT',
+      url: '/tenant/storefront/featured',
       data,
     }),
 }

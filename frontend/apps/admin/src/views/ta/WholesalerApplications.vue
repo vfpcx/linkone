@@ -133,6 +133,7 @@ const ROUTABLE = new Set([
   '/ta/skus',
   '/ta/approvals',
   '/ta/outbound',
+  '/ta/messages',
 ])
 
 const handleMenuSelect = (key: string) => {

@@ -37,6 +37,8 @@ export interface RtStoreSku {
   matchedPrice?: string | null
   /** 当前库存量（qty>0 才出现在列表中） */
   stockQty: number
+  /** 是否主推商品（P5-A W4 · 撮合配置标记，店铺页「主推」标） */
+  featured?: boolean
 }
 
 /** 店内批发商（仅 ACTIVE）+ 在售 SKU（StoreWholesalerVo） */
@@ -47,6 +49,8 @@ export interface RtStoreWholesaler {
   status: string
   /** 该批发商在售 SKU（listed=true 且库存>0） */
   skus: RtStoreSku[]
+  /** 是否置顶批发商（P5-A W4 · 撮合配置标记，店铺页前置 + 标） */
+  pinned?: boolean
 }
 
 /** 进店页聚合视图（StoreFrontVo） */
@@ -62,4 +66,8 @@ export interface RtStoreFront {
   status: string
   /** 店内批发商（仅 ACTIVE），各自带在售 SKU 列表 */
   wholesalers: RtStoreWholesaler[]
+  /** 主推商品 SKU id 序（P5-A W4 · 撮合配置，服务端已按主推前置排序） */
+  featuredSkuIds?: SnowflakeId[]
+  /** 置顶批发商 id 序（P5-A W4 · 撮合配置，服务端已按置顶前置排序） */
+  pinnedWholesalerIds?: SnowflakeId[]
 }

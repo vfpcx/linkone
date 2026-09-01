@@ -109,7 +109,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/returns' ||
     key === '/ta/stocktake' ||
     key === '/ta/batches' ||
-    key === '/ta/clearance'
+    key === '/ta/clearance' ||
+    key === '/ta/messages'
   ) {
     router.push(key)
     return

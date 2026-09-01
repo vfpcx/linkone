@@ -403,7 +403,8 @@ export interface OutboundRegisterRequest {
 
 /**
  * 站内信类型（Notification 实体常量；OUTBOUND_* / COMPLAINT_* 已随 BE-W2 落地；
- * INBOUND_*（正向链）/ CORRECTION_* 随 P3b T1、RETURN_* 随 T3-W1、STOCKTAKE_* 随 T3-W2 落地）
+ * INBOUND_*（正向链）/ CORRECTION_* 随 P3b T1、RETURN_* 随 T3-W1、STOCKTAKE_* 随 T3-W2 落地；
+ * PLATFORM_ANNOUNCEMENT 平台公告随 P5-A W3 落地——18-p5-design §4.4 type→group 映射唯一公告类）
  */
 export type NotificationType =
   | 'INBOUND_PENDING_CONFIRM'
@@ -426,6 +427,14 @@ export type NotificationType =
   | 'RETURN_COMPLETED'
   | 'STOCKTAKE_PENDING'
   | 'STOCKTAKE_DECIDED'
+  | 'PLATFORM_ANNOUNCEMENT'
+
+/**
+ * 通知分组（P5-A W3 · 18-p5-design §4.1 GET /notifications?group=）：
+ *  - ALL=全部；BIZ=业务（除公告/系统外全部既有 TYPE_*）；ANNOUNCE=平台公告；SYS=系统（预留）。
+ * 前端仅传 ALL/BIZ/ANNOUNCE，SYS 为后端预留。
+ */
+export type NotificationGroup = 'ALL' | 'BIZ' | 'ANNOUNCE' | 'SYS'
 
 /** 站内信出参（NotificationVo） */
 export interface NotificationItem {

@@ -129,6 +129,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ta/Approvals.vue'),
     meta: { role: 'TA', title: '审批中心' },
   },
+  // TA 消息中心（P5-A W4 · 顶栏铃铛 / 左侧「站内信」入口；复用 ui-shared NotificationList）
+  {
+    path: '/ta/messages',
+    name: 'ta-messages',
+    component: () => import('@/views/ta/Messages.vue'),
+    meta: { role: 'TA', title: '消息中心' },
+  },
 
   // WA 工作台（批发商）
   {
@@ -223,6 +230,13 @@ const routes: RouteRecordRaw[] = [
     name: 'ops-arbitrations',
     component: () => import('@/views/ops/Arbitrations.vue'),
     meta: { role: 'OPS', title: '客诉仲裁' },
+  },
+  // OPS 公告管理（P5-A W4 · 18-p5-design §4.2；创建/发布/下架 + 角色组中文展示）
+  {
+    path: '/ops/announcements',
+    name: 'ops-announcements',
+    component: () => import('@/views/ops/Announcements.vue'),
+    meta: { role: 'OPS', title: '公告管理' },
   },
 
   // ST 结算员业务面（P4 W4 · 占位转真实；requireStOrTa——仓库老板兼岗同享）

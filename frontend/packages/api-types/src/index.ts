@@ -1,6 +1,7 @@
 export * from './common'
 export * from './account'
 export * from './tenant'
+export * from './announcement'
 export * from './billing'
 export * from './document'
 export * from './batch'

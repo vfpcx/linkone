@@ -16,7 +16,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { RtStoreFront, SubmitInquiryRequest } from '@cangchu/api-types'
+import type { RtStoreFront, RtStoreSku, RtStoreWholesaler, SubmitInquiryRequest } from '@cangchu/api-types'
 import { rtApi } from '@/api/rt'
 
 const route = useRoute()
@@ -32,6 +32,36 @@ const storeCode = computed<string>(() => {
 const loading = ref(false)
 const loadError = ref('')
 const store = ref<RtStoreFront | null>(null)
+
+// ============ 撮合出参消费（P5-A W4 · 18-p5-design §4.4） ============
+/** 置顶批发商 id 集（featuredSkuIds/pinnedWholesalerIds 为服务端排序权威） */
+const pinnedIds = computed<Set<string>>(
+  () => new Set((store.value?.pinnedWholesalerIds ?? []).map(String)),
+)
+const featuredSkuIds = computed<Set<string>>(
+  () => new Set((store.value?.featuredSkuIds ?? []).map(String)),
+)
+
+/** 置顶批发商前置；同一级内保持服务端顺序 */
+const orderedWholesalers = computed(() => {
+  const ws = store.value?.wholesalers ?? []
+  if (pinnedIds.value.size === 0) return ws
+  const pinned = ws.filter((w) => pinnedIds.value.has(String(w.wholesalerId)))
+  const rest = ws.filter((w) => !pinnedIds.value.has(String(w.wholesalerId)))
+  return [...pinned, ...rest]
+})
+
+/** 主推商品前置（同一批发商内） */
+const orderedSkus = (w: RtStoreWholesaler): RtStoreSku[] => {
+  const skus = w?.skus ?? []
+  if (featuredSkuIds.value.size === 0) return skus
+  const featured = skus.filter((s) => featuredSkuIds.value.has(String(s.skuId)))
+  const rest = skus.filter((s) => !featuredSkuIds.value.has(String(s.skuId)))
+  return [...featured, ...rest]
+}
+
+const isFeaturedSku = (skuId: string) => featuredSkuIds.value.has(String(skuId))
+const isPinnedWholesaler = (wholesalerId: string) => pinnedIds.value.has(String(wholesalerId))
 
 /** 询价数量草稿：skuId -> qty（>0 视为加入询价） */
 const qtyMap = reactive<Record<string, number>>({})
@@ -186,11 +216,15 @@ function resetForNext() {
     <template v-else-if="store">
       <main class="rt-body">
         <section
-          v-for="w in store.wholesalers"
+          v-for="w in orderedWholesalers"
           :key="w.wholesalerId"
           class="rt-wholesaler"
+          :class="{ 'rt-wholesaler--pinned': isPinnedWholesaler(w.wholesalerId) }"
         >
-          <div class="rt-wholesaler__name">{{ w.name }}</div>
+          <div class="rt-wholesaler__name">
+            {{ w.name }}
+            <span v-if="isPinnedWholesaler(w.wholesalerId)" class="rt-tag rt-tag--pinned">置顶</span>
+          </div>
           <p v-if="w.intro" class="rt-wholesaler__intro">{{ w.intro }}</p>
 
           <div v-if="!w.skus || w.skus.length === 0" class="rt-empty-sku">
@@ -198,9 +232,17 @@ function resetForNext() {
           </div>
 
           <ul v-else class="rt-sku-list">
-            <li v-for="s in w.skus" :key="s.skuId" class="rt-sku">
+            <li
+              v-for="s in orderedSkus(w)"
+              :key="s.skuId"
+              class="rt-sku"
+              :class="{ 'rt-sku--featured': isFeaturedSku(s.skuId) }"
+            >
               <div class="rt-sku__main">
-                <div class="rt-sku__name">{{ s.name }}</div>
+                <div class="rt-sku__name">
+                  {{ s.name }}
+                  <span v-if="isFeaturedSku(s.skuId)" class="rt-tag rt-tag--featured">主推</span>
+                </div>
                 <div v-if="s.spec" class="rt-sku__spec">{{ s.spec }}</div>
                 <div class="rt-sku__price">
                   <!-- 命中客户专属价：绿色专属价为成交价，公开价划线次要展示 -->
@@ -312,11 +354,39 @@ function resetForNext() {
 .rt-wholesaler__name {
   font-size: 15px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .rt-wholesaler__intro {
   margin: 4px 0 0;
   font-size: 12px;
   color: #8a9099;
+}
+/* 置顶批发商：浅金描边高亮（P5-A W4） */
+.rt-wholesaler--pinned {
+  border: 1px solid #f0d58a;
+  background: #fffdf5;
+}
+.rt-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  vertical-align: middle;
+}
+.rt-tag--featured {
+  background: #fff1e0;
+  color: #d46b08;
+  border: 1px solid #ffd591;
+}
+.rt-tag--pinned {
+  background: #fffbe6;
+  color: #ad6800;
+  border: 1px solid #ffe58f;
 }
 .rt-empty-sku {
   padding: 16px 0;

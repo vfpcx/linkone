@@ -144,6 +144,7 @@ const IMPLEMENTED = new Set([
   '/ta/stocktake',
   '/ta/batches',
   '/ta/approvals',
+  '/ta/messages',
 ])
 
 const activeMenu = ref('/ta/clearance')

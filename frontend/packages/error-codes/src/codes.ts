@@ -255,6 +255,23 @@ export enum ErrorCode {
   /** R10 条目不可冲销或已被冲销 */
   STATE_BILL_ITEM_NOT_REVERSIBLE = 50383,
 
+  // ============ P5-A 通知中心 / 平台公告 / 撮合运营（18-p5-design §5 · 50700-50719 段） ============
+  // 权威来源：shared/architecture/18-p5-design.md §5（以后端 ErrorCode.java 实测为准）
+  /** 公告不存在（不泄漏存在性） */
+  STATE_ANNOUNCEMENT_NOT_FOUND = 50701,
+  /** 公告状态非法（非 DRAFT 不可发布 / 非 PUBLISHED 不可下架 / 重复发布） */
+  STATE_ANNOUNCEMENT_STATUS_INVALID = 50702,
+  /** 目标角色组非法 */
+  STATE_ANNOUNCEMENT_TARGET_ROLE_INVALID = 50703,
+  /** 撮合运营：主推商品超上限（>20） */
+  STATE_FEATURED_MAIN_SKU_OVER_LIMIT = 50711,
+  /** 撮合运营：置顶批发商超上限（>5） */
+  STATE_FEATURED_PINNED_OVER_LIMIT = 50712,
+  /** 撮合运营：主推/置顶条目重复 */
+  STATE_FEATURED_DUPLICATE = 50713,
+  /** 撮合运营：引用无效（非本店在售 SKU / 非本店入驻批发商） */
+  STATE_FEATURED_REF_INVALID = 50714,
+
   // ============ BUSINESS (60xxx) ============
   BUSINESS_INSUFFICIENT_STOCK = 60001,
   BUSINESS_SKU_UNLISTED = 60002,

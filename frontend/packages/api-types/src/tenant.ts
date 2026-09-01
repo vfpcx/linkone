@@ -130,6 +130,23 @@ export interface StoreFront {
   pinnedWholesalerIds: SnowflakeId[]
 }
 
+// ============ 撮合运营（P5-A W3/W4 · 18-p5-design §4.3） ============
+/**
+ * 店铺设置「撮合运营」配置出参/入参（GET/PUT /api/v1/tenant/storefront/featured）：
+ *  - GET 回显（mainSkuIds[]/pinWaIds[] 有序）
+ *  - PUT 覆盖保存（mainSkuIds ≤20、pinWaIds ≤5；校验存在性/上限/重复——50711-50714）
+ * 覆盖写幂等：DELETE (store_id, kind) → INSERT 新序列表，同事务（18 §6）。
+ */
+export interface StorefrontFeaturedConfig {
+  /** 主推商品 SKU id 序（≤20，本店在售） */
+  mainSkuIds: SnowflakeId[]
+  /** 置顶批发商 id 序（≤5，本店入驻） */
+  pinWaIds: SnowflakeId[]
+}
+
+/** PUT /tenant/storefront/featured 覆盖保存入参（同 StorefrontFeaturedConfig） */
+export type UpdateStorefrontFeaturedRequest = StorefrontFeaturedConfig
+
 // ============ 员工 ============
 export interface Employee {
   userId: SnowflakeId

@@ -35,6 +35,11 @@ import {
   Checked,
   AlarmClock,
   Remove,
+  Plus,
+  Top,
+  Bottom,
+  Delete,
+  StarFilled,
 } from '@element-plus/icons-vue'
 import { AppTopbar } from '@cangchu/ui-shared'
 import type {
@@ -44,11 +49,14 @@ import type {
   CapacityPrecision,
   PhotoMode,
   BillingRules,
+  Wholesaler,
 } from '@cangchu/api-types'
 import { ErrorCode } from '@cangchu/error-codes'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
-import { tenantApi } from '@/api/tenant'
+import { tenantApi, storefrontApi } from '@/api/tenant'
+import { wholesalerApi } from '@/api/wholesaler'
+import { skuApi } from '@/api/sku'
 import { batchApi } from '@/api/batch'
 import { accountApi } from '@/api/account'
 import { billingRuleApi } from '@/api/billing'
@@ -129,7 +137,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/stocktake' ||
     key === '/ta/batches' ||
     key === '/ta/bills' ||
-    key === '/ta/clearance'
+    key === '/ta/clearance' ||
+    key === '/ta/messages'
   ) {
     router.push(key)
     return
@@ -466,9 +475,153 @@ const onReset = () => {
   ElMessage.info('已还原为上次保存的设置')
 }
 
+// ============ 撮合运营（P5-A W4 · 18-p5-design §4.3 · GET/PUT /tenant/storefront/featured） ============
+// 主推商品 ≤20、置顶批发商 ≤5；覆盖写幂等；保存后店铺页（RT 进店）按序展示「主推」/「置顶」。
+// 后端接口由 backend-dev 交付；若未就绪，全局 toast 会提示，页面保留空态可重试（已按契约编写）。
+const featuredLoading = ref(false)
+const featuredSaving = ref(false)
+const featuredDirty = ref(false)
+
+interface FeaturedEntry {
+  id: string
+  name: string
+  sub: string
+}
+
+/** 已选主推商品（有序） */
+const mainSkus = ref<FeaturedEntry[]>([])
+/** 已选置顶批发商（有序） */
+const pinnedWas = ref<FeaturedEntry[]>([])
+/** 候选池：本店在售 SKU */
+const skuCandidates = ref<FeaturedEntry[]>([])
+/** 候选池：本店批发商 */
+const waCandidates = ref<FeaturedEntry[]>([])
+/** 添加用多选临时值（change 后立即清空，避免重复注入） */
+const pendingMainAdd = ref<string[]>([])
+const pendingWaAdd = ref<string[]>([])
+
+const mainSelectedIds = computed(() => new Set(mainSkus.value.map((s) => s.id)))
+const waSelectedIds = computed(() => new Set(pinnedWas.value.map((w) => w.id)))
+
+const fetchFeatured = async () => {
+  featuredLoading.value = true
+  try {
+    const cfg = await storefrontApi.getFeatured()
+    const was = await wholesalerApi.list().catch(() => [] as Wholesaler[])
+
+    // 候选池：批发商（仅 ACTIVE 在驻）
+    waCandidates.value = (was ?? [])
+      .filter((w) => w.status !== 'OFFLINE')
+      .map((w) => ({ id: String(w.id), name: w.name, sub: `商户 · ${w.status === 'ACTIVE' ? '正常' : '其他'}` }))
+
+    // 候选池：本店在售 SKU（逐商户拉取合并，仅 listed）
+    const skuList: FeaturedEntry[] = []
+    for (const w of was ?? []) {
+      if (w.status === 'OFFLINE') continue
+      try {
+        const skus = await skuApi.list(String(w.id))
+        for (const s of skus ?? []) {
+          if (!s.listed) continue
+          skuList.push({ id: String(s.id), name: s.name, sub: `${w.name}${s.spec ? ` · ${s.spec}` : ''}` })
+        }
+      } catch {
+        // 单个商户拉取失败不阻断整体候选
+      }
+    }
+    skuCandidates.value = skuList
+
+    // 回显（后端已有序；不在候选池的 id 保留占位，避免下架后配置丢失）
+    mainSkus.value = (cfg?.mainSkuIds ?? []).map((id) => {
+      const hit = skuList.find((s) => s.id === String(id))
+      return hit ?? { id: String(id), name: `商品 ${String(id).slice(-6)}`, sub: '已下架或不在候选' }
+    })
+    pinnedWas.value = (cfg?.pinWaIds ?? []).map((id) => {
+      const hit = waCandidates.value.find((w) => w.id === String(id))
+      return hit ?? { id: String(id), name: `商户 ${String(id).slice(-6)}`, sub: '已退出或不在候选' }
+    })
+    featuredDirty.value = false
+  } catch {
+    // 后端接口未就绪/网络异常：全局 toast 已提示；保留空态可重试
+    featuredDirty.value = false
+  } finally {
+    featuredLoading.value = false
+  }
+}
+
+const onAddMainSkus = (ids: string[]) => {
+  const fresh = ids.filter((id) => !mainSelectedIds.value.has(id))
+  for (const id of fresh) {
+    if (mainSkus.value.length >= 20) break
+    const hit = skuCandidates.value.find((s) => s.id === id)
+    if (hit) mainSkus.value.push({ ...hit })
+  }
+  pendingMainAdd.value = []
+  featuredDirty.value = true
+}
+
+const onAddWa = (ids: string[]) => {
+  const fresh = ids.filter((id) => !waSelectedIds.value.has(id))
+  for (const id of fresh) {
+    if (pinnedWas.value.length >= 5) break
+    const hit = waCandidates.value.find((w) => w.id === id)
+    if (hit) pinnedWas.value.push({ ...hit })
+  }
+  pendingWaAdd.value = []
+  featuredDirty.value = true
+}
+
+const moveItem = <T>(arr: T[], from: number, dir: -1 | 1) => {
+  const to = from + dir
+  if (to < 0 || to >= arr.length) return
+  const [item] = arr.splice(from, 1)
+  arr.splice(to, 0, item)
+  featuredDirty.value = true
+}
+
+const removeMainSku = (id: string) => {
+  mainSkus.value = mainSkus.value.filter((s) => s.id !== id)
+  featuredDirty.value = true
+}
+
+const removePinnedWa = (id: string) => {
+  pinnedWas.value = pinnedWas.value.filter((w) => w.id !== id)
+  featuredDirty.value = true
+}
+
+const saveFeatured = async () => {
+  if (mainSkus.value.length > 20) {
+    ElMessage.warning('主推商品最多 20 件')
+    return
+  }
+  if (pinnedWas.value.length > 5) {
+    ElMessage.warning('置顶批发商最多 5 家')
+    return
+  }
+  featuredSaving.value = true
+  try {
+    await storefrontApi.updateFeatured({
+      mainSkuIds: mainSkus.value.map((s) => s.id),
+      pinWaIds: pinnedWas.value.map((w) => w.id),
+    })
+    ElMessage.success('撮合运营配置已保存，店铺页将按新顺序展示')
+    featuredDirty.value = false
+    await fetchFeatured() // 刷新快照（后端去重/钳制后的权威序）
+  } catch {
+    // 50711-50714 等：全局 toast 已提示
+  } finally {
+    featuredSaving.value = false
+  }
+}
+
+const resetFeatured = () => {
+  void fetchFeatured()
+  ElMessage.info('已还原为当前生效的撮合配置')
+}
+
 onMounted(() => {
   void fetchSettings()
   void fetchRules()
+  void fetchFeatured()
 })
 </script>
 
@@ -772,6 +925,125 @@ onMounted(() => {
             <p v-if="!canSaveRule" class="hint">※ 请至少启用一种计费维度并填写单价</p>
           </section>
 
+          <!-- 撮合运营（P5-A W4 · 独立数据源 GET/PUT /tenant/storefront/featured，独立保存） -->
+          <section class="card" v-loading="featuredLoading" data-test="featured-card">
+            <div class="featured-head">
+              <h3 class="card__title">撮合运营</h3>
+              <span class="featured-head__desc">
+                主推商品 ≤20、置顶批发商 ≤5，可排序；保存后店铺页按此顺序展示「主推」「置顶」标识
+              </span>
+            </div>
+
+            <!-- 主推商品 -->
+            <div class="featured-block">
+              <div class="featured-block__head">
+                <span class="featured-block__name">
+                  <el-icon class="featured-block__icon"><StarFilled /></el-icon>
+                  主推商品
+                </span>
+                <el-select
+                  v-model="pendingMainAdd"
+                  multiple
+                  filterable
+                  clearable
+                  collapse-tags
+                  :max-collapse-tags="2"
+                  class="featured-block__select"
+                  :disabled="mainSkus.length >= 20"
+                  :placeholder="mainSkus.length >= 20 ? '已达上限（20 件）' : '搜索并选择要主推的商品（可多选）'"
+                  @change="onAddMainSkus"
+                >
+                  <el-option
+                    v-for="s in skuCandidates"
+                    :key="s.id"
+                    :value="s.id"
+                    :label="`${s.name}（${s.sub}）`"
+                    :disabled="mainSelectedIds.has(s.id)"
+                  />
+                </el-select>
+                <span class="featured-block__count">{{ mainSkus.length }}/20</span>
+              </div>
+
+              <ul v-if="mainSkus.length > 0" class="featured-list">
+                <li v-for="(s, idx) in mainSkus" :key="s.id" class="featured-item">
+                  <span class="featured-item__idx">{{ idx + 1 }}</span>
+                  <div class="featured-item__main">
+                    <span class="featured-item__name">{{ s.name }}</span>
+                    <span class="featured-item__sub">{{ s.sub }}</span>
+                  </div>
+                  <div class="featured-item__ops">
+                    <el-button size="small" :icon="Top" :disabled="idx === 0" @click="moveItem(mainSkus, idx, -1)" />
+                    <el-button size="small" :icon="Bottom" :disabled="idx === mainSkus.length - 1" @click="moveItem(mainSkus, idx, 1)" />
+                    <el-button size="small" type="danger" :icon="Delete" @click="removeMainSku(s.id)" />
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="featured-block__empty">尚未设置主推商品</p>
+            </div>
+
+            <el-divider class="thin" />
+
+            <!-- 置顶批发商 -->
+            <div class="featured-block">
+              <div class="featured-block__head">
+                <span class="featured-block__name">
+                  <el-icon class="featured-block__icon"><StarFilled /></el-icon>
+                  置顶批发商
+                </span>
+                <el-select
+                  v-model="pendingWaAdd"
+                  multiple
+                  filterable
+                  clearable
+                  collapse-tags
+                  :max-collapse-tags="2"
+                  class="featured-block__select"
+                  :disabled="pinnedWas.length >= 5"
+                  :placeholder="pinnedWas.length >= 5 ? '已达上限（5 家）' : '搜索并选择要置顶的批发商（可多选）'"
+                  @change="onAddWa"
+                >
+                  <el-option
+                    v-for="w in waCandidates"
+                    :key="w.id"
+                    :value="w.id"
+                    :label="`${w.name}（${w.sub}）`"
+                    :disabled="waSelectedIds.has(w.id)"
+                  />
+                </el-select>
+                <span class="featured-block__count">{{ pinnedWas.length }}/5</span>
+              </div>
+
+              <ul v-if="pinnedWas.length > 0" class="featured-list">
+                <li v-for="(w, idx) in pinnedWas" :key="w.id" class="featured-item">
+                  <span class="featured-item__idx">{{ idx + 1 }}</span>
+                  <div class="featured-item__main">
+                    <span class="featured-item__name">{{ w.name }}</span>
+                    <span class="featured-item__sub">{{ w.sub }}</span>
+                  </div>
+                  <div class="featured-item__ops">
+                    <el-button size="small" :icon="Top" :disabled="idx === 0" @click="moveItem(pinnedWas, idx, -1)" />
+                    <el-button size="small" :icon="Bottom" :disabled="idx === pinnedWas.length - 1" @click="moveItem(pinnedWas, idx, 1)" />
+                    <el-button size="small" type="danger" :icon="Delete" @click="removePinnedWa(w.id)" />
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="featured-block__empty">尚未设置置顶批发商</p>
+            </div>
+
+            <div class="featured-actions">
+              <el-button :disabled="!featuredDirty" @click="resetFeatured">取消</el-button>
+              <el-button
+                type="primary"
+                :loading="featuredSaving"
+                :disabled="!featuredDirty"
+                data-test="featured-save"
+                @click="saveFeatured"
+              >
+                保存
+              </el-button>
+            </div>
+          </section>
+
           <!-- 容量（可选） -->
           <section class="card">
             <h3 class="card__title">额定容量（可选）</h3>
@@ -1025,6 +1297,115 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* 撮合运营卡 */
+.featured-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.featured-head__desc {
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
+}
+.featured-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.featured-block__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.featured-block__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-fg-1);
+  min-width: 96px;
+}
+.featured-block__icon {
+  color: #d4a017;
+}
+.featured-block__select {
+  width: 320px;
+  max-width: 100%;
+}
+.featured-block__count {
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+.featured-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.featured-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-2);
+  border-radius: var(--radius-base);
+}
+.featured-item__idx {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-brand-accent);
+  color: #fff;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.featured-item__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.featured-item__name {
+  color: var(--color-fg-1);
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.featured-item__sub {
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.featured-item__ops {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.featured-block__empty {
+  margin: 0;
+  color: var(--color-fg-4);
+  font-size: var(--font-size-caption);
+  padding: var(--space-2) 0;
+}
+.featured-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 /* ===== 操作栏 ===== */

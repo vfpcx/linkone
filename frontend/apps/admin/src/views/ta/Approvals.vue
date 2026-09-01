@@ -130,6 +130,7 @@ const IMPLEMENTED = new Set([
   '/ta/pricing',
   '/ta/inbound',
   '/ta/outbound',
+  '/ta/messages',
 ])
 
 const activeMenu = ref('/ta/approvals')

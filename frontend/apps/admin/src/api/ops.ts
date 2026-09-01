@@ -13,8 +13,11 @@
 
 import { request } from './http'
 import type {
+  Announcement,
+  AnnouncementListQuery,
   BlacklistItem,
   BlacklistListQuery,
+  CreateAnnouncementRequest,
   CreateBlacklistRequest,
   PageRecords,
 } from '@cangchu/api-types'
@@ -31,4 +34,36 @@ export const opsApi = {
   /** ✅ P2 · 移除黑名单（置 REMOVED；不存在 50311） */
   removeBlacklist: (id: string) =>
     request<void>({ method: 'DELETE', url: `/ops/blacklist/${id}` }),
+
+  // ============================================================
+  // P5-A W3 · 平台公告管理（18-p5-design §4.2，OPS 登录态）
+  // ============================================================
+
+  /** 公告列表（可 status 过滤；records/total 分页） */
+  listAnnouncements: (params?: AnnouncementListQuery) =>
+    request<PageRecords<Announcement>>({
+      method: 'GET',
+      url: '/ops/announcements',
+      params,
+    }),
+
+  /** 公告详情 */
+  getAnnouncement: (id: string) =>
+    request<Announcement>({ method: 'GET', url: `/ops/announcements/${id}` }),
+
+  /** 创建公告草稿（title ≤128 / content ≤512 / targetRoles 至少一个；落 DRAFT；返回新公告 id） */
+  createAnnouncement: (data: CreateAnnouncementRequest) =>
+    request<{ id: string | number }>({
+      method: 'POST',
+      url: '/ops/announcements',
+      data,
+    }),
+
+  /** 发布公告（DRAFT→PUBLISHED；同事务批量写目标角色站内信；非法迁移 50702） */
+  publishAnnouncement: (id: string) =>
+    request<void>({ method: 'POST', url: `/ops/announcements/${id}/publish` }),
+
+  /** 下架公告（PUBLISHED→INACTIVE；已发站内信保留） */
+  inactivateAnnouncement: (id: string) =>
+    request<void>({ method: 'POST', url: `/ops/announcements/${id}/inactivate` }),
 }

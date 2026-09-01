@@ -166,6 +166,15 @@ export const messagesZh: Record<number, string> = {
   [ErrorCode.STATE_BILL_DISPUTE_PENDING_EXISTS]: '该账单已有待处理申诉',
   [ErrorCode.STATE_BILL_ITEM_NOT_REVERSIBLE]: '该条目不可冲销或已被冲销',
 
+  // P5-A 通知中心 / 平台公告 / 撮合运营（50701-50703 + 50711-50714 · 18-p5-design §5 userMessage 对齐）
+  [ErrorCode.STATE_ANNOUNCEMENT_NOT_FOUND]: '公告不存在',
+  [ErrorCode.STATE_ANNOUNCEMENT_STATUS_INVALID]: '公告状态已变化，无法执行该操作',
+  [ErrorCode.STATE_ANNOUNCEMENT_TARGET_ROLE_INVALID]: '目标角色组无效，请重新选择',
+  [ErrorCode.STATE_FEATURED_MAIN_SKU_OVER_LIMIT]: '主推商品最多 20 件，请减少后再保存',
+  [ErrorCode.STATE_FEATURED_PINNED_OVER_LIMIT]: '置顶批发商最多 5 家，请减少后再保存',
+  [ErrorCode.STATE_FEATURED_DUPLICATE]: '主推/置顶列表中存在重复条目',
+  [ErrorCode.STATE_FEATURED_REF_INVALID]: '所选商品或批发商无效（非本店在售商品 / 非本店入驻批发商）',
+
   // BUSINESS
   [ErrorCode.BUSINESS_INSUFFICIENT_STOCK]: '库存不足',
   [ErrorCode.BUSINESS_SKU_UNLISTED]: 'SKU 已下架',

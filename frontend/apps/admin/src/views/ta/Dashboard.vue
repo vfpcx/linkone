@@ -44,7 +44,8 @@ import { AppTopbar, CapacityBar, StatusBadge, NavCountBadge } from '@cangchu/ui-
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { accountApi } from '@/api/account'
-import { mockTenantDashboard, mockNotifications, mockMyRoles } from '@/mocks/dashboard'
+import { notificationApi } from '@/api/notification'
+import { mockTenantDashboard, mockMyRoles } from '@/mocks/dashboard'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -82,8 +83,8 @@ const handleProfileMenu = async (key: string) => {
 
 // ============ 数据 ============
 const dashboard = ref(mockTenantDashboard)
-const notifications = ref(mockNotifications)
-const unreadCount = computed(() => notifications.value.filter((n) => n.unread).length)
+// 未读站内信（P5-A W4 · 顶栏铃铛角标，来源 GET /notifications/unread-count，轮询既有）
+const unreadCount = ref(0)
 const loading = ref(false)
 
 const fetchDashboard = async () => {
@@ -95,6 +96,20 @@ const fetchDashboard = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const fetchUnreadCount = async () => {
+  try {
+    const data = await notificationApi.unreadCount()
+    unreadCount.value = Number(data?.count ?? data ?? 0)
+  } catch {
+    // 全局 toast 已提示；角标降级为 0，不影响工作台
+  }
+}
+
+// 铃铛点击 → 消息中心（P5-A W4 · 顶栏铃铛入口）
+const openMessages = () => {
+  router.push('/ta/messages')
 }
 
 // ============ 菜单 ============
@@ -154,7 +169,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ta/stocktake' ||
     key === '/ta/batches' ||
     key === '/ta/clearance' ||
-    key === '/ta/bills'
+    key === '/ta/bills' ||
+    key === '/ta/messages'
   ) {
     router.push(key)
     return
@@ -205,7 +221,10 @@ const todayDate = computed(() => {
   return `${d.getMonth() + 1}/${d.getDate()}`
 })
 
-onMounted(fetchDashboard)
+onMounted(() => {
+  void fetchDashboard()
+  void fetchUnreadCount()
+})
 </script>
 
 <template>
@@ -216,20 +235,15 @@ onMounted(fetchDashboard)
         <WarehouseSwitcher />
       </template>
       <template #bell>
-        <el-popover trigger="click" placement="bottom-end" :width="320">
-          <template #reference>
-            <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="cc-topbar__bell">
-              <el-button text :icon="Bell" />
-            </el-badge>
-          </template>
-          <div class="notif">
-            <div v-for="n in notifications" :key="n.id" class="notif__item" :class="{ unread: n.unread }">
-              <span>{{ n.title }}</span>
-              <span class="notif__time">{{ n.time }}</span>
-            </div>
-            <div v-if="notifications.length === 0" class="notif__empty">暂无通知</div>
-          </div>
-        </el-popover>
+        <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="cc-topbar__bell">
+          <el-button
+            text
+            :icon="Bell"
+            aria-label="站内信"
+            data-test="open-messages"
+            @click="openMessages"
+          />
+        </el-badge>
       </template>
     </AppTopbar>
 
@@ -615,31 +629,6 @@ onMounted(fetchDashboard)
   border-radius: var(--radius-sm);
   font-family: var(--font-family-mono);
   font-size: 12px;
-}
-
-/* ===== 通知弹层 ===== */
-.notif__item {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-3);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--font-size-body);
-  color: var(--color-fg-2);
-}
-.notif__item.unread {
-  background: var(--color-info-bg);
-  color: var(--color-fg-1);
-  font-weight: var(--font-weight-medium);
-}
-.notif__time {
-  color: var(--color-fg-3);
-  font-size: var(--font-size-caption);
-}
-.notif__empty {
-  text-align: center;
-  padding: var(--space-6);
-  color: var(--color-fg-4);
 }
 
 /* ===== 响应式 ===== */

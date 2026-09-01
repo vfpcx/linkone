@@ -6,6 +6,12 @@ export { default as CapacityBar } from './CapacityBar.vue'
 export { default as PriceBadge } from './PriceBadge.vue'
 export { default as NavCountBadge } from './NavCountBadge.vue'
 export { default as EntityPickerDialog } from './EntityPickerDialog.vue'
+export { default as NotificationList } from './NotificationList.vue'
+export {
+  type NotificationListItem,
+  type NotificationListPage,
+  type NotificationListQuery,
+} from './NotificationList.vue'
 export {
   makeClientPickerFetch,
   type EntityPickerColumn,
