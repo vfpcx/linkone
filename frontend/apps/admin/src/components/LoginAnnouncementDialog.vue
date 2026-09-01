@@ -28,7 +28,9 @@ const loading = ref(false)
 /** 会话内已检查标记（同一登录态只拉一次；登出后重置） */
 let checkedForSession = false
 
-const isAuthPage = () => ['/login', '/register', '/forgot-password'].includes(route.path)
+const AUTH_PATHS = ['/login', '/register', '/forgot-password']
+const isAuthPath = (p: string) => AUTH_PATHS.includes(p)
+const isAuthPage = () => isAuthPath(route.path)
 
 const checkAndShow = async () => {
   if (checkedForSession) return
@@ -74,6 +76,18 @@ watch(
     void checkAndShow()
   },
   { immediate: true },
+)
+
+// 登录成功时序补触发：setLoginPayload 触发 isAuthenticated watch 时路由仍在 /login（isAuthPage 早退），
+// 随后 router.replace 进入工作台不会再次触发 auth watch；此处监听路由离开认证页补一次检查，
+// 保证「登录即达」必弹（覆盖单角色直跳与多角色切换器进入两条路径；checkedForSession 保证仍只弹一次）。
+watch(
+  () => route.path,
+  (path, prev) => {
+    if (auth.isAuthenticated && isAuthPath(prev) && !isAuthPath(path)) {
+      void checkAndShow()
+    }
+  },
 )
 </script>
 
