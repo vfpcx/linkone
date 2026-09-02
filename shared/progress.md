@@ -2,6 +2,14 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-02 · B D56 商品档案收官（P5-D 起步，CodeBuddy 收口）
+
+- **A 波（OPS 控制台）收官后 B 波排期落地**：口径 `product/16`（D-B-1~7 全采纳）+ 设计 `architecture/22` 定稿并实现
+- **后端（63917bc）**：V38 `spus` 平台级表 + `skus` 标品快照 3 列（16:16 首跑发现 H2 不支持单条 ALTER 多列 ADD，改逐条 ADD 后修复）；product 域 Spu 全套（requireOps 42002 / ACTIVE/OFFLINE/MERGED 状态机 / 合并源 MERGED + 引用 SKU 单 SQL 原子重指 + 快照刷新 / 自动编码唯一）；OpsSpuController（/ops/spus* + spu-categories）+ CatalogSpuController（登录态只读 /catalog/spus，补 TA 选标品越权盲点）；SkuServiceImpl 挂接 ACTIVE 校验 + 快照列写；OpsSpuScenarioTest 7 例
+- **前端（fb01030）**：views/ops/SpuCatalog.vue（搜索/新增两级品类联动/合并/下架）+ OPS 菜单 5→6 项统一（5 页同步）+ TA Skus.vue 建 SKU 选标品（搜索 ACTIVE / 回填 spuId / 列表展示所属标品）+ api-types Spu 契约；typecheck 通过
+- **验证**：全量回归 **500 全绿**（55 测试类，0 失败 0 错误）
+- **收口**：roadmap v2.9 + 本记录 + docs 提交（16/22 已入库）随代码一并推送
+
 ## 2026-08-31 · W7 验收核对 + B2 遗留修复 + guardrails v3
 
 - **W7 验收核对**（前端逐页 + 后端 VO 对照 15 §5.2 清单，结论：**覆盖完整、无缺陷**）

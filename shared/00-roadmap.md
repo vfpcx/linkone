@@ -16,7 +16,7 @@
 | **P2** | 入驻生态 + 定价能力 | ✅ 已完成 |
 | **P3** | 完整单据与履约异常 | ✅ 已完成 |
 | **P4** | 计费结算 | ✅ 已完成 |
-| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA+OPS) 真实接口 ✅** + **TA 一账号多仓收敛 ✅**；2026-09-02 拍板排期 **A ✅ → B D56 商品档案 → C 小项池 → D X期本地 → F 正式多端**；E/P5-B OSS+ASR 维持挂起）|
+| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA+OPS) 真实接口 ✅** + **TA 一账号多仓收敛 ✅** + **B D56 商品档案(P5-D 起步) ✅**；2026-09-02 拍板排期 **A ✅ → B ✅ D56 商品档案 → C 小项池 → D X期本地 → F 正式多端**；E/P5-B OSS+ASR 维持挂起）|
 | **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅；部署侧 W8-L1~L6 待环境，其中本地可做项 L1/L4/L5 已排期 D 波 2026-09-02）|
 
 ---
@@ -66,7 +66,7 @@
 - 其余（OPS 控制台指标、ST/RT 正式多端、语音 ASR 录单、文件/OSS、capacity 快照 job【挂待环境档】）未拍板
 - **后续排期（2026-09-02 用户拍板按 A→B→C→D→F 推进）**：
   - **A · OPS 控制台真实接口 ✅ 2026-09-02 已收官**（P5-C 完成）：`/ops/dashboard` 占位页转真实接口——后端 `OpsDashboardServiceImpl`（tenant 域聚合 + requireOps 42002）+ document/notify 跨域出口（countPendingForOps / countComplaintsCreatedToday / countDrafts）+ `OpsDashboardScenarioTest` 7 例（基线差分）；前端 `views/ops/Dashboard.vue` + OPS 菜单 5 项统一；全量回归 493 全绿；口径 `product/15`、设计 `21-p5c`
-  - **B · D56 商品档案体系**（P5-D 起步）：OPS 标品库（US-OPS-02）+ SKU 挂 SPU + 两级品类/规格体系消费（spus/spec_types/spec_values 表 V5 已建、`skus.spu_id` 已留位）
+  - **B · D56 商品档案体系 ✅ 2026-09-02 已收官**（P5-D 起步）：OPS 标品库（US-OPS-02，SpuCatalog.vue 搜索/新增两级品类联动/合并/下架）+ SKU 挂 SPU（TA 建 SKU 选 ACTIVE 标品回填 spuId + 列表展示所属标品）+ V38 `spus` 平台级表落地 + `skus` 标品快照 3 列（挂接/合并原子刷新）；口径 `product/16`（D-B-1~7 全采纳）、设计 `architecture/22`；backend 63917bc / frontend fb01030；全量回归 500 全绿
   - **C · 小项池**（P5-D 顺延）：US-WK-05 移库 / US-RT-05 历史询价复购 / US-WE-04 客户跟进，逐项拆解每项一波
   - **D · X 期本地收尾**（不待环境）：W8-L4 CVE 复扫（OWASP dep-check/Trivy）+ W8-L5 graceful shutdown 实测 + W8-L1 还原演练脚本固化 `shared/ops/`
   - **F · 正式多端**（P5-C 余下）：ST 全功能 H5（US-ST-06 移交）+ RT 正式小程序/H5（uni-app 栈，D09）
@@ -109,3 +109,4 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v2.6 | 2026-09-02 | **P5-C Dashboard(TA) 真实接口 + TA 一账号多仓收敛**：19-p5c TA 工作台真实接口（89bfb6d/0ac4fc8/fb900f4）+ 20-p5 TA 端 X-Tenant-Id 收敛（TenantScopeAuthSupport：scoped + 该仓角色二次校验 + 回退；tenant/dashboard/billing/batch 共 11 处 gate；前端零改动）；TenantMultiWarehouseScenarioTest 7 例 + 全量回归 486 全绿 |
 | v2.7 | 2026-09-02 | **后续排期拍板 A→B→C→D→F**（TA/WA 多仓 + P5-A/P5-C(TA) 收官后）：A OPS 控制台真实接口（P5-C 收官）→ B D56 商品档案（P5-D 起步）→ C 小项池（移库/复购/客户跟进）→ D X 期本地收尾（CVE 复扫/graceful shutdown/还原演练脚本，不待环境）→ F 正式多端（ST 全功能 H5 + RT 小程序/H5）；E/P5-B（OSS+ASR）维持挂起待云账号与选型 |
 | v2.8 | 2026-09-02 | **A OPS 平台运营控制台真实接口（P5-C 收官）**：15-p5c 口径拍板（D-OPS-1~6）+ 21-p5c 设计定稿 + 后端实现（tenant 域聚合 OpsDashboardServiceImpl + document/notify 跨域计数出口 + OpsDashboardScenarioTest 7 例基线差分）+ 前端 Dashboard.vue（占位页转真实）+ OPS 菜单 5 项统一；全量回归 493 全绿 |
+| v2.9 | 2026-09-02 | **B D56 商品档案收官（P5-D 起步）**：product/16 口径（D-B-1~7 全采纳）+ architecture/22 设计定稿并实现——V38 `spus` 平台级表 + `skus` 标品快照 3 列（逐条 ADD 兼容 H2）；product 域 Spu 全套（requireOps 42002 / ACTIVE/OFFLINE/MERGED 状态机 / 合并源 MERGED+引用 SKU 单 SQL 原子重指+快照刷新 / 自动编码唯一）+ OpsSpuController + CatalogSpuController（登录态只读 /catalog/spus，补 TA 选标品越权盲点）+ SpuCatalog 两级品类字典；SkuServiceImpl 挂 ACTIVE 校验 + 快照写（backend 63917bc）；前端 SpuCatalog.vue + OPS 菜单 5→6 统一 + TA Skus.vue 选标品（frontend fb01030）；OpsSpuScenarioTest 7 例 + 全量回归 500 全绿 |
