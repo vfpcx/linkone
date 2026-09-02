@@ -284,6 +284,8 @@ const form = reactive({
   batchNo: '' as string,
   productionDate: '' as string,
   expiryDate: '' as string,
+  // P5-D C2 货位（locationEnabled=1 时登记必填 50822；自由文本 ≤64）
+  location: '' as string,
 })
 
 const rules: FormRules = {
@@ -342,12 +344,15 @@ const myTenantId = computed(() => {
 })
 
 const batchEnabled = ref<boolean | null>(null)
+/** 货位功能开关（C2 25-p5-c-c2 §4.1：null=拉取失败保守显示；false 关闭档隐藏零字段） */
+const locationEnabled = ref<boolean | null>(null)
 
 const fetchBatchConfig = async () => {
   if (!myTenantId.value) return
   try {
     const cfg = await batchApi.config(myTenantId.value)
     batchEnabled.value = cfg.batchEnabled === 1
+    locationEnabled.value = cfg.locationEnabled === 1
   } catch {
     // 42001/网络异常：保持 null（保守显示批次字段）
   }
@@ -643,6 +648,8 @@ const registerForm = reactive({
   palletQty: undefined as number | undefined,
   remark: '',
   attachments: [] as string[],
+  // C2 货位（locationEnabled=1 时登记必填）
+  location: '',
 })
 
 const openRegister = (row: InboundRequest) => {
@@ -651,6 +658,7 @@ const openRegister = (row: InboundRequest) => {
   registerForm.palletQty = row.palletQty ?? undefined
   registerForm.remark = ''
   registerForm.attachments = []
+  registerForm.location = ''
   registerVisible.value = true
 }
 
@@ -701,6 +709,8 @@ const doForwardRegister = async (expiredConfirmed: boolean): Promise<void> => {
     ...(registerForm.palletQty !== undefined && registerForm.palletQty !== null
       ? { palletQty: Number(registerForm.palletQty) }
       : {}),
+    // C2 货位：开关启用时后端必填 50822（客户端信任后端权威）
+    ...(registerForm.location.trim() ? { location: registerForm.location.trim() } : {}),
     ...(registerForm.remark.trim() ? { remark: registerForm.remark.trim() } : {}),
     ...(registerForm.attachments.length ? { attachments: registerForm.attachments } : {}),
     ...(expiredConfirmed ? { expiredConfirmed: true } : {}),
@@ -1200,6 +1210,22 @@ onMounted(() => {
                 />
               </el-form-item>
             </div>
+            <!-- P5-D C2 货位（locationEnabled=true 必填 *；false 关闭档隐藏零字段；unknown 保守显示） -->
+            <div v-if="locationEnabled !== false" class="inbound-form__row">
+              <el-form-item
+                :label="locationEnabled === true ? '放置货位 *' : '放置货位（开启货位管理时必填）'"
+                class="inbound-form__item"
+                data-test="proxy-location"
+              >
+                <el-input
+                  v-model="form.location"
+                  maxlength="64"
+                  placeholder="如 A-01-03（自由文本 ≤64；登记后随单留痕，有批次时同步批次行）"
+                  class="full-width"
+                  data-test="proxy-location-input"
+                />
+              </el-form-item>
+            </div>
             <p v-if="batchFieldError" class="batch-error" data-test="proxy-batch-error">
               {{ batchFieldError }}
             </p>
@@ -1384,6 +1410,21 @@ onMounted(() => {
               :step="1"
               class="full-width"
               data-test="register-actual-qty"
+            />
+          </el-form-item>
+
+          <!-- P5-D C2 货位（locationEnabled=1 登记必填 50822） -->
+          <el-form-item
+            v-if="locationEnabled !== false"
+            :label="locationEnabled === true ? '放置货位（必填）' : '放置货位（开启货位管理时必填）'"
+            :required="locationEnabled === true"
+            data-test="register-location"
+          >
+            <el-input
+              v-model="registerForm.location"
+              maxlength="64"
+              placeholder="如 A-01-03（自由文本 ≤64）"
+              data-test="register-location-input"
             />
           </el-form-item>
 

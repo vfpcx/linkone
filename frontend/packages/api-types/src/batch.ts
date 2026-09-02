@@ -55,6 +55,26 @@ export interface Batch {
   /** WK 一键通知商户时刻（24h 冷却基准，50367） */
   manualNotifiedAt: string | null
   clearedAt: string | null
+  /** 货位号（P5-D C2：自由文本 ≤64；空=未指定；出库拣货联想的货位清单数据源） */
+  location: string | null
+  createdAt: string
+}
+
+/** 批次移库入参（PUT /tenant/batches/{id}/location · P5-D C2：location null=清空货位） */
+export interface BatchLocationUpdateRequest {
+  /** 新货位号 ≤64（null=清空） */
+  location?: string | null
+}
+
+/** 批次移库变更记录（GET /tenant/batches/{id}/location-logs · P5-D C2） */
+export interface BatchLocationLog {
+  id: SnowflakeId
+  batchId: SnowflakeId
+  /** 原货位（无旧值为 null） */
+  fromLocation: string | null
+  /** 新货位（清空时为 null） */
+  toLocation: string | null
+  operatorUserId: SnowflakeId
   createdAt: string
 }
 
@@ -95,6 +115,8 @@ export interface TenantBatchConfig {
   batchEnabledAt: string | null
   /** 临期阈值天数（默认 30） */
   expiryThresholdDays: number
+  /** 货位功能开关（P5-D C2：1=开启后出入库登记货位必填 + 批次可移库；各端显隐统一读本字段） */
+  locationEnabled: number
 }
 
 /** 默认批次补录（PUT /tenant/batches/{id}；仅 source=DEFAULT 且非 CLEARED/CLOSED） */

@@ -75,6 +75,8 @@ export interface TenantSettings {
    */
   billingDim?: 'QTY' | 'PALLET' | 'BOTH' | string
   expiryThresholdDays?: number       // 临期阈值（仅批次启用时有效）
+  /** 货位功能开关（P5-D C2：后端 0/1；无副作用随通用设置保存） */
+  locationEnabled?: number
 
   // 容量
   totalQty?: number
@@ -415,6 +417,8 @@ export interface InboundRegisterRequest {
   expiryDate?: string
   /** 过期批次强警告二次确认凭据（50364 回显后重发 true） */
   expiredConfirmed?: boolean
+  /** 货位号 ≤64（P5-D C2：货位开关启用时代建登记必填 50822；有批次号时同步批次货位） */
+  location?: string
 }
 
 /**
@@ -545,6 +549,8 @@ export interface InboundForwardRegisterRequest {
    * 到效期 ≤ 今天且缺此凭据 → 50364；前端弹强警告确认后重发 true）
    */
   expiredConfirmed?: boolean
+  /** 货位号 ≤64（P5-D C2：货位开关启用时登记必填 50822；单据有批次号时同步批次货位） */
+  location?: string
 }
 
 /** R3 纠错单状态 */

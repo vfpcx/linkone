@@ -172,6 +172,7 @@ const form = reactive({
   lat: undefined as number | undefined,
   // 5 开关
   batchEnabled: false,
+  locationEnabled: false, // C2 货位功能（无副作用，随本页保存生效）
   photoMode: 'OPTIONAL' as PhotoMode,
   capacityVisibility: 'WA_ONLY' as CapacityVisibility,
   capacityPrecision: 'EXACT' as CapacityPrecision,
@@ -215,6 +216,7 @@ const applyToForm = (s: TenantSettings) => {
   form.lat = s.address?.lat
 
   form.batchEnabled = !!s.batchEnabled
+  form.locationEnabled = s.locationEnabled === 1
   form.photoMode = s.photoMode ?? 'OPTIONAL'
   form.capacityVisibility = s.capacityVisibility ?? 'WA_ONLY'
   form.capacityPrecision = s.capacityPrecision ?? 'EXACT'
@@ -257,6 +259,8 @@ const buildPayload = (): UpdateTenantSettingsRequest => ({
   capacityVisibility: form.capacityVisibility,
   capacityPrecision: form.capacityPrecision,
   expiryThresholdDays: form.batchEnabled ? form.expiryThresholdDays : undefined,
+  // C2 货位功能：无副作用（纯显隐+必填校验），随通用设置提交（对照 batchEnabled 禁改走专用端点）
+  locationEnabled: form.locationEnabled ? 1 : 0,
   totalQty: form.totalQty,
   totalPallet: form.totalPallet,
 })
@@ -745,6 +749,25 @@ onMounted(() => {
                 inactive-text="关闭"
                 inline-prompt
                 data-test="batch-toggle-switch"
+              />
+            </div>
+
+            <el-divider class="thin" />
+
+            <!-- 1b. 货位管理（P5-D C2 US-WK-05：无副作用，随本页保存生效） -->
+            <div class="switch-row">
+              <div class="switch-row__label">
+                <span class="switch-row__name">货位管理</span>
+                <span class="switch-row__desc">
+                  开启后入库登记须填放置货位、出库登记须填拣出货位，批次登记簿可移库并留变更记录；关闭=出入库不录货位，存量货位保留
+                </span>
+              </div>
+              <el-switch
+                v-model="form.locationEnabled"
+                active-text="启用"
+                inactive-text="关闭"
+                inline-prompt
+                data-test="location-toggle-switch"
               />
             </div>
 

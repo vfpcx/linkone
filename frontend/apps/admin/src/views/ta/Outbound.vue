@@ -67,6 +67,7 @@ import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { tenantOutboundApi } from '@/api/outbound'
 import { inventoryApi } from '@/api/inventory'
+import { batchApi } from '@/api/batch'
 import { wholesalerApi } from '@/api/wholesaler'
 import { skuApi } from '@/api/sku'
 import { accountApi } from '@/api/account'
@@ -282,6 +283,38 @@ const registerPalletRelease = ref<number | undefined>(undefined)
 const registerPoolPallet = ref<number | null>(null)
 const registerSuggested = ref<number | null>(null)
 const registerSubmitting = ref(false)
+// P5-D C2：拣货位输入 + 在库批次货位联想（K-6：读既有 GET /tenant/batches 的 location 字段）
+const registerLocation = ref('')
+const locationChips = ref<string[]>([])
+
+/** 货位功能开关（C2：null=拉取失败保守显示；false 关闭档隐藏零字段） */
+const locationEnabled = ref<boolean | null>(null)
+
+const fetchLocationConfig = async () => {
+  const id = auth.tenantInfo?.tenantId ?? auth.roles?.find((r) => r.tenantId)?.tenantId
+  if (!id) return
+  try {
+    const cfg = await batchApi.config(String(id))
+    locationEnabled.value = cfg.locationEnabled === 1
+  } catch {
+    // 拉取失败保持 null（保守显示货位字段）
+  }
+}
+
+const fetchLocationChips = async (row: OutboundRequest) => {
+  locationChips.value = []
+  if (!locationEnabled.value) return
+  try {
+    const list = await batchApi.list({ wholesalerId: String(row.wholesalerId), skuId: String(row.skuId) })
+    const seen = new Set<string>()
+    for (const b of list.list ?? []) {
+      if (b.location) seen.add(b.location)
+    }
+    locationChips.value = [...seen].slice(0, 8)
+  } catch {
+    // 静默：联想失败仅影响建议，不影响登记
+  }
+}
 
 /**
  * 默认建议值（13 v1.2 备注 6 口径）：件数创建时已扣 → 变动前在库 = 当前池 qty + 单据 qty；
@@ -299,6 +332,8 @@ const onRegister = async (row: OutboundRequest) => {
   registerPoolPallet.value = null
   registerSuggested.value = null
   registerPalletRelease.value = undefined
+  registerLocation.value = ''
+  void fetchLocationChips(row) // C2 拣货位联想（在库批次货位）
   registerVisible.value = true
   try {
     const list = await inventoryApi.query({
@@ -323,12 +358,13 @@ const onRegisterSubmit = async () => {
   registeringId.value = String(row.id)
   registerSubmitting.value = true
   try {
-    const updated = await tenantOutboundApi.register(
-      String(row.id),
-      registerPalletRelease.value !== undefined && registerPalletRelease.value !== null
+    const updated = await tenantOutboundApi.register(String(row.id), {
+      ...(registerPalletRelease.value !== undefined && registerPalletRelease.value !== null
         ? { palletRelease: Number(registerPalletRelease.value) }
-        : undefined,
-    )
+        : {}),
+      // C2 拣货位（locationEnabled=1 后端必填 50822；非空才随单提交）
+      ...(registerLocation.value.trim() ? { location: registerLocation.value.trim() } : {}),
+    })
     registerVisible.value = false
     ElMessage.success(`出库单 ${updated.docNo} 已登记出库`)
     await refreshAll()
@@ -441,6 +477,8 @@ const proxyForm = reactive({
   skuId: '' as string,
   qty: undefined as number | undefined,
   palletQty: undefined as number | undefined,
+  // P5-D C2 拣货位（locationEnabled=1 代建出库必填 50822）
+  location: '' as string,
 })
 
 const proxyRules: FormRules = {
@@ -594,6 +632,7 @@ const openProxyDialog = () => {
   proxyForm.skuId = ''
   proxyForm.qty = undefined
   proxyForm.palletQty = undefined
+  proxyForm.location = ''
   onhand.value = null
   invRows.value = []
   proxyVisible.value = true
@@ -628,6 +667,10 @@ const onProxySubmit = async () => {
   if (proxyForm.palletQty !== undefined && proxyForm.palletQty !== null) {
     payload.palletQty = Number(proxyForm.palletQty)
   }
+  // C2 拣货位（locationEnabled=1 后端必填 50822；客户端信任后端权威）
+  if (proxyForm.location.trim()) {
+    payload.location = proxyForm.location.trim()
+  }
   proxySubmitting.value = true
   try {
     const created = await tenantOutboundApi.createByWk(payload)
@@ -653,6 +696,7 @@ const onProxySubmit = async () => {
 onMounted(() => {
   void refreshAll()
   void fetchWholesalers()
+  void fetchLocationConfig()
 })
 </script>
 
@@ -1002,6 +1046,22 @@ onMounted(() => {
             class="full-width"
           />
         </el-form-item>
+        <!-- P5-D C2 拣货位（locationEnabled=1 代建出库必填 50822） -->
+        <el-form-item
+          v-if="locationEnabled !== false"
+          :label="locationEnabled === true ? '拣货位 *' : '拣货位（开启货位管理时必填）'"
+          :required="locationEnabled === true"
+          prop="location"
+          data-test="proxy-location"
+        >
+          <el-input
+            v-model="proxyForm.location"
+            maxlength="64"
+            placeholder="如 B-03-06（自由文本 ≤64）"
+            class="full-width"
+            data-test="proxy-location-input"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="proxyVisible = false">取消</el-button>
@@ -1087,6 +1147,34 @@ onMounted(() => {
               </template>
               <template v-else>留空则按默认比例建议值释放；可改（含 0），落库前封顶</template>
             </span>
+          </el-form-item>
+
+          <!-- P5-D C2 拣货位（locationEnabled=1 登记出库必填 50822；联想=在库批次货位 K-6） -->
+          <el-form-item
+            v-if="locationEnabled !== false"
+            :label="locationEnabled === true ? '拣货位 *' : '拣货位（开启货位管理时必填）'"
+            :required="locationEnabled === true"
+            data-test="outbound-location"
+          >
+            <el-input
+              v-model="registerLocation"
+              maxlength="64"
+              placeholder="如 B-03-06（自由文本 ≤64）"
+              class="full-width"
+              data-test="outbound-location-input"
+            />
+            <div v-if="locationChips.length" class="location-chips">
+              <span class="location-chips__hint">在库批次货位：</span>
+              <el-tag
+                v-for="lc in locationChips"
+                :key="lc"
+                size="small"
+                class="location-chips__tag"
+                @click="registerLocation = lc"
+              >
+                {{ lc }}
+              </el-tag>
+            </div>
           </el-form-item>
         </el-form>
       </template>
@@ -1296,6 +1384,20 @@ onMounted(() => {
   margin-left: var(--space-3);
   color: var(--color-fg-3);
   font-size: var(--font-size-caption);
+}
+.location-chips {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.location-chips__hint {
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
+}
+.location-chips__tag {
+  cursor: pointer;
 }
 .full-width {
   width: 100%;

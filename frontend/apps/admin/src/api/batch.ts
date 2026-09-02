@@ -24,9 +24,12 @@ import type {
   Batch,
   BatchBackfillRequest,
   BatchList,
+  BatchLocationLog,
+  BatchLocationUpdateRequest,
   BatchToggleRequest,
   BatchToggleResult,
   ExpiryDashboard,
+  MpPage,
   TenantBatchConfig,
 } from '@cangchu/api-types'
 
@@ -85,6 +88,22 @@ export const batchApi = {
     request<TenantBatchConfig>({
       method: 'GET',
       url: `/wholesaler/tenants/${tenantId}/batch-config`,
+    }),
+
+  /** 批次移库（PUT /tenant/batches/{id}/location · P5-D C2：location null=清空货位；无差异幂等不落日志；批次不存在/跨租户 50363） */
+  updateLocation: (id: string, data?: BatchLocationUpdateRequest) =>
+    request<Batch>({
+      method: 'PUT',
+      url: `/tenant/batches/${id}/location`,
+      data,
+    }),
+
+  /** 批次移库变更记录（GET /tenant/batches/{id}/location-logs · P5-D C2：倒序分页 ≤50/页） */
+  locationLogs: (id: string, params: { page?: number; size?: number } = {}) =>
+    request<MpPage<BatchLocationLog>>({
+      method: 'GET',
+      url: `/tenant/batches/${id}/location-logs`,
+      params: { page: params.page ?? 1, size: params.size ?? 20 },
     }),
 
   /** 商户侧批次下钻/临期卡（WA/WE 只读） */

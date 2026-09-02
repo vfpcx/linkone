@@ -47,7 +47,14 @@ import {
   makeClientPickerFetch,
   type EntityPickerColumn,
 } from '@cangchu/ui-shared'
-import type { Batch, BatchStatus, ExpiryDashboard, Sku, Wholesaler } from '@cangchu/api-types'
+import type {
+  Batch,
+  BatchLocationLog,
+  BatchStatus,
+  ExpiryDashboard,
+  Sku,
+  Wholesaler,
+} from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
@@ -372,6 +379,73 @@ const onStartClearance = (b: Batch) => {
 const canBackfill = (b: Batch): boolean =>
   String(b.source) === 'DEFAULT' && !['CLEARED', 'CLOSED'].includes(String(b.status))
 
+// ============ P5-D C2 货位（移库 + 变更记录 · US-WK-05，25-p5-c-c2 §4.4） ============
+const locationEnabled = ref<boolean | null>(null)
+
+const loadLocationConfig = async () => {
+  const id = auth.tenantInfo?.tenantId ?? auth.roles?.find((r) => r.tenantId)?.tenantId
+  if (!id) return
+  try {
+    const cfg = await batchApi.config(String(id))
+    locationEnabled.value = cfg.locationEnabled === 1
+  } catch {
+    // 保持 null（保守显示入口）
+  }
+}
+
+const canMoveLocation = (b: Batch): boolean =>
+  !['CLEARED', 'CLOSED'].includes(String(b.status))
+
+const moveVisible = ref(false)
+const moveTarget = ref<Batch | null>(null)
+const moveLocation = ref('')
+const moveSaving = ref(false)
+
+const openMove = (b: Batch) => {
+  moveTarget.value = b
+  moveLocation.value = b.location ?? ''
+  moveVisible.value = true
+}
+
+const doMove = async () => {
+  const target = moveTarget.value
+  if (!target) return
+  const next = moveLocation.value.trim()
+  moveSaving.value = true
+  try {
+    await batchApi.updateLocation(String(target.id), next ? { location: next } : { location: null })
+    moveVisible.value = false
+    ElMessage.success(
+      next ? `批次 ${target.batchNo} 已移库至 ${next}` : `批次 ${target.batchNo} 货位已清空`,
+    )
+    await refreshAll()
+  } catch {
+    // 全局 toast 已提示（50363/50823 等）
+  } finally {
+    moveSaving.value = false
+  }
+}
+
+const logsVisible = ref(false)
+const logsTarget = ref<Batch | null>(null)
+const logsRows = ref<BatchLocationLog[]>([])
+const logsLoading = ref(false)
+
+const openLogs = async (b: Batch) => {
+  logsTarget.value = b
+  logsRows.value = []
+  logsVisible.value = true
+  logsLoading.value = true
+  try {
+    const page = await batchApi.locationLogs(String(b.id), { page: 1, size: 50 })
+    logsRows.value = page.records ?? []
+  } catch {
+    // 全局 toast 已提示
+  } finally {
+    logsLoading.value = false
+  }
+}
+
 const backfillVisible = ref(false)
 const backfillTarget = ref<Batch | null>(null)
 const backfillSaving = ref(false)
@@ -428,6 +502,7 @@ onMounted(() => {
   void fetchNames()
   void fetchDashboard()
   void fetchExpiring()
+  void loadLocationConfig()
 })
 </script>
 
@@ -728,7 +803,15 @@ onMounted(() => {
                   <span class="cell-muted">{{ sourceLabel(row.source) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="105">
+              <!-- P5-D C2 货位：登记簿字段，任何开关状态均显示（存量空值 '—'）；移库仅 locationEnabled=1 可操作 -->
+              <el-table-column label="货位" width="115">
+                <template #default="{ row }">
+                  <span :class="{ 'cell-muted': !row.location }" data-test="batch-location">
+                    {{ row.location || '—' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="215">
                 <template #default="{ row }">
                   <el-button
                     v-if="canBackfill(row as Batch)"
@@ -740,7 +823,32 @@ onMounted(() => {
                   >
                     补录效期
                   </el-button>
-                  <span v-else class="cell-muted">—</span>
+                  <template v-if="locationEnabled === true">
+                    <el-button
+                      v-if="canMoveLocation(row as Batch)"
+                      size="small"
+                      plain
+                      data-test="move-loc-btn"
+                      @click="openMove(row as Batch)"
+                    >
+                      移库
+                    </el-button>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      data-test="loc-logs-btn"
+                      @click="openLogs(row as Batch)"
+                    >
+                      记录
+                    </el-button>
+                  </template>
+                  <span
+                    v-if="!canBackfill(row as Batch) && locationEnabled !== true"
+                    class="cell-muted"
+                  >
+                    —
+                  </span>
                 </template>
               </el-table-column>
             </el-table>
@@ -802,6 +910,70 @@ onMounted(() => {
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- P5-D C2 移库弹窗（改 batches.location + 落 batch_location_logs；location 可清空） -->
+    <el-dialog
+      v-model="moveVisible"
+      :title="`批次移库 · ${moveTarget?.batchNo ?? ''}`"
+      width="460px"
+      data-test="move-location-dialog"
+      :close-on-click-modal="false"
+    >
+      <template v-if="moveTarget">
+        <p class="decide-meta">
+          {{ skuLabel(moveTarget.skuId) }} · {{ wholesalerLabel(moveTarget.wholesalerId) }}
+          · 推算剩余 {{ moveTarget.remainingQty }} 件*
+          · 当前货位：{{ moveTarget.location || '未指定' }}
+        </p>
+        <el-form label-width="90px" @submit.prevent>
+          <el-form-item label="新货位">
+            <el-input
+              v-model="moveLocation"
+              maxlength="64"
+              placeholder="如 A-02-05；留空并保存=清空货位"
+              data-test="move-location-input"
+            />
+          </el-form-item>
+        </el-form>
+        <p class="backfill-hint">移库仅登记批次货位与变更记录，不影响库存/批次余量（零记账副作用）</p>
+      </template>
+      <template #footer>
+        <el-button @click="moveVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="moveSaving"
+          data-test="move-location-save"
+          @click="doMove"
+        >
+          保存移库
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- P5-D C2 移库变更记录（时间线 from→to / 操作人 / 时间；倒序最近在前） -->
+    <el-drawer
+      v-model="logsVisible"
+      :title="`货位变更记录 · ${logsTarget?.batchNo ?? ''}`"
+      size="420px"
+      data-test="location-logs-drawer"
+    >
+      <div v-loading="logsLoading" class="logs-body">
+        <p v-if="!logsLoading && !logsRows.length" class="logs-empty">暂无移库记录</p>
+        <el-timeline v-else>
+          <el-timeline-item
+            v-for="log in logsRows"
+            :key="log.id"
+            :timestamp="formatDate(log.createdAt)"
+            placement="top"
+          >
+            <p class="logs-item">
+              {{ log.fromLocation || '未指定' }} → {{ log.toLocation || '未指定' }}
+            </p>
+            <p class="logs-item-sub">{{ skuLabel(logsTarget?.skuId ?? '') }}</p>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -993,6 +1165,23 @@ onMounted(() => {
 }
 .full-w {
   width: 100%;
+}
+.logs-body {
+  min-height: 120px;
+}
+.logs-empty {
+  color: var(--color-fg-3);
+  text-align: center;
+  margin-top: 24px;
+}
+.logs-item {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.logs-item-sub {
+  margin: 0;
+  color: var(--color-fg-3);
+  font-size: var(--font-size-caption);
 }
 @media (max-width: 1024px) {
   .kpi-row {

@@ -167,6 +167,8 @@ export interface OutboundRequest {
   /** 1=已申请撤回待 WK 二次确认（仅 PRINTED 态有意义） */
   withdrawRequested: number | null
   withdrawRequestedAt: string | null
+  /** 拣出货位（P5-D C2：登记出库/代建落单留痕；未填为 null） */
+  location: string | null
   createdAt: string
 }
 
@@ -191,6 +193,8 @@ export interface WkOutboundCreateRequest {
   palletQty?: number
   confirmed: boolean
   restatedQty?: number
+  /** 拣出货位 ≤64（P5-D C2：货位开关启用时必填 50822） */
+  location?: string
 }
 
 /** 30 天客诉发起（OutboundComplainDto）：仅 source=WK_CREATED 且已出库；超窗 50339 */
@@ -397,6 +401,8 @@ export interface CountSheetDecideRequest {
 export interface OutboundRegisterRequest {
   /** 释放托盘覆盖值（可空=默认建议值；0 合法；落库前对在库托盘封顶） */
   palletRelease?: number
+  /** 拣出货位 ≤64（P5-D C2：货位开关启用时登记出库必填 50822） */
+  location?: string
 }
 
 // ============ 站内信（notifications） ============
