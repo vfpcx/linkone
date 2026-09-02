@@ -16,8 +16,8 @@
 | **P2** | 入驻生态 + 定价能力 | ✅ 已完成 |
 | **P3** | 完整单据与履约异常 | ✅ 已完成 |
 | **P4** | 计费结算 | ✅ 已完成 |
-| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA) ✅** + **TA 一账号多仓收敛 ✅**；OPS 指标/ST·RT 多端/ASR/OSS 待拍板）|
-| **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅，仅剩部署侧遗留 W8-L1~L6）|
+| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA+OPS) 真实接口 ✅** + **TA 一账号多仓收敛 ✅**；2026-09-02 拍板排期 **A ✅ → B D56 商品档案 → C 小项池 → D X期本地 → F 正式多端**；E/P5-B OSS+ASR 维持挂起）|
+| **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅；部署侧 W8-L1~L6 待环境，其中本地可做项 L1/L4/L5 已排期 D 波 2026-09-02）|
 
 ---
 
@@ -64,6 +64,13 @@
   - **P5-C · Dashboard 真实接口（TA）✅（2026-09-02）**：`architecture/19-p5c-dashboard-design.md`——GET /tenant/dashboard 真实数据（店铺概要+容量三档+待办计数），TenantDashboardVo/Service/Controller 新建 + CountSheetService.countPendingApprovalForTenant；TenantDashboardScenarioTest；提交 89bfb6d（backend）/0ac4fc8（frontend）/fb900f4（docs）
   - **TA 一账号多仓收敛 ✅（2026-09-02）**：`architecture/20-p5-ta-multi-warehouse.md`——TA 端接口 X-Tenant-Id 收敛：公共支持类 `TenantScopeAuthSupport`（TenantContext 优先 + 该仓角色二次校验防跨仓越权 + 回退登录态推导）；tenant 域 5 gate + dashboard（requireTaOrWk）+ billing 域 4 gate（requireTa/requireStOrTa）+ batch toggle 共 11 处改造，`apply`（注册建仓）/OPS/公开目录不收敛；前端零改动（http.ts 全量注入 + WarehouseSwitcher 已就位）；TenantMultiWarehouseScenarioTest 7 例（S1 隔离/S2 跨仓角色越权拒绝/S3 单仓兼容/S4 写操作落仓）+ 全量回归 486 绿
 - 其余（OPS 控制台指标、ST/RT 正式多端、语音 ASR 录单、文件/OSS、capacity 快照 job【挂待环境档】）未拍板
+- **后续排期（2026-09-02 用户拍板按 A→B→C→D→F 推进）**：
+  - **A · OPS 控制台真实接口 ✅ 2026-09-02 已收官**（P5-C 完成）：`/ops/dashboard` 占位页转真实接口——后端 `OpsDashboardServiceImpl`（tenant 域聚合 + requireOps 42002）+ document/notify 跨域出口（countPendingForOps / countComplaintsCreatedToday / countDrafts）+ `OpsDashboardScenarioTest` 7 例（基线差分）；前端 `views/ops/Dashboard.vue` + OPS 菜单 5 项统一；全量回归 493 全绿；口径 `product/15`、设计 `21-p5c`
+  - **B · D56 商品档案体系**（P5-D 起步）：OPS 标品库（US-OPS-02）+ SKU 挂 SPU + 两级品类/规格体系消费（spus/spec_types/spec_values 表 V5 已建、`skus.spu_id` 已留位）
+  - **C · 小项池**（P5-D 顺延）：US-WK-05 移库 / US-RT-05 历史询价复购 / US-WE-04 客户跟进，逐项拆解每项一波
+  - **D · X 期本地收尾**（不待环境）：W8-L4 CVE 复扫（OWASP dep-check/Trivy）+ W8-L5 graceful shutdown 实测 + W8-L1 还原演练脚本固化 `shared/ops/`
+  - **F · 正式多端**（P5-C 余下）：ST 全功能 H5（US-ST-06 移交）+ RT 正式小程序/H5（uni-app 栈，D09）
+  - **挂起不排**：E/P5-B（OSS/ASR 待外部选型+云账号）、capacity 快照 job（待环境）、US-WA-01b 容量告警（暂缓）
 
 ## X · 生产硬化（贯穿，上线前必过）🟡 进行中
 - **手机号明文加密(PII, H1)**——三段式，**W8 收口完成**（2026-09-01，main=72c5597，后端 H2 451 绿，架构师 §8.2 终验通过）：
@@ -100,3 +107,5 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v2.4 | 2026-09-01 | **P5-A 全绿收官**：W5 全量回归 470 后端 + 129 E2E + 8 视觉（6bf99b9/9ee9eb7/1dd627e/8ba046a）+ 历史链路修复 ONB-E2E-02（9104adf）/ ONB-E2E-04（9ee9eb7）+ 375 适配（27bad02）+ 交付报告定稿（d2c1483）+ manual findings 模板（11058f0）；P5 余下子项（viewer 脱敏/ASR/OSS/小程序/Dashboard）仍待拍板 |
 | v2.5 | 2026-09-02 | **WA 一账号多仓落地**（产品决策 2026-09-01）：V37 uk 维度调整 + 入驻同仓唯一 + 各接口 X-Tenant-Id 收敛 + 登录下发 storeName/tenantInfo；M-01/M-02 手动测试修复验证通过（472 后端全绿 + 前端 typecheck/build）；提交 036d133（backend）/3461e58（frontend）/943f8fd（docs） |
 | v2.6 | 2026-09-02 | **P5-C Dashboard(TA) 真实接口 + TA 一账号多仓收敛**：19-p5c TA 工作台真实接口（89bfb6d/0ac4fc8/fb900f4）+ 20-p5 TA 端 X-Tenant-Id 收敛（TenantScopeAuthSupport：scoped + 该仓角色二次校验 + 回退；tenant/dashboard/billing/batch 共 11 处 gate；前端零改动）；TenantMultiWarehouseScenarioTest 7 例 + 全量回归 486 全绿 |
+| v2.7 | 2026-09-02 | **后续排期拍板 A→B→C→D→F**（TA/WA 多仓 + P5-A/P5-C(TA) 收官后）：A OPS 控制台真实接口（P5-C 收官）→ B D56 商品档案（P5-D 起步）→ C 小项池（移库/复购/客户跟进）→ D X 期本地收尾（CVE 复扫/graceful shutdown/还原演练脚本，不待环境）→ F 正式多端（ST 全功能 H5 + RT 小程序/H5）；E/P5-B（OSS+ASR）维持挂起待云账号与选型 |
+| v2.8 | 2026-09-02 | **A OPS 平台运营控制台真实接口（P5-C 收官）**：15-p5c 口径拍板（D-OPS-1~6）+ 21-p5c 设计定稿 + 后端实现（tenant 域聚合 OpsDashboardServiceImpl + document/notify 跨域计数出口 + OpsDashboardScenarioTest 7 例基线差分）+ 前端 Dashboard.vue（占位页转真实）+ OPS 菜单 5 项统一；全量回归 493 全绿 |
