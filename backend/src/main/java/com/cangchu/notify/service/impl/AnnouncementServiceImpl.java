@@ -113,6 +113,15 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         announcementMapper.updateById(upd);
     }
 
+    @Override
+    public long countDrafts(Long opsUserId) {
+        requireOps(opsUserId);
+        // OPS 控制台「草稿待发布」待办（21 §3）：announcements status=DRAFT
+        Long cnt = announcementMapper.selectCount(new LambdaQueryWrapper<Announcement>()
+                .eq(Announcement::getStatus, Announcement.STATUS_DRAFT));
+        return cnt != null ? cnt : 0;
+    }
+
     // ==================== 内部 ====================
 
     private void requireOps(Long operatorId) {

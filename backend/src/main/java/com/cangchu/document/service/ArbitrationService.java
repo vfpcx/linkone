@@ -79,4 +79,17 @@ public interface ArbitrationService {
      * 与审批中心角标同口径（listForTa 不分 bizType，含入库异议 + 出库客诉）。
      */
     long countPendingForTa(Long tenantId);
+
+    // ==================== P5-C：OPS 控制台（21 §3，由 OpsDashboardService 统一 gate） ====================
+
+    /**
+     * OPS 控制台「客诉仲裁」待办计数：OUTBOUND_COMPLAINT 且 PENDING（与 listForOps 同口径）。
+     * 平台级无租户维度。
+     */
+    long countPendingForOps();
+
+    /**
+     * OPS 控制台今日新增客诉计数：OUTBOUND_COMPLAINT 且 created_at ≥ 今日 0 点。
+     */
+    long countComplaintsCreatedToday();
 }

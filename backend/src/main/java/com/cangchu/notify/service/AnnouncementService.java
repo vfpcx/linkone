@@ -24,4 +24,7 @@ public interface AnnouncementService {
 
     /** 下架：PUBLISHED→INACTIVE（已发站内信保留） */
     void inactivate(Long operatorId, Long id);
+
+    /** 公告草稿计数（P5-C OPS 控制台「草稿待发布」待办，21 §3；requireOps 42002）。 */
+    long countDrafts(Long opsUserId);
 }

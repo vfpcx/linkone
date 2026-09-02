@@ -394,6 +394,25 @@ public class ArbitrationServiceImpl implements ArbitrationService {
         return cnt != null ? cnt : 0;
     }
 
+    // ==================== P5-C：OPS 控制台（21 §3，OpsDashboardService 统一 gate） ====================
+
+    @Override
+    public long countPendingForOps() {
+        // OPS「客诉仲裁」待办：仅 OUTBOUND_COMPLAINT（出库客诉 OPS 裁），同 listForOps 口径
+        Long cnt = arbitrationMapper.selectCount(new LambdaQueryWrapper<Arbitration>()
+                .eq(Arbitration::getBizType, Arbitration.BIZ_OUTBOUND_COMPLAINT)
+                .eq(Arbitration::getStatus, Arbitration.STATUS_PENDING));
+        return cnt != null ? cnt : 0;
+    }
+
+    @Override
+    public long countComplaintsCreatedToday() {
+        Long cnt = arbitrationMapper.selectCount(new LambdaQueryWrapper<Arbitration>()
+                .eq(Arbitration::getBizType, Arbitration.BIZ_OUTBOUND_COMPLAINT)
+                .ge(Arbitration::getCreatedAt, LocalDateTime.now().toLocalDate().atStartOfDay()));
+        return cnt != null ? cnt : 0;
+    }
+
     // ==================== 私有 ====================
 
     /** OPS 平台角色鉴权（requireOpsRole 先例，写法对齐 BlacklistServiceImpl）。 */
