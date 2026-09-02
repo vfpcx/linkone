@@ -16,7 +16,7 @@
 | **P2** | 入驻生态 + 定价能力 | ✅ 已完成 |
 | **P3** | 完整单据与履约异常 | ✅ 已完成 |
 | **P4** | 计费结算 | ✅ 已完成 |
-| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官**：W3 ✅ W4 ✅ W5 ✅；其余子项待拍板）|
+| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA) ✅** + **TA 一账号多仓收敛 ✅**；OPS 指标/ST·RT 多端/ASR/OSS 待拍板）|
 | **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅，仅剩部署侧遗留 W8-L1~L6）|
 
 ---
@@ -61,7 +61,9 @@
   - **W3 后端 ✅（2026-09-01，457 绿）**：notify 域首次实现——通知中心增强（分组筛选 ANNOUNCE/BIZ/ALL + 全部已读 readAll）；平台公告 `announcements`（V35 迁移）+ OPS 管理（创建/列表/详情/发布/下架）+ 发布同事务批量写目标角色站内信（target_roles 展开收件人）；AuthService 新增平台级收件人反查出口（`listActiveUserIdsByRoles`/`listAllActiveUserIds`）；错误码 50501-50503（以实测定稿，见 `api-contract-notify.md`）；通知中心/公告集成测试覆盖收件人推导/状态机/权限/分组
   - **W4 ✅（2026-09-01）**：V36 撮合配置 `storefront_featured`（b2cb572）+ StorefrontFeature 模块（TA 配置 GET/PUT，mainSkuIds≤20/pinWaIds≤5，覆盖保存、数组顺序落 sort_order、校验 50711-50714）+ storefront 出参前置排序与 featured/pinned 标记（B1 租户过滤修复 4fc717b）；前端（6f0ca67）消息中心页/公告管理页/公告弹窗（登录即弹 B3 修复 315257c）/店铺撮合区块；E2E 公告 13/13 + 撮合 7/7 全绿（ad2c915）；契约文档补齐（a595db4：api-contract-account §5.9 + 新建 api-contract-notify/storefront）
   - **W5 ✅（2026-09-01）**：E2E 全量 18 spec/129 例全绿（6bf99b9 回归 121 + 9ee9eb7 视觉矩阵 8/8 + 41001 去重）+ 收尾修复：ONB-E2E-02 黑名单 REMOVED 摘要撞唯一键（backend 9104adf，BLK-05 红→绿双证，470 绿）+ ONB-E2E-04 http.ts 41001 弹窗去重（frontend 9ee9eb7）+ 公告弹窗 375 溢出修复（frontend 27bad02）+ 去 workaround 终验 129/129（1dd627e/8ba046a）；交付报告定稿 `test-plan/14-p5a-delivery-report.md`（d2c1483，470 后端 + 129 E2E + 8 视觉全绿），手动测试问题登记模板 `test-plan/15-manual-test-findings.md`（11058f0）
-- 其余（容量公示 viewer 脱敏、语音 ASR 录单、文件/OSS、RT 正式小程序/H5、Dashboard 真实联调）未拍板
+  - **P5-C · Dashboard 真实接口（TA）✅（2026-09-02）**：`architecture/19-p5c-dashboard-design.md`——GET /tenant/dashboard 真实数据（店铺概要+容量三档+待办计数），TenantDashboardVo/Service/Controller 新建 + CountSheetService.countPendingApprovalForTenant；TenantDashboardScenarioTest；提交 89bfb6d（backend）/0ac4fc8（frontend）/fb900f4（docs）
+  - **TA 一账号多仓收敛 ✅（2026-09-02）**：`architecture/20-p5-ta-multi-warehouse.md`——TA 端接口 X-Tenant-Id 收敛：公共支持类 `TenantScopeAuthSupport`（TenantContext 优先 + 该仓角色二次校验防跨仓越权 + 回退登录态推导）；tenant 域 5 gate + dashboard（requireTaOrWk）+ billing 域 4 gate（requireTa/requireStOrTa）+ batch toggle 共 11 处改造，`apply`（注册建仓）/OPS/公开目录不收敛；前端零改动（http.ts 全量注入 + WarehouseSwitcher 已就位）；TenantMultiWarehouseScenarioTest 7 例（S1 隔离/S2 跨仓角色越权拒绝/S3 单仓兼容/S4 写操作落仓）+ 全量回归 486 绿
+- 其余（OPS 控制台指标、ST/RT 正式多端、语音 ASR 录单、文件/OSS、capacity 快照 job【挂待环境档】）未拍板
 
 ## X · 生产硬化（贯穿，上线前必过）🟡 进行中
 - **手机号明文加密(PII, H1)**——三段式，**W8 收口完成**（2026-09-01，main=72c5597，后端 H2 451 绿，架构师 §8.2 终验通过）：
@@ -97,3 +99,4 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v2.3 | 2026-09-01 | P5-A W4 完成：撮合配置+storefront 出参（b2cb572，468 绿）+ 公告租户过滤修复（4fc717b）+ 前端四件套与登录即弹修复（6f0ca67/315257c）+ E2E 公告 13/13 撮合 7/7（ad2c915）+ 契约文档补齐（a595db4）；W3 公告错误码校正为实测 50501-50503（草案 50701-50703 作废）|
 | v2.4 | 2026-09-01 | **P5-A 全绿收官**：W5 全量回归 470 后端 + 129 E2E + 8 视觉（6bf99b9/9ee9eb7/1dd627e/8ba046a）+ 历史链路修复 ONB-E2E-02（9104adf）/ ONB-E2E-04（9ee9eb7）+ 375 适配（27bad02）+ 交付报告定稿（d2c1483）+ manual findings 模板（11058f0）；P5 余下子项（viewer 脱敏/ASR/OSS/小程序/Dashboard）仍待拍板 |
 | v2.5 | 2026-09-02 | **WA 一账号多仓落地**（产品决策 2026-09-01）：V37 uk 维度调整 + 入驻同仓唯一 + 各接口 X-Tenant-Id 收敛 + 登录下发 storeName/tenantInfo；M-01/M-02 手动测试修复验证通过（472 后端全绿 + 前端 typecheck/build）；提交 036d133（backend）/3461e58（frontend）/943f8fd（docs） |
+| v2.6 | 2026-09-02 | **P5-C Dashboard(TA) 真实接口 + TA 一账号多仓收敛**：19-p5c TA 工作台真实接口（89bfb6d/0ac4fc8/fb900f4）+ 20-p5 TA 端 X-Tenant-Id 收敛（TenantScopeAuthSupport：scoped + 该仓角色二次校验 + 回退；tenant/dashboard/billing/batch 共 11 处 gate；前端零改动）；TenantMultiWarehouseScenarioTest 7 例 + 全量回归 486 全绿 |
