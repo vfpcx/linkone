@@ -1,9 +1,9 @@
-# 17 · P5-D「小项池 C（US-WK-05 货位功能 / US-RT-05 专属价目复购 / US-WE-04 客户跟进）」需求拆解 v1.5
+# 17 · P5-D「小项池 C（US-WK-05 货位功能 / US-RT-05 专属价目复购 / US-WE-04 客户跟进）」需求拆解 v1.6
 
 > 编写：Team Lead · 2026-09-02
 > 依据：`02-user-stories.md`（US-WK-05/RT-05/WE-04，均 P1；US-WA-10/11 价格管理）+ `14-p5-requirements.md` §3 P5-D 小项池 + `99-open-questions.md` Q-D02/Q-D03 + 代码实测（pricing/inventory/document/tenant/notify 域现状）
-> 状态：**C1/C3 已实现（2026-09-02 双波收官，全量回归 517 全绿）**：C1 专属价目复购（架构 `architecture/23-p5-c-c1` v1.1：后端 POST /rt/my-pricelist + RtPriceListScenarioTest 12/12 绿 + 前端 Store.vue「我的价目」抽屉 + 契约 `api-contract-storefront` §3.3）；C3 客户跟进（架构 `architecture/24-p5-c-c3` v1.1：V39 两表 + /api/v1/tenant/customers 5 端点 + FollowupReminderJob + CustomerFollowupScenarioTest CF-01~05 5/5 绿 + 前端 wa 客户跟进页/菜单/铃铛标签 + customers.ts/api-types 契约，§3.3 已修订为落地契约）。**C2 货位功能用户指示「记录下来后面还是要做」→ 后续需求池（backlog）**，§2 需求记录完整保留，不随本波执行
-> 定位：roadmap v3.1 排期 **C · 小项池**（P5-D 收尾；C1→C3 双波，2026-09-02 收官）
+> 状态：**C1/C2/C3 全已实现（2026-09-02 C 波三子项收官，全量回归 524）**：C1 专属价目复购（架构 `architecture/23-p5-c-c1` v1.1：后端 POST /rt/my-pricelist + RtPriceListScenarioTest 12/12 绿 + 前端 Store.vue「我的价目」抽屉 + 契约 `api-contract-storefront` §3.3）；C3 客户跟进（架构 `architecture/24-p5-c-c3` v1.1：V39 两表 + /api/v1/tenant/customers 5 端点 + FollowupReminderJob + CustomerFollowupScenarioTest CF-01~05 5/5 绿 + 前端 wa 客户跟进页/菜单/铃铛标签 + customers.ts/api-types 契约，§3.3 已修订为落地契约）；**C2 货位功能（架构 `architecture/25-p5-c-c2` v1.1：V40 迁移 + 开关 locationEnabled 走通用 PUT /tenant/me + 出入库登记货位必填 50822 + 批次移库/变更记录 + LocationScenarioTest LV-01~06 7 例 + 前端 Settings/Inbound/Outbound/Batches 货位全链）由 backlog 转已实现**（2026-09-02 第三波补完，全量回归 524；首跑 3 flake 均为环境/顺序问题并修复：PiiWrite 41205 Redis `sms:daily` 跨运行累积清键恢复 + CustomerFollowup cf05 简码顺序耦合改 `TestUniq`）
+> 定位：roadmap v3.2 排期 **C · 小项池**（P5-D 收尾；C1→C3→C2 三波，2026-09-02 全收官）
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 子项 | US | 一句话 | 现状落差（代码实测 2026-09-02） | 建议顺序 |
 |---|---|---|---|---|
-| C1 专属价目复购 | US-RT-05 | RT 基于**客户专属价格表**（customer_prices）快速发起新一轮询价 | 无 RT 侧「我的价目」查询端点/视图；专属价体系（匹配/议价沉淀）后端已闭环 | **① 最先**：无新表，仅新增 RT 价目查询端点 + Store.vue 入口，风险最低 |
-| C2 货位功能 | US-WK-05 | 仓级**货位启用开关**；启用后出入库登记货位、批次可移库 | 全仓无货位概念；无 location 表/列；无移库流水/操作日志表（Q-D02/D03 未敲） | 📌 **后续池**：需求记录在案（2026-09-02 用户拍板），不随本波执行 |
-| C3 客户跟进 | US-WE-04 | WE 给重要客户打备注、设跟进提醒（站内信） | 无客户主档（客户=rt_phone）；无备注/提醒先例；无 WE 消息中心落地页 | ③ 最后：最大（新表 + Job + 页面） |
+| C1 专属价目复购 | US-RT-05 | RT 基于**客户专属价格表**（customer_prices）快速发起新一轮询价 | 无 RT 侧「我的价目」查询端点/视图；专属价体系（匹配/议价沉淀）后端已闭环 | ✅ ① 最先已实现：无新表，仅新增 RT 价目查询端点 + Store.vue 入口，风险最低 |
+| C2 货位功能 | US-WK-05 | 仓级**货位启用开关**；启用后出入库登记货位、批次可移库 | 全仓无货位概念；无 location 表/列；无移库流水/操作日志表（Q-D02/D03 未敲） | ✅ 已实现（2026-09-02 第三波补完，原 backlog 转执行）：V40 4 加列 + batch_location_logs + 开关 + 出入库登记货位 + 批次移库 |
+| C3 客户跟进 | US-WE-04 | WE 给重要客户打备注、设跟进提醒（站内信） | 无客户主档（客户=rt_phone）；无备注/提醒先例；无 WE 消息中心落地页 | ✅ ③ 已实现：最大（新表 + Job + 页面） |
 
-> 用户拍板 2026-09-02：**C1/C3 确认执行；C2（货位+批次）记录为后续需求池**。实际执行顺序 **C1→C3**；D-C-1~1d（C2）随需求记录待后续拍板，D-C-2~9 全默认采纳。
+> 用户拍板 2026-09-02：**C1/C3 确认执行；C2（货位+批次）记录为后续需求池**。实际执行顺序 **C1→C3→C2（C2 2026-09-02 第三波补完转已实现，D-C-1~1d 落地）**；D-C-2~9 全默认采纳。
 
 ---
 
@@ -57,9 +57,9 @@
 
 ---
 
-## 2. C2 · US-WK-05 货位功能（启用开关 + 出入库登记货位 + 批次移库）
+## 2. C2 · US-WK-05 货位功能（启用开关 + 出入库登记货位 + 批次移库）✅ 已实现 2026-09-02
 
-> **口径扩展 2026-09-02（用户补充）**：货位需有「是否启用」配置——**未启用时出入库不需要填货位**。故 C2 从原「批次库位标注」草案升级为完整货位功能：仓级开关 + 开启后出入库登记货位 + 批次移库（US-WK-05）。实现沿用例已存在的「批次开关 batchEnabled」全套机制（tenant_settings 列 + TA 开关 + 各端读开关显隐字段）。
+> **口径扩展 2026-09-02（用户补充）**：货位需有「是否启用」配置——**未启用时出入库不需要填货位**。故 C2 从原「批次库位标注」草案升级为完整货位功能：仓级开关 + 开启后出入库登记货位 + 批次移库（US-WK-05）。实现沿用例已存在的「批次开关 batchEnabled」全套机制（tenant_settings 列 + TA 开关 + 各端读开关显隐字段）。架构定稿与落地实现见 `architecture/25-p5-c-c2`（v1.1），以下 §2.2-2.4 为需求档案保留。
 
 ### 2.1 现状基线（代码实测）
 | 项 | 现状 | 影响 |
@@ -153,10 +153,10 @@
 
 | # | 决策点 | 拍板口径 | 状态 |
 |---|---|---|---|
-| D-C-1 | C2 口径（货位启用开关，关闭时出入库免填） | 货位功能三件套：仓级开关 locationEnabled + 开启后出入库登记货位 + 批次移库（US-WK-05） | 📌 记录（C2 backlog，见 §2 档案） |
-| D-C-1b | 货位形态 | 自由文本货位号（≤64，不做货位主档/字典表，预留升级） | 📌 记录 |
-| D-C-1c | 出库货位语义 | 登记出库按行指定拣出货位落单明细；不做选批次/批次级扣减（batches 非记账铁律） | 📌 记录 |
-| D-C-1d | 货位挂载 | 挂 batches.location + 出库单行；不建 per-location 库存维度 | 📌 记录 |
+| D-C-1 | C2 口径（货位启用开关，关闭时出入库免填） | 货位功能三件套：仓级开关 locationEnabled + 开启后出入库登记货位 + 批次移库（US-WK-05） | ✅ 已落地（2026-09-02 第三波，架构 25 → 实现） |
+| D-C-1b | 货位形态 | 自由文本货位号（≤64，不做货位主档/字典表，预留升级） | ✅ 已落地 |
+| D-C-1c | 出库货位语义 | 登记出库按行指定拣出货位落单明细；不做选批次/批次级扣减（batches 非记账铁律） | ✅ 已落地 |
+| D-C-1d | 货位挂载 | 挂 batches.location + 出库单行；不建 per-location 库存维度 | ✅ 已落地 |
 | D-C-2 | 执行顺序 | **C1→C3**（C2 顺延后续池）；每波一个子项，完成即验证+提交 | ✅ 已落地（双波 2026-09-02 收官） |
 | D-C-3 | C1 复购形态（否决「复制历史询价单」） | 走**客户专属价格表**：RT 填手机号 → 取当前店有效 customer_prices 价目 → 勾选 SKU/数量提交询价（取价=专属价命中） | ✅ 已落地 |
 | D-C-4 | C1 价目数据范围 | 以 customer_prices 有效行为准，不另建价目表实体；来源不限 | ✅ 已落地 |
@@ -166,7 +166,7 @@
 | D-C-8 | C3 备注形态 | remark 单行覆盖式（保留 updated_by/at） | ✅ 已落地 |
 | D-C-9 | C3 WE 操作授权 | WE 均可看客户列表、设备注/提醒（不新增授权位） | ✅ 已落地 |
 
-> C1/C3 全默认采纳 → 均已落地（架构 `23-p5-c-c1` / `24-p5-c-c3` → 实现）；C2 作为需求档案记录于 §2，后续单独排波。
+> C1/C2/C3 全默认采纳 → 均已落地（架构 `23-p5-c-c1` / `24-p5-c-c3` / `25-p5-c-c2` → 实现）；C2 曾记录于 §2 backlog，2026-09-02 第三波补完转已实现。
 
 ## 7. 不做（本轮）
 - C1：历史询价单复制、「我的意向单」历史页（待意向单模块按 US-WA-10 匹配规则实现）、收货信息/配送字段、RT 账号体系、语音复购、价目导出/打印
@@ -176,6 +176,7 @@
 ## 8. 变更记录
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v1.6 | 2026-09-02 | **C2 货位功能第三波实现完成（C 波 C1/C2/C3 三子项全收官）**：架构 `25-p5-c-c2` v1.0 定稿 → 实现——V40（tenant_settings.location_enabled 默认 0 + batches/inbound_requests/outbound_requests 3 处 location 加列 + batch_location_logs 新表，TenantLine 白名单）；tenant 域开关走通用 `PUT /tenant/me`（无副作用，对照 batchEnabled 专用 toggle）；inventory 域 registerInboundBatch 落 location + updateBatchLocation（幂等空转/清空/零记账）+ listLocationLogs + BatchController 2 端点；document 域出入库登记 4 DTO +location 按当刻开关必填 50822/超长 50823；前端 Settings/Inbound/Outbound/Batches 货位全链 + api-types 同步（typecheck 通过）；LocationScenarioTest LV-01~06 7 例；全量回归 **524**（首跑 3 flake 均为环境/顺序问题并修复：PiiWrite 41205 = Redis sms:daily 当日跨运行累积 → 清键恢复；CustomerFollowup cf05 = 本类 seedTenant 简码 `id%1000` 顺序耦合 → 改 `TestUniq` 全局唯一）；D-C-1~1d 标记已落地，§2 由 backlog 转已实现；头部状态同步 |
 | v1.5 | 2026-09-02 | **C3 第二波实现完成（P5-D 小项池 C1+C3 收官）**：架构 `24-p5-c-c3` v1.1（customerKey/wholesaler 行粒度、清档规则、Job CAS 防重、50840-42、V39 修正）；后端全落地（V39 两表 + TenantLine 白名单 + InquiryRequestMapper 聚合 + CustomerFollowupService/Controller 5 端点 + FollowupReminderJob 每 5 分钟 + Notification TYPE_CUSTOMER_FOLLOWUP）+ CustomerFollowupScenarioTest CF-01~05 5/5 绿 + 全量回归 517 全绿；前端 Customers.vue + 9 个 wa 视图菜单 + 路由 + NotificationBell 标签 + customers.ts/api-types（vue-tsc 0 错 + vite build 通过）；§3.3 契约草案修订为落地契约；D-C-2~9 全标记已落地；C2 货位功能仍留 Backlog |
 | v1.4 | 2026-09-02 | C1 第一波实现完成：架构 `23-p5-c-c1` v1.1 + 后端（pricing/product 出口 + storefront 编排 + POST /rt/my-pricelist）+ RtPriceListScenarioTest 12/12 绿 + 前端（价目抽屉 + api/api-types）+ 契约 `api-contract-storefront` §3.3；待全量回归与提交后启动 C3 |
 | v1.3 | 2026-09-02 | 用户拍板：C1/C3 确认执行（D-C-2~9 全采纳）；**C2（货位+批次）记录为后续需求池 backlog**（D-C-1~1d 记录在案，§2 作需求档案保留）；执行顺序 C1→C3，C1 第一波启动 |

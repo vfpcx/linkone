@@ -2,6 +2,20 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-02 · C2 货位功能收官（P5-D 小项池 C 波补完，CodeBuddy 收口）
+
+- **C2 货位功能（US-WK-05，product/17 §2 + DECISION D-C-1~1d）**：架构 `architecture/25-p5-c-c2` v1.0 定稿后实现（三件套：仓级开关 locationEnabled + 开启后出入库登记货位 + 批次移库）
+- **迁移 V40**（`V40__p5d_c2_location.sql` 单文件）：`tenant_settings.location_enabled`(默认 0) + `batches.location` + `inbound_requests.location` + `outbound_requests.location` 4 处加列 + 新表 `batch_location_logs`（from/to/operator/created_at；TenantLine 白名单追加）
+- **后端**：
+  - tenant 域：`StoreSettingsDto`/`TenantSettings`/`TenantDetailVo`/`TenantBatchConfigVo`/`TenantServiceImpl` 扩展 locationEnabled——**开关走通用 `PUT /tenant/me`**（纯字段显隐+必填约束、无冻结副作用，对照 batchEnabled 专用 toggle 不适用）
+  - inventory 域：`Batch`/`BatchVo` +location；新实体 `BatchLocationLog` + Mapper + Vo；`BatchServiceImpl.registerInboundBatch` 落 location；新增 `updateBatchLocation`（新旧相同幂等空转不落日志；null=清空；**零记账副作用**）与 `listLocationLogs`；`BatchController` +2 端点（PUT location / GET location-logs）；`BatchLocationUpdateDto`
+  - document 域：`InboundRequest`/`OutboundRequest` +location；登记 4 DTO（InboundRegisterDto/InboundForwardRegisterDto/OutboundRegisterDto/WkOutboundCreateDto）+location（@Size≤64）；Inbound/Outbound `registerByWk`/`registerForwardByWk`/`createByWk` 按**当刻开关**必填校验（50822）+ 落值 + 透传批次钩子；两个 VO +location
+  - ErrorCode 50822（LOCATION_REQUIRED）/50823（BATCH_LOCATION_TOO_LONG）；不动 batch-toggle（50360）、InventoryService 账务、stock_movements
+- **前端**（typecheck 通过）：ta/Settings.vue「启用货位」开关卡片（随通用设置提交）；ta/Inbound.vue 登记行货位字段（开关显隐/必填）；ta/Outbound.vue 登记/代建拣货位（批次货位联想 chips，读 `/tenant/batches` location 去重）；ta/Batches.vue 登记簿货位列 + 行内移库弹窗 + 变更记录抽屉；`api/batch.ts` +updateLocation/locationLogs + api-types 同步（Batch/Request/VO 全链路 location）
+- **测试**：`LocationScenarioTest` LV-01~06 7 例（默认关免填零回归 / 开必填 50822 / 落单落批次 / 出库零记账副作用断言 / 移库幂等+日志 / 关开关存量保留 / 跨租户 50363）；全量回归 **524**（首跑 3 flake 均为环境/顺序问题并已修复：PiiWrite 2 例 41205 = Redis `sms:daily` 当日多次运行累积超每号 10 次上限——清键恢复；CustomerFollowup cf05 t304 = C3 遗留 `seedTenant` 用 `id%1000` 简码在新增测试类后顺序撞唯一键——改 `TestUniq.tenantSimpleCode()` 全局唯一，见下）
+- **测试隔离修复（随波收口）**：`CustomerFollowupScenarioTest.seedTenant` 简码改 `TestUniq.tenantSimpleCode()`（仓库 22 个测试类唯一仍用 `id%1000` 的存量，消除跨类唯一约束顺序耦合）
+- **收口**：roadmap v3.2（C 波 C1/C2/C3 三子项全收官）+ product/17 v1.6（C2 由 backlog 转已实现，D-C-1~1d 标记落地）+ architecture/25 v1.1（标注已实现）+ 本记录
+
 ## 2026-09-02 · C 小项池 C1+C3 双波收官（P5-D 收尾，CodeBuddy 收口）
 
 - **C1 专属价目复购（US-RT-05）**：架构 `architecture/23-p5-c-c1` + 后端（pricing 出口 `listActiveRefsByPhone` + product 出口 `listForRtBySkuIds` + storefront 编排 `getMyPriceList` + `RtStoreController POST /my-pricelist`：按 wholesaler 分组价目、专属价/公开价对照、有效期）+ RtPriceListScenarioTest 12/12 绿 + 前端 rt/Store.vue「我的价目」抽屉（勾选数量提交询价、下架置灰、空态降级）+ api/rt.ts + api-types rt 契约 + `api-contract-storefront` §3.3
