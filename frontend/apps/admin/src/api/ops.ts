@@ -19,10 +19,18 @@ import type {
   BlacklistListQuery,
   CreateAnnouncementRequest,
   CreateBlacklistRequest,
+  OpsDashboardResponse,
   PageRecords,
 } from '@cangchu/api-types'
 
 export const opsApi = {
+  /**
+   * ✅ P5-C · OPS 平台运营控制台（21-p5c-ops-console-design §5；GET /ops/dashboard，requireOps，
+   * 非 OPS → 42002）：platform 平台规模 / pending 待办队列 / today 今日动态。
+   */
+  getDashboard: () =>
+    request<OpsDashboardResponse>({ method: 'GET', url: '/ops/dashboard' }),
+
   /** ✅ P2 · 黑名单分页列表（DEF-6 · §31：{records,total,page,size}，keyword 键值搜索） */
   listBlacklist: (params?: BlacklistListQuery) =>
     request<PageRecords<BlacklistItem>>({ method: 'GET', url: '/ops/blacklist', params }),

@@ -207,11 +207,12 @@ const routes: RouteRecordRaw[] = [
   },
 
   // OPS 工作台（P2 · 黑名单为 OPS 端第一个真实页面）
+  // OPS 平台运营控制台（P5-C · 21-p5c-ops-console-design：占位页转真实接口，OPS 登录默认页）
   {
     path: '/ops/dashboard',
     name: 'ops-dashboard',
-    component: () => import('@/views/PlaceholderDashboard.vue'),
-    meta: { role: 'OPS', title: '平台运维控制台' },
+    component: () => import('@/views/ops/Dashboard.vue'),
+    meta: { role: 'OPS', title: '平台运营控制台' },
   },
   {
     path: '/ops/tenant-audit',

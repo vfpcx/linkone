@@ -22,6 +22,7 @@ import {
   CircleClose,
   ScaleToOriginal,
   Stamp,
+  Bell,
   Plus,
   Refresh,
   Search,
@@ -70,6 +71,7 @@ const menus = [
   { key: '/ops/dashboard', label: '运营控制台', icon: Monitor },
   { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
+  { key: '/ops/announcements', label: '公告管理', icon: Bell },
   { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal },
 ]
 
@@ -81,6 +83,7 @@ const handleMenuSelect = (key: string) => {
   if (
     key === '/ops/dashboard' ||
     key === '/ops/tenant-audit' ||
+    key === '/ops/announcements' ||
     key === '/ops/arbitrations'
   ) {
     router.push(key)

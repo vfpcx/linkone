@@ -108,3 +108,38 @@ export interface AuditTenantRequest {
   /** REJECTED 时必填（驳回理由） */
   remark?: string
 }
+
+// ============================================================
+// P5-C · OPS 平台运营控制台（21-p5c-ops-console-design；产品口径 15-p5c-ops-console）
+//   GET /api/v1/ops/dashboard，requireOps，非 OPS → 42002
+//   平台级统计（OPS 无租户上下文，不进 TenantLine）
+// ============================================================
+
+/** OPS 控制台聚合响应：平台规模 / 待办队列 / 今日动态 */
+export interface OpsDashboardResponse {
+  /** 平台规模（只读概览） */
+  platform: {
+    /** 营业仓库数（tenants ACTIVE，自助 + OPS 代建合计） */
+    activeTenantCount: number
+    /** 入驻绑定数（APPROVED 申请；一账号入驻 N 仓计 N） */
+    wholesalerBindingCount: number
+    /** 生效黑名单数 */
+    activeBlacklistCount: number
+  }
+  /** 待办队列（数字与各管理页角标同口径） */
+  pending: {
+    /** 待审租户（→ 租户审核页） */
+    pendingTenantAudits: number
+    /** 待裁客诉（→ 客诉仲裁页） */
+    pendingComplaints: number
+    /** 公告草稿（→ 公告管理页） */
+    draftAnnouncements: number
+  }
+  /** 今日动态（今日 0 点起） */
+  today: {
+    /** 今日新入驻/新注册仓库 */
+    newTenantToday: number
+    /** 今日新增客诉 */
+    newComplaintsToday: number
+  }
+}
