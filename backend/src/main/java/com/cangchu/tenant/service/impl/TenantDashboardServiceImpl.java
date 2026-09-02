@@ -9,6 +9,7 @@ import com.cangchu.document.service.ClearanceRequestService;
 import com.cangchu.document.service.CountSheetService;
 import com.cangchu.document.service.DocumentStatsService;
 import com.cangchu.inventory.service.BatchService;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.tenant.entity.CapacityPublish;
 import com.cangchu.tenant.entity.Store;
 import com.cangchu.tenant.entity.WholesalerApplication;
@@ -46,6 +47,7 @@ public class TenantDashboardServiceImpl implements TenantDashboardService {
     private static final int EXPIRING_WINDOW_DAYS = 3;
 
     private final AuthService authService;
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
     private final TenantService tenantService;
     private final StoreMapper storeMapper;
     private final CapacityPublishMapper capacityPublishMapper;
@@ -135,12 +137,9 @@ public class TenantDashboardServiceImpl implements TenantDashboardService {
         return v != null ? v : 0;
     }
 
-    /** TA/WK 工作台 gate（19 §4；写法对齐 requireStOrTa：WK 回 TA 台复用工作台）。 */
+    /** TA/WK 工作台 gate（19 §4；20 §2 多仓收敛：该仓 TA 或 WK，无上下文回退登录态推导）。 */
     private Long requireTaOrWk(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
-        if (tenantId == null) {
-            tenantId = authService.findBoundTenantId(userId, "WK");
-        }
+        Long tenantId = tenantScopeAuthSupport.scopedTaOrWkTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "WE")) {
                 throw new BizException(ErrorCode.PERMISSION_ROLE_004);

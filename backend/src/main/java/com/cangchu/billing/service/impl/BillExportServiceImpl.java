@@ -17,6 +17,7 @@ import com.cangchu.billing.service.DailySnapshotService;
 import com.cangchu.billing.vo.DailyBreakdownRowVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.tenant.service.TenantService;
@@ -67,6 +68,8 @@ public class BillExportServiceImpl implements BillExportService {
     private final WholesalerService wholesalerService;
     private final SkuService skuService;
     private final AuthService authService;
+    // TA 一账号多仓收敛（20 §2）：TA/ST 端 gate 当前仓解析经 TenantScopeAuthSupport
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
 
     private static final String CONTENT_TYPE_XLSX =
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -268,12 +271,9 @@ public class BillExportServiceImpl implements BillExportService {
         }
     }
 
-    /** 读 gate：ST 或 TA 兼岗（billing 域 gate，W1-W3 同构）；WE 42004、其余 42001 */
+    /** 读 gate：ST 或 TA 兼岗（billing 域 gate，W1-W3 同构；20 §2 多仓收敛）；WE 42004、其余 42001 */
     private Long requireStOrTa(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
-        if (tenantId == null) {
-            tenantId = authService.findBoundTenantId(userId, "ST");
-        }
+        Long tenantId = tenantScopeAuthSupport.scopedTaOrStTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "WE")) {
                 throw new BizException(ErrorCode.PERMISSION_ROLE_004);

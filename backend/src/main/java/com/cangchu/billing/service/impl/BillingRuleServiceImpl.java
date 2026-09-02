@@ -11,6 +11,7 @@ import com.cangchu.billing.vo.BillingRuleVo;
 import com.cangchu.billing.vo.BillingRulesVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.notify.entity.Notification;
 import com.cangchu.notify.service.NotificationService;
@@ -48,6 +49,8 @@ public class BillingRuleServiceImpl implements BillingRuleService {
 
     private final BillingRuleMapper billingRuleMapper;
     private final AuthService authService;
+    // TA 一账号多仓收敛（20 §2）：TA/ST 端 gate 当前仓解析经 TenantScopeAuthSupport
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
     private final TenantService tenantService;
     private final WholesalerService wholesalerService;
     private final NotificationService notificationService;
@@ -262,9 +265,9 @@ public class BillingRuleServiceImpl implements BillingRuleService {
 
     // ==================== 鉴权（14 §2.4：写=TA；读=ST 或 TA；WE 42004、WK/WA 42001） ====================
 
-    /** 写：仅 TA（user_roles 登录态推导，不信任客户端；TenantServiceImpl.requireTaRole 同构）。 */
+    /** 写：仅 TA（20 §2 多仓收敛；TenantServiceImpl.requireTaRole 同构）。 */
     private Long requireTaRole(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "TA")) {
                 throw new BizException(ErrorCode.TENANT_NOT_FOUND, "请先完成建仓后再设置计费规则");
@@ -274,12 +277,9 @@ public class BillingRuleServiceImpl implements BillingRuleService {
         return tenantId;
     }
 
-    /** 读：ST 或 TA（billing 域新 gate，requireWkOrTa 同构先例）；WE 明确 42004，其余 42001。 */
+    /** 读：ST 或 TA（billing 域新 gate，requireWkOrTa 同构先例；20 §2 多仓收敛）；WE 明确 42004，其余 42001。 */
     private Long requireStOrTa(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
-        if (tenantId == null) {
-            tenantId = authService.findBoundTenantId(userId, "ST");
-        }
+        Long tenantId = tenantScopeAuthSupport.scopedTaOrStTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "WE")) {
                 throw new BizException(ErrorCode.PERMISSION_ROLE_004);

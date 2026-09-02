@@ -6,6 +6,7 @@ import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.tenant.TenantContext;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.inventory.dto.BatchBackfillDto;
 import com.cangchu.inventory.dto.BatchToggleDto;
@@ -74,6 +75,8 @@ public class BatchServiceImpl implements BatchService {
     private final StockMovementMapper stockMovementMapper;
     private final TenantService tenantService;
     private final AuthService authService;
+    // TA 一账号多仓收敛（20 §2）：toggle 当前仓解析经 TenantScopeAuthSupport
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
     private final SkuService skuService;
     private final NotificationService notificationService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -106,8 +109,8 @@ public class BatchServiceImpl implements BatchService {
         if (dto == null || dto.getEnable() == null) {
             throw new BizException(ErrorCode.VALIDATION_BASIC_003, "缺少开关目标状态");
         }
-        // S4：仅 TA；tenantId 由登录态推导（不取客户端）
-        Long tenantId = authService.findBoundTenantId(taUserId, "TA");
+        // S4：仅 TA；tenantId 当前仓收敛（20 §2：X-Tenant-Id 优先 + 该仓 TA 校验，回退登录态推导）
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(taUserId);
         if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND, "未找到您的租户");
         }

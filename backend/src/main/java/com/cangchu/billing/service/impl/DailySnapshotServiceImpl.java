@@ -18,6 +18,7 @@ import com.cangchu.billing.vo.SnapshotRecalcResultVo;
 import com.cangchu.billing.vo.SnapshotRunResultVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.inventory.dto.BillingPairView;
 import com.cangchu.inventory.service.InventoryService;
@@ -61,6 +62,8 @@ public class DailySnapshotServiceImpl implements DailySnapshotService {
     private final InventoryService inventoryService;
     private final WholesalerService wholesalerService;
     private final AuthService authService;
+    // TA 一账号多仓收敛（20 §2）：TA/ST 端 gate 当前仓解析经 TenantScopeAuthSupport
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
     private final SnowflakeIdUtil snowflakeIdUtil;
 
     /** 漏跑回补窗口（14 §1.2：Job 启动时回补缺口 ≤7 日——昨日之前 7 天内整日缺失才补） */
@@ -333,12 +336,9 @@ public class DailySnapshotServiceImpl implements DailySnapshotService {
         }
     }
 
-    /** 读/重算：ST 或 TA（billing 域 gate，BillingRuleServiceImpl 同构）；WE 42004、其余 42001。 */
+    /** 读/重算：ST 或 TA（billing 域 gate，BillingRuleServiceImpl 同构；20 §2 多仓收敛）；WE 42004、其余 42001。 */
     private Long requireStOrTa(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
-        if (tenantId == null) {
-            tenantId = authService.findBoundTenantId(userId, "ST");
-        }
+        Long tenantId = tenantScopeAuthSupport.scopedTaOrStTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "WE")) {
                 throw new BizException(ErrorCode.PERMISSION_ROLE_004);

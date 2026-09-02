@@ -37,6 +37,7 @@ import com.cangchu.billing.vo.StorageLineVo;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.tenant.TenantContext;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.common.file.AttachmentUrls;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.document.service.DocumentNumberService;
@@ -119,6 +120,8 @@ public class BillingServiceImpl implements BillingService {
     private final WholesalerService wholesalerService;
     private final SkuService skuService;
     private final AuthService authService;
+    // TA 一账号多仓收敛（20 §2）：TA/ST 端 gate 当前仓解析经 TenantScopeAuthSupport
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
     private final NotificationService notificationService;
     private final SnowflakeIdUtil snowflakeIdUtil;
 
@@ -1162,9 +1165,9 @@ public class BillingServiceImpl implements BillingService {
         return ids;
     }
 
-    /** TA 专属 gate（W5 总览补口，14 §6.3）：ST 不放行（42001）；WE 42004 */
+    /** TA 专属 gate（W5 总览补口，14 §6.3）：ST 不放行（42001）；WE 42004；20 §2 多仓收敛 */
     private Long requireTa(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "WE")) {
                 throw new BizException(ErrorCode.PERMISSION_ROLE_004);
@@ -1174,12 +1177,9 @@ public class BillingServiceImpl implements BillingService {
         return tenantId;
     }
 
-    /** 读写 gate：ST 或 TA 兼岗（billing 域 gate，W1/W2 同构）；WE 42004、其余 42001 */
+    /** 读写 gate：ST 或 TA 兼岗（billing 域 gate，W1/W2 同构；20 §2 多仓收敛）；WE 42004、其余 42001 */
     private Long requireStOrTa(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
-        if (tenantId == null) {
-            tenantId = authService.findBoundTenantId(userId, "ST");
-        }
+        Long tenantId = tenantScopeAuthSupport.scopedTaOrStTenantId(userId);
         if (tenantId == null) {
             if (authService.hasRole(userId, "WE")) {
                 throw new BizException(ErrorCode.PERMISSION_ROLE_004);

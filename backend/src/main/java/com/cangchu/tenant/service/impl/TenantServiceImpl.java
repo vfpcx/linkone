@@ -9,6 +9,7 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.common.tenant.TenantContext;
+import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.common.util.SmsUtil;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.tenant.dto.*;
@@ -51,6 +52,8 @@ public class TenantServiceImpl implements TenantService {
     private final WholesalerMapper wholesalerMapper;
     // user_roles 归 account 域，跨域鉴权/角色绑定经 AuthService（G-S1/G-S2）
     private final AuthService authService;
+    // TA 一账号多仓收敛（20 §2）：TA 端 gate 当前仓解析统一经 TenantScopeAuthSupport
+    private final TenantScopeAuthSupport tenantScopeAuthSupport;
     // users 表归 account 域，幂等查/建与显示名批量查询经 UserService（G-S1/G-S2 还债出口）
     private final UserService userService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -245,7 +248,7 @@ public class TenantServiceImpl implements TenantService {
     @Override
     public TenantDetailVo getMyStore(Long userId) {
         // 查找用户的 TA 角色已绑定租户（user_roles 归 account 域，经 AuthService）
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND, "未找到您的租户");
         }
@@ -256,7 +259,7 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public void updateMyStore(Long userId, StoreSettingsDto dto) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
         }
@@ -333,7 +336,7 @@ public class TenantServiceImpl implements TenantService {
 
     @Override
     public Map<String, String> getStoreQr(Long userId) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
         }
@@ -352,7 +355,7 @@ public class TenantServiceImpl implements TenantService {
     @Override
     @Transactional
     public Map<String, Object> generateInviteCode(Long userId, String targetRole, Integer maxUses, Integer expireDays) {
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             throw new BizException(ErrorCode.TENANT_NOT_FOUND);
         }
@@ -881,7 +884,7 @@ public class TenantServiceImpl implements TenantService {
      */
     private Long requireTaRole(Long userId) {
         // user_roles 归 account 域，经 AuthService（语义等价：优先取已绑租户的 TA 记录）
-        Long tenantId = authService.findBoundTenantId(userId, "TA");
+        Long tenantId = tenantScopeAuthSupport.scopedTaTenantId(userId);
         if (tenantId == null) {
             // 区分：有 TA 角色但未绑租户 → 50210；完全无 TA 角色 → 42001 越权
             if (authService.hasRole(userId, "TA")) {
