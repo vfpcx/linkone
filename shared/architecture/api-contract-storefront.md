@@ -115,6 +115,77 @@ Query 参数：
 
 `StoreSkuVo`：`skuId` / `wholesalerId`（string）、`name` / `spec` / `mainImage`、`unitPrice`（公开单价）、`moqPrice`（起批价）、`moqQty`（起批量）、`stockQty`（当前库存，>0 才出现在列表）、`matchedPrice`（客户专属价：仅已登录 RT 且命中有效专属价且 ≠ 公开单价时有值，否则 null）、`featured`（P5-A W4）。
 
+### 3.3 RT「我的价目」（C1 · US-RT-05 专属价复购 · 23-p5-c-c1 §4.1）
+
+> 公开只读端点（无需登录）；实现归属 storefront 域（`RtStoreController.myPriceList` → `StoreFrontServiceImpl.getMyPriceList`），跨域经 pricing 出口 `listActiveRefsByPhone` / product 出口 `listForRtBySkuIds` 编排。
+
+**`POST /api/v1/rt/my-pricelist`**
+
+请求（手机号放 POST body，**不放 GET query**——防明文手机号落访问日志）：
+
+```json
+{ "storeId": null, "code": "rp123", "rtPhone": "13800006666" }
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `storeId` | string\|null | 店铺 id（与 `code` 至少传一个，店铺解析同 `/rt/store`） |
+| `code` | string\|null | 店铺码 = 租户简码 `tenantSimpleCode` |
+| `rtPhone` | string | RT 手机号，必填（`@NotBlank`）；服务内 `PiiCrypto.phoneHmac` 盲查 |
+
+响应 `R<RtPriceListVo>`：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "rtPhoneLast4": "6666",
+    "wholesalers": [
+      {
+        "wholesalerId": "1842...",
+        "name": "xx批发",
+        "items": [
+          {
+            "skuId": "1842...",
+            "name": "雪花梨 5kg/箱",
+            "spec": "5kg/箱",
+            "mainImage": null,
+            "unitPrice": 25,
+            "moqPrice": 23,
+            "moqQty": 5,
+            "stockQty": 40,
+            "customerPrice": 21.5,
+            "expireAt": "2026-10-01T00:00:00",
+            "source": "from_inquiry",
+            "listed": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+字段语义：
+
+| 字段 | 说明 |
+|---|---|
+| `rtPhoneLast4` | 手机号尾号 4 位（归属提示）；**响应永不返回明文手机号** |
+| `wholesalers[].wholesalerId/name` | 店内 ACTIVE 批发商（无价目行的商户不出组，组序 = 店内批发商序） |
+| `items[].customerPrice` | 专属价现值（价目主价；BigDecimal 序列化为 number） |
+| `items[].unitPrice/moqPrice/moqQty` | 公开价对照（unitPrice 划线次要展示） |
+| `items[].source` | `manual`（商户设定）/ `from_inquiry`（议价沉淀） |
+| `items[].expireAt` | 专属价失效时间；null=永久有效 |
+| `items[].listed` | false=SKU 已下架（行仍返回，前端置灰禁提交） |
+| `items[].stockQty` | 当前库存量；0=缺货（可缺货询，不拦提交） |
+
+语义与过滤：价目 = 当前店全部 ACTIVE wholesaler × 该 hmac 的**有效**专属价行（`isActive`：status=ACTIVE 且未过期）；组内行按价目行 `createdAt` 倒序；过期/DISABLED/软删行不返回；空态（无任何有效专属价）返回 `wholesalers: []`，HTTP 200。
+
+提交：价目行勾选数量后**沿用既有** `POST /api/v1/rt/inquiry`（现价快照 + WA 确认议价链路），**无新增提交端点**。
+
+**零新错误码**：`rtPhone` 为空 → 通用参数校验 40001；店铺不存在/不可进 → 沿用 `/rt/store` 既有错误码。
+
 ---
 
 ## 4. 错误码（撮合配置相关，详见 05-error-codes.md）
@@ -138,3 +209,4 @@ Query 参数：
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-09-01 | 首版：固化 P5-A W4 契约——撮合配置 GET/PUT（TA 鉴权、覆盖保存、50711-50714 写前校验、顺序语义）+ RT 进店浏览出参扩展（featuredSkuIds/pinnedWholesalerIds/featured/pinned 与前置排序）。 |
+| v1.1 | 2026-09-02 | 增 §3.3 RT「我的价目」（C1）：POST `/rt/my-pricelist` 只读查询 + RtPriceListVo 出参 + 零新错误码；提交沿用 `/rt/inquiry`。 |

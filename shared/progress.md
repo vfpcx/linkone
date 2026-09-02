@@ -2,6 +2,14 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-02 · C 小项池 C1+C3 双波收官（P5-D 收尾，CodeBuddy 收口）
+
+- **C1 专属价目复购（US-RT-05）**：架构 `architecture/23-p5-c-c1` + 后端（pricing 出口 `listActiveRefsByPhone` + product 出口 `listForRtBySkuIds` + storefront 编排 `getMyPriceList` + `RtStoreController POST /my-pricelist`：按 wholesaler 分组价目、专属价/公开价对照、有效期）+ RtPriceListScenarioTest 12/12 绿 + 前端 rt/Store.vue「我的价目」抽屉（勾选数量提交询价、下架置灰、空态降级）+ api/rt.ts + api-types rt 契约 + `api-contract-storefront` §3.3
+- **C3 客户跟进（US-WE-04）**：架构 `architecture/24-p5-c-c3` v1.1 + V39（customer_followups wholesaler×rt_phone_hmac 唯一 + followup_reminders，TenantLine 白名单 + cf_/fr_ 索引）+ document 域 CustomerFollowupService/Controller（/api/v1/tenant/customers：list/detail/remark/reminders/delete；按 wholesaler×hmac 归并打码、customerKey = URL-safe base64(hmac) + wholesalerId 收敛、remark 覆盖式清档规则、50840-42）+ InquiryRequestMapper GROUP BY 聚合 + FollowupReminderJob（每 5 分钟到点站内信给创建 WE，CAS + 同事务防重发）+ Notification TYPE_CUSTOMER_FOLLOWUP + CustomerFollowupScenarioTest CF-01~05 5/5 绿
+- **前端 C3**：views/wa/Customers.vue（列表 + 详情抽屉：备注编辑/提醒新建删除/查全号复用 pii reveal）+ 9 个 wa 视图菜单追加「客户跟进」（ChatDotRound，紧跟询价确认）+ 路由 /wa/customers + NotificationBell「客户跟进」标签 + api/customers.ts + api-types tenant C3 类型；vue-tsc 0 错 + vite build 通过
+- **验证**：全量回归 **517 全绿**（500 基线 + C1 12 + C3 5，0 失败 0 错误）
+- **收口**：roadmap v3.1（C 已收官）+ 本记录 + docs 提交（17 v1.5 / 23 / 24 已入库）；**C2 货位功能**（US-WK-05）用户拍板「记录下来后面还是要做」→ 需求档案保留 product/17 §2，后续单独排波
+
 ## 2026-09-02 · B D56 商品档案收官（P5-D 起步，CodeBuddy 收口）
 
 - **A 波（OPS 控制台）收官后 B 波排期落地**：口径 `product/16`（D-B-1~7 全采纳）+ 设计 `architecture/22` 定稿并实现
