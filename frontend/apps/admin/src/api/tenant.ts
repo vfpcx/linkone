@@ -108,6 +108,14 @@ export const tenantApi = {
       params: { tenantId },
     }),
 
+  /**
+   * ✅ P5-C · TA 工作台聚合（19-p5c-dashboard-design；requireTa，WE→42004）
+   * KPI=待审计数（审批中心同口径）、capacity=精确值（TA 本人视角）、
+   * today=今日单据数+临期 3 天内、batchEnabled=批次开关
+   */
+  getDashboard: () =>
+    request<TenantDashboardResponse>({ method: 'GET', url: '/tenant/dashboard' }),
+
   /** ✅ OPS 审核入驻通过/驳回（REJECTED 时 remark 必填） */
   auditTenant: (id: string, data: AuditTenantRequest) =>
     request<void>({
@@ -147,10 +155,6 @@ export const tenantApi = {
   // 以下接口后端未实现，前端调用会 500（90001）
   // 等后续后端模块补齐后启用
   // ============================================================
-
-  /** ⚠️ NOT IMPL · 工作台聚合（前端暂用 mock） */
-  getDashboard: () =>
-    request<TenantDashboardResponse>({ method: 'GET', url: '/tenant/dashboard' }),
 
   /** ⚠️ NOT IMPL · 撮合店铺页 */
   getStoreFront: () =>

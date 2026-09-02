@@ -1,37 +1,9 @@
 /**
- * TA 工作台 mock 数据
- * 后端真实接口（GET /api/v1/tenant/dashboard 或聚合）跑通前用
+ * TA 工作台相关 mock（P5-C 起仅剩 UI 辅助数据；工作台真实数据走 GET /tenant/dashboard，
+ * 见 19-p5c-dashboard-design.md）
  *
  * 来源：shared/product/06-page-wireframes.md §2.1
  */
-
-import type { TenantDashboardResponse } from '@cangchu/api-types'
-
-export const mockTenantDashboard: TenantDashboardResponse = {
-  storeName: 'XX 海鲜库',
-  kpi: {
-    pendingInbound: 3,
-    pendingCount: 2,
-    pendingClearance: 1,
-    pendingDispute: 0,
-  },
-  capacity: {
-    usedQty: 14_300,
-    totalQty: 20_000,
-    usedPallet: 86,
-    totalPallet: 120,
-    utilization: 72,
-    visibility: 'WA_ONLY',
-    snapshotAt: '2026-06-07T10:30:00+08:00',
-  },
-  today: {
-    inboundCount: 12,
-    outboundCount: 8,
-    inquiryCount: 25,
-    expiringBatches: 5,
-  },
-  batchEnabled: true,
-}
 
 /** 顶部通知 mock */
 export const mockNotifications = [

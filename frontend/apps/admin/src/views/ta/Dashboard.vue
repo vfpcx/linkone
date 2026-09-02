@@ -15,7 +15,8 @@
  *    2. 待处理 KPI 4 卡片
  *    3. 今日数据（入库 / 出库 / 询价 + 临期入口）
  *
- * 数据：mocks/dashboard.ts（后端接口真实联调前用）
+ * 数据：GET /api/v1/tenant/dashboard（P5-C · 19-p5c-dashboard-design，requireTa）
+ *      kpi=待审计数 / capacity=精确值 / today=今日单据+临期 3 天内 / batchEnabled=批次开关
  */
 
 import { ref, computed, onMounted } from 'vue'
@@ -45,7 +46,8 @@ import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { accountApi } from '@/api/account'
 import { notificationApi } from '@/api/notification'
-import { mockTenantDashboard, mockMyRoles } from '@/mocks/dashboard'
+import { tenantApi } from '@/api/tenant'
+import type { TenantDashboardResponse } from '@cangchu/api-types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -82,7 +84,22 @@ const handleProfileMenu = async (key: string) => {
 }
 
 // ============ 数据 ============
-const dashboard = ref(mockTenantDashboard)
+// 空默认：加载/失败期间展示 0，不阻断工作台（P5-C 真实接口，19-p5c-dashboard-design）
+const dashboard = ref<TenantDashboardResponse>({
+  storeName: '',
+  kpi: { pendingInbound: 0, pendingCount: 0, pendingClearance: 0, pendingDispute: 0 },
+  capacity: {
+    usedQty: 0,
+    totalQty: 0,
+    usedPallet: 0,
+    totalPallet: 0,
+    utilization: 0,
+    visibility: 'PRIVATE',
+    snapshotAt: '',
+  },
+  today: { inboundCount: 0, outboundCount: 0, inquiryCount: 0, expiringBatches: 0 },
+  batchEnabled: false,
+})
 // 未读站内信（P5-A W4 · 顶栏铃铛角标，来源 GET /notifications/unread-count，轮询既有）
 const unreadCount = ref(0)
 const loading = ref(false)
@@ -90,9 +107,9 @@ const loading = ref(false)
 const fetchDashboard = async () => {
   loading.value = true
   try {
-    // 后端真实接口对接前，用 mock 模拟加载
-    await new Promise((r) => setTimeout(r, 300))
-    dashboard.value = mockTenantDashboard
+    dashboard.value = await tenantApi.getDashboard()
+  } catch {
+    // 全局 toast 已提示；保留空默认，工作台不阻塞
   } finally {
     loading.value = false
   }
@@ -383,8 +400,8 @@ onMounted(() => {
         <!-- 角色提示 -->
         <section class="ta-section ta-section--quiet">
           <p class="ta-help">
-            身份：<strong>{{ mockMyRoles.find(r => r.role === auth.primaryRole)?.label ?? auth.primaryRole }}</strong>
-            ｜ 当前数据为前端 mock，待后端 <code>GET /api/v1/tenant/dashboard</code> 联调
+            身份：<strong>{{ auth.primaryRole }}</strong>
+            ｜ 已接入真实接口 <code>GET /api/v1/tenant/dashboard</code>（P5-C）
           </p>
         </section>
       </main>
