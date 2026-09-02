@@ -42,4 +42,6 @@ public class StoreSettingsDto {
     private String billingDim;
     private Integer expiryThresholdDays;
     private String displayImageSource;
+    /** 货位功能开关（C2，25-p5-c-c2 §4.1）：无副作用，随通用设置保存（对照 batchEnabled 禁改 50360） */
+    private Integer locationEnabled;
 }

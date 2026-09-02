@@ -43,5 +43,9 @@ public class BatchVo {
     private LocalDateTime manualNotifiedAt;
 
     private LocalDateTime clearedAt;
+
+    /** 货位号（V40，C2：空=未指定；出库拣货联想的货位清单数据源，25-p5-c-c2 §4.5） */
+    private String location;
+
     private LocalDateTime createdAt;
 }

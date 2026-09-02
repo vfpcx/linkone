@@ -81,6 +81,9 @@ public class Batch {
     /** 清库时刻（T4-W2） */
     private LocalDateTime clearedAt;
 
+    /** 货位号（V40，C2 25-p5-c-c2 §3.1：自由文本 ≤64；入库登记带货位时写入，移库端点更新） */
+    private String location;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

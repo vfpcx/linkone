@@ -2,6 +2,7 @@ package com.cangchu.inventory.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
@@ -9,16 +10,20 @@ import com.cangchu.common.tenant.TenantContext;
 import com.cangchu.common.tenant.TenantScopeAuthSupport;
 import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.inventory.dto.BatchBackfillDto;
+import com.cangchu.inventory.dto.BatchLocationUpdateDto;
 import com.cangchu.inventory.dto.BatchToggleDto;
 import com.cangchu.inventory.dto.InboundBatchContext;
 import com.cangchu.inventory.entity.Batch;
+import com.cangchu.inventory.entity.BatchLocationLog;
 import com.cangchu.inventory.entity.Inventory;
 import com.cangchu.inventory.entity.StockMovement;
+import com.cangchu.inventory.mapper.BatchLocationLogMapper;
 import com.cangchu.inventory.mapper.BatchMapper;
 import com.cangchu.inventory.mapper.InventoryMapper;
 import com.cangchu.inventory.mapper.StockMovementMapper;
 import com.cangchu.inventory.service.BatchService;
 import com.cangchu.inventory.vo.BatchListVo;
+import com.cangchu.inventory.vo.BatchLocationLogVo;
 import com.cangchu.inventory.vo.BatchRecalcResultVo;
 import com.cangchu.inventory.vo.BatchToggleVo;
 import com.cangchu.inventory.vo.BatchVo;
@@ -73,6 +78,7 @@ public class BatchServiceImpl implements BatchService {
     private final BatchMapper batchMapper;
     private final InventoryMapper inventoryMapper;
     private final StockMovementMapper stockMovementMapper;
+    private final BatchLocationLogMapper batchLocationLogMapper;
     private final TenantService tenantService;
     private final AuthService authService;
     // TA 一账号多仓收敛（20 §2）：toggle 当前仓解析经 TenantScopeAuthSupport
@@ -241,6 +247,10 @@ public class BatchServiceImpl implements BatchService {
         b.setRemainingQty(ctx.getQty());
         b.setStatus(status);
         b.setSource(Batch.SOURCE_INBOUND);
+        // C2（25-p5-c-c2 §3.1/K-4）：登记带货位时同步落批次货位
+        if (ctx.getLocation() != null && !ctx.getLocation().isBlank()) {
+            b.setLocation(ctx.getLocation().trim());
+        }
         b.setCreatedAt(LocalDateTime.now());
         b.setUpdatedAt(LocalDateTime.now());
         try {
@@ -813,7 +823,76 @@ public class BatchServiceImpl implements BatchService {
                 .source(b.getSource())
                 .manualNotifiedAt(b.getManualNotifiedAt())
                 .clearedAt(b.getClearedAt())
+                .location(b.getLocation())
                 .createdAt(b.getCreatedAt())
                 .build();
+    }
+
+    // ==================== P5-D C2：批次移库 + 变更日志（25-p5-c-c2 §4.4，US-WK-05 验收） ====================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public BatchVo updateBatchLocation(Long tenantId, Long batchId, BatchLocationUpdateDto dto, Long userId) {
+        requireWkOrTa(tenantId, userId);
+        Batch b = batchId != null ? batchMapper.selectById(batchId) : null;
+        if (b == null || !b.getTenantId().equals(tenantId)) {
+            // 不存在/跨租户按不存在（不泄漏存在性，50363）
+            throw new BizException(ErrorCode.BATCH_NOT_FOUND);
+        }
+        String newLocation = dto != null && dto.getLocation() != null ? dto.getLocation().trim() : null;
+        if (newLocation != null && newLocation.length() > 64) {
+            // DTO @Size 400 之外的防御性兜底（25-p5-c-c2 §4.6）
+            throw new BizException(ErrorCode.BATCH_LOCATION_TOO_LONG);
+        }
+        String oldLocation = b.getLocation();
+        // 新旧相同（含同为 null）→ 幂等空转，不落日志（K-5）
+        if (java.util.Objects.equals(newLocation, oldLocation)) {
+            log.info("[C2][Location] 移库幂等空转 batch={} location={}（无差异）", batchId, newLocation);
+            return toVo(b);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        batchMapper.update(null, new LambdaUpdateWrapper<Batch>()
+                .eq(Batch::getId, batchId)
+                .set(Batch::getLocation, newLocation)
+                .set(Batch::getUpdatedAt, now));
+        BatchLocationLog logRow = new BatchLocationLog();
+        logRow.setId(snowflakeIdUtil.nextId());
+        logRow.setTenantId(b.getTenantId());
+        logRow.setWholesalerId(b.getWholesalerId());
+        logRow.setSkuId(b.getSkuId());
+        logRow.setBatchId(batchId);
+        logRow.setFromLocation(oldLocation);
+        logRow.setToLocation(newLocation);
+        logRow.setOperatorUserId(userId);
+        logRow.setCreatedAt(now);
+        batchLocationLogMapper.insert(logRow);
+        log.info("[C2][Location] 批次移库 batch={} from={} to={} by={}", batchId, oldLocation, newLocation, userId);
+        return toVo(batchMapper.selectById(batchId));
+    }
+
+    @Override
+    public Page<BatchLocationLogVo> listLocationLogs(Long tenantId, Long batchId, long page, long size, Long userId) {
+        requireWkOrTa(tenantId, userId);
+        Batch b = batchId != null ? batchMapper.selectById(batchId) : null;
+        if (b == null || !b.getTenantId().equals(tenantId)) {
+            throw new BizException(ErrorCode.BATCH_NOT_FOUND);
+        }
+        long safePage = Math.max(1, page);
+        long safeSize = Math.min(Math.max(1, size), 50);
+        Page<BatchLocationLog> logPage = batchLocationLogMapper.selectPage(
+                new Page<>(safePage, safeSize),
+                new LambdaQueryWrapper<BatchLocationLog>()
+                        .eq(BatchLocationLog::getBatchId, batchId)
+                        .orderByDesc(BatchLocationLog::getCreatedAt));
+        Page<BatchLocationLogVo> voPage = new Page<>(logPage.getCurrent(), logPage.getSize(), logPage.getTotal());
+        voPage.setRecords(logPage.getRecords().stream().map(l -> BatchLocationLogVo.builder()
+                .id(l.getId())
+                .batchId(l.getBatchId())
+                .fromLocation(l.getFromLocation())
+                .toLocation(l.getToLocation())
+                .operatorUserId(l.getOperatorUserId())
+                .createdAt(l.getCreatedAt())
+                .build()).toList());
+        return voPage;
     }
 }

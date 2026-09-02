@@ -365,6 +365,13 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         }
         OutboundRequest out = loadOutbound(outboundId);
         requireWkRole(out.getTenantId(), wkUserId);
+        // P5-D C2（25-p5-c-c2 §4.3/K-3）：登记出库按当刻 locationEnabled 校验拣货位必填（50822）；
+        // 拣货位仅单据留痕（outbound_requests.location），不动批次/库存/流水——方案 C 铁律 D-C-1c
+        String location = trimToNull(dto != null ? dto.getLocation() : null);
+        if (location == null
+                && tenantService.getBatchConfig(out.getTenantId()).getLocationEnabled() == 1) {
+            throw new BizException(ErrorCode.LOCATION_REQUIRED);
+        }
         // PRINTED→COMPLETED（登记出库；PENDING_ACCEPT 须先打印——矩阵红线）
         DocStateMachine.assertCanGo(DocKind.OUTBOUND, out.getStatus(), OutboundRequest.STATUS_COMPLETED);
         if (!DocStateMachine.casTransition(outboundRequestMapper, DocKind.OUTBOUND, out.getId(),
@@ -372,7 +379,8 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
                 OutboundRequest.STATUS_PRINTED, OutboundRequest.STATUS_COMPLETED,
                 uw -> uw.set(OutboundRequest::getCompletedAt, LocalDateTime.now())
                         .set(OutboundRequest::getWithdrawRequested, 0)
-                        .set(OutboundRequest::getWithdrawRequestedAt, null))) {
+                        .set(OutboundRequest::getWithdrawRequestedAt, null)
+                        .set(OutboundRequest::getLocation, location))) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
         }
         // P3b T3-W1（D-8=A，13 §2.4-3）：托盘在货离仓的物理时点释放——同事务追加独立
@@ -489,6 +497,12 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
             throw new BizException(ErrorCode.SKU_NOT_FOUND);
         }
 
+        // P5-D C2（25-p5-c-c2 §4.3/K-3）：代建出库按当刻 locationEnabled 校验拣货位必填（50822）
+        String location = trimToNull(dto.getLocation());
+        if (location == null
+                && tenantService.getBatchConfig(tenantId).getLocationEnabled() == 1) {
+            throw new BizException(ErrorCode.LOCATION_REQUIRED);
+        }
         // 二次确认凭据（前端显著弹窗的后端凭据，缺省 50338）
         if (!Boolean.TRUE.equals(dto.getConfirmed())) {
             throw new BizException(ErrorCode.OUTBOUND_LARGE_CONFIRM_REQUIRED, "代建出库需二次确认");
@@ -511,6 +525,7 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
         out.setSkuId(dto.getSkuId());
         out.setQty(dto.getQty());
         out.setPalletQty(palletQty);
+        out.setLocation(location); // C2：拣货位留痕（未填=null；locationEnabled=1 时上方已强制必填）
         // 代建直达 COMPLETED（12 §1.3：P1 语义子集，completed_at=客诉窗口锚点）
         out.setStatus(OutboundRequest.STATUS_COMPLETED);
         out.setSource(OutboundRequest.SOURCE_WK_CREATED);
@@ -680,6 +695,15 @@ public class OutboundRequestServiceImpl implements OutboundRequestService {
 
     private OutboundRequest reload(Long id) {
         return outboundRequestMapper.selectById(id);
+    }
+
+    /** 空串归 null（C2 货位号 trim 语义：全空白视为未填）。 */
+    private String trimToNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 
     /** 取租户简码用于 docNo（G-S2 经 TenantService）。 */

@@ -1,12 +1,15 @@
 package com.cangchu.inventory.service;
 
 import com.cangchu.inventory.dto.BatchBackfillDto;
+import com.cangchu.inventory.dto.BatchLocationUpdateDto;
 import com.cangchu.inventory.dto.BatchToggleDto;
 import com.cangchu.inventory.dto.InboundBatchContext;
 import com.cangchu.inventory.entity.Batch;
 import com.cangchu.inventory.vo.BatchListVo;
+import com.cangchu.inventory.vo.BatchLocationLogVo;
 import com.cangchu.inventory.vo.BatchRecalcResultVo;
 import com.cangchu.inventory.vo.BatchToggleVo;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.util.List;
 
@@ -127,4 +130,19 @@ public interface BatchService {
      * 纯读 tenant_settings（经 TenantService.getBatchConfig，G-S1），无副作用。
      */
     com.cangchu.tenant.vo.TenantBatchConfigVo getConfigForMember(Long tenantId, Long userId);
+
+    // ==================== P5-D C2：批次移库 + 变更日志（25-p5-c-c2 §4.4，US-WK-05 验收） ====================
+
+    /**
+     * 批次移库（WK/TA，PUT /api/v1/tenant/batches/{id}/location）：更新 {@code batches.location}
+     * 并按差异落 {@code batch_location_logs}（from/to/操作人）。location=null 表示清空货位；
+     * 新旧相同=幂等空转不落日志；批次不存在/跨租户 50363。零记账副作用（方案 C 铁律 D-C-1c/1d）。
+     */
+    com.cangchu.inventory.vo.BatchVo updateBatchLocation(Long tenantId, Long batchId, BatchLocationUpdateDto dto, Long userId);
+
+    /**
+     * 批次移库变更记录（WK/TA，GET /api/v1/tenant/batches/{id}/location-logs）：按批次倒序分页，
+     * page≥1、size≤50（默认 1/20）；批次不存在/跨租户 50363。每行含 from/to/操作人/时间。
+     */
+    Page<BatchLocationLogVo> listLocationLogs(Long tenantId, Long batchId, long page, long size, Long userId);
 }

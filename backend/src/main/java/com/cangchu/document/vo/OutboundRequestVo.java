@@ -38,6 +38,9 @@ public class OutboundRequestVo {
 
     private Integer palletQty;
 
+    /** 拣出货位（V40，C2 25-p5-c-c2 §4.5：登记出库/代建落单留痕；未填为 null） */
+    private String location;
+
     /** PENDING_ACCEPT/PRINTED/COMPLETED/WITHDRAWN/CANCELLED/COMPLAINED */
     private String status;
 

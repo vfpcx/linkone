@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.CangchuApplication;
 import com.cangchu.account.entity.UserRole;
 import com.cangchu.account.mapper.UserRoleMapper;
+import com.cangchu.common.TestUniq;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.pii.PiiCrypto;
@@ -100,7 +101,7 @@ class CustomerFollowupScenarioTest {
         Tenant t = new Tenant();
         t.setId(snowflakeIdUtil.nextId());
         t.setName("仓-" + t.getId());
-        t.setTenantSimpleCode("t" + Math.abs(t.getId() % 1000L));
+        t.setTenantSimpleCode(TestUniq.tenantSimpleCode());
         t.setStatus("ACTIVE");
         t.setContactUserId(snowflakeIdUtil.nextId());
         t.setContactPhoneCipher(piiCrypto.encrypt("13800000000"));

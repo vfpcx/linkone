@@ -21,4 +21,7 @@ public class TenantBatchConfigVo {
 
     /** 临期阈值天数（默认 30） */
     private Integer expiryThresholdDays;
+
+    /** 货位功能开关（V40，C2 25-p5-c-c2 §3.1；默认 0=关闭；各端读开关显隐统一走本端点） */
+    private Integer locationEnabled;
 }

@@ -38,4 +38,10 @@ public class InboundForwardRegisterDto {
      * 显式传 true（缺失抛 50364）；临期仅前端黄条警告放行，无需凭据。
      */
     private Boolean expiredConfirmed;
+
+    // ==================== P5-D C2 货位（25-p5-c-c2 §4.2：登记时按当刻 locationEnabled 校验必填 50822） ====================
+
+    /** 货位号（货位开关启用时必填 ≤64；登记时填，落 inbound_requests.location，单据有批次号时同步 batches.location） */
+    @Size(max = 64, message = "货位号最长 64 字")
+    private String location;
 }

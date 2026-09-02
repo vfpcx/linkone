@@ -83,7 +83,10 @@ public class MybatisPlusConfig {
             // P5-D C3（24-p5-c-c3 §3.3 V39）：客户跟进档案两表纳入兜底隔离
             // （FollowupReminderJob 系统态无 TenantContext → 不注入，全量扫描按行内 tenant 入通知）
             "customer_followups",
-            "followup_reminders"
+            "followup_reminders",
+            // P5-D C2（25-p5-c-c2 §3.3 V40）：批次移库变更记录纳入兜底隔离
+            // （行内 tenant_id 写库在 TenantContext 会话内 → 正常注入；防御性登记）
+            "batch_location_logs"
     );
 
     @Bean

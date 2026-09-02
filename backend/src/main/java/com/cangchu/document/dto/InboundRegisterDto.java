@@ -43,4 +43,10 @@ public class InboundRegisterDto {
 
     /** 过期批次强警告二次确认凭据（13 §3.1） */
     private Boolean expiredConfirmed;
+
+    // ==================== P5-D C2 货位（25-p5-c-c2 §4.2：代建=提交即登记，按当刻 locationEnabled 校验必填 50822） ====================
+
+    /** 货位号（货位开关启用时必填 ≤64；自由文本；落 inbound_requests.location，有批次号时同步 batches.location） */
+    @jakarta.validation.constraints.Size(max = 64, message = "货位号最长 64 字")
+    private String location;
 }

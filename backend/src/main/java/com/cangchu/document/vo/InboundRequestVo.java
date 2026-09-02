@@ -99,4 +99,9 @@ public class InboundRequestVo {
     private String batchNo;
     private java.time.LocalDate productionDate;
     private java.time.LocalDate expiryDate;
+
+    // ==================== P5-D C2 货位（V40，25-p5-c-c2 §4.5：登记单展示） ====================
+
+    /** 登记货位（未填为 null；wa/ta 列表与详情展示） */
+    private String location;
 }

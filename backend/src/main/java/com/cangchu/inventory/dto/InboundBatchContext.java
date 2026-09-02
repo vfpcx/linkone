@@ -31,4 +31,7 @@ public class InboundBatchContext {
 
     /** 入库单号（用于回填该单 INBOUND 流水的 batch_id） */
     private final String refDocNo;
+
+    /** 货位号（V40，C2：登记时写入 batches.location；可为 null=不写） */
+    private final String location;
 }

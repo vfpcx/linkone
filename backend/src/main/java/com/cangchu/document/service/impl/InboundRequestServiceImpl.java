@@ -138,6 +138,13 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             assertExpiredConfirmed(dto.getExpiryDate(), dto.getExpiredConfirmed());
         }
 
+        // P5-D C2（25-p5-c-c2 §4.2/K-3）：货位功能按当刻开关校验必填（50822）；无批次时仅单据留痕
+        String location = trimToNull(dto.getLocation());
+        if (location == null
+                && tenantService.getBatchConfig(tenantId).getLocationEnabled() == 1) {
+            throw new BizException(ErrorCode.LOCATION_REQUIRED);
+        }
+
         // 生成单据号（DocumentNumberService，C2 复用）
         String docNo = documentNumberService.generate(DocType.INBOUND, resolveSimpleCode(tenantId));
 
@@ -163,6 +170,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             req.setProductionDate(dto.getProductionDate());
             req.setExpiryDate(dto.getExpiryDate());
         }
+        req.setLocation(location); // C2：单据留痕（未填=null）
         try {
             inboundRequestMapper.insert(req);
         } catch (DuplicateKeyException e) {
@@ -192,6 +200,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                     .expiryDate(dto.getExpiryDate())
                     .qty(dto.getQty())
                     .refDocNo(docNo)
+                    .location(location) // C2：带货位时同步批次货位
                     .build());
         }
 
@@ -689,6 +698,14 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             assertExpiredConfirmed(req.getExpiryDate(), dto.getExpiredConfirmed());
         }
 
+        // P5-D C2（25-p5-c-c2 §4.2/K-3）：货位=登记动作时按当刻开关校验必填（50822）；
+        // 单据有批次号时货位同落批次行，无批次则仅单据留痕
+        String location = trimToNull(dto.getLocation());
+        if (location == null
+                && tenantService.getBatchConfig(req.getTenantId()).getLocationEnabled() == 1) {
+            throw new BizException(ErrorCode.LOCATION_REQUIRED);
+        }
+
         int palletQty = palletOverride >= 0 ? palletOverride
                 : (req.getPalletQty() != null ? req.getPalletQty() : 0);
         // 登记事务口径（13 §1.1）：CAS ACCEPTED→CONFIRMED（qty=实登、registered_at=now、附件）
@@ -704,6 +721,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                         .set(attachments != null, InboundRequest::getAttachments, attachments)
                         .set(remark != null, InboundRequest::getRemark, remark)
                         .set(InboundRequest::getWkUserId, userId)
+                        .set(InboundRequest::getLocation, location) // C2：单据留痕（未填=null）
                         .set(InboundRequest::getUpdatedAt, now));
         if (!ok) {
             throw new BizException(ErrorCode.DOC_STATE_CAS_CONFLICT);
@@ -732,6 +750,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
                     .expiryDate(req.getExpiryDate())
                     .qty(actual)
                     .refDocNo(req.getDocNo())
+                    .location(location) // C2：带货位时同步批次货位
                     .build());
         }
 

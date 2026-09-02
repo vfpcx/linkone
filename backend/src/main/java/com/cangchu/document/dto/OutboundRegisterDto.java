@@ -12,4 +12,8 @@ public class OutboundRegisterDto {
 
     /** 释放托盘覆盖值（可空=默认建议值；0 合法=托盘未腾空；落库前对在库托盘封顶） */
     private Integer palletRelease;
+
+    /** 拣出货位（C2，25-p5-c-c2 §4.3：货位开关启用时登记出库必填 ≤64；落 outbound_requests.location 留痕，零记账副作用） */
+    @jakarta.validation.constraints.Size(max = 64, message = "货位号最长 64 字")
+    private String location;
 }

@@ -142,6 +142,9 @@ public class InboundRequest {
     /** 到效期（>生产日期，40206；≤今天登记需二次确认 50364，临期仅警告放行） */
     private java.time.LocalDate expiryDate;
 
+    /** 货位号（V40，C2 25-p5-c-c2 §3.1：登记时落单留痕；货位开关启用时必填 50822） */
+    private String location;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

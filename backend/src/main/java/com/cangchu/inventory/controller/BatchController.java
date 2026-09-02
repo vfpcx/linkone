@@ -5,11 +5,14 @@ import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
 import com.cangchu.common.response.R;
 import com.cangchu.common.tenant.TenantContext;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.document.service.ClearanceRequestService;
 import com.cangchu.inventory.dto.BatchBackfillDto;
+import com.cangchu.inventory.dto.BatchLocationUpdateDto;
 import com.cangchu.inventory.dto.BatchToggleDto;
 import com.cangchu.inventory.service.BatchService;
 import com.cangchu.inventory.vo.BatchListVo;
+import com.cangchu.inventory.vo.BatchLocationLogVo;
 import com.cangchu.inventory.vo.ExpiryDashboardVo;
 import com.cangchu.inventory.vo.BatchToggleVo;
 import com.cangchu.inventory.vo.BatchVo;
@@ -98,6 +101,26 @@ public class BatchController {
     @GetMapping("/api/v1/wholesaler/tenants/{tenantId}/batch-config")
     public R<TenantBatchConfigVo> batchConfig(@PathVariable Long tenantId) {
         return R.ok(batchService.getConfigForMember(tenantId, StpUtil.getLoginIdAsLong()));
+    }
+
+    /**
+     * 批次移库（WK/TA，P5-D C2 US-WK-05）：改 batches.location + 按差异落 batch_location_logs。
+     * body.location 可 null=清空货位；新旧相同幂等空转；批次不存在/跨租户 50363；零记账副作用。
+     */
+    @PutMapping("/api/v1/tenant/batches/{id}/location")
+    public R<BatchVo> updateLocation(@PathVariable Long id,
+                                     @Valid @RequestBody(required = false) BatchLocationUpdateDto dto) {
+        return R.ok(batchService.updateBatchLocation(
+                requireTenantId(), id, dto, StpUtil.getLoginIdAsLong()));
+    }
+
+    /** 批次移库变更记录（WK/TA，P5-D C2）：按批次倒序分页，size ≤50（默认 1/20）。 */
+    @GetMapping("/api/v1/tenant/batches/{id}/location-logs")
+    public R<Page<BatchLocationLogVo>> locationLogs(@PathVariable Long id,
+                                                    @RequestParam(defaultValue = "1") long page,
+                                                    @RequestParam(defaultValue = "20") long size) {
+        return R.ok(batchService.listLocationLogs(
+                requireTenantId(), id, page, size, StpUtil.getLoginIdAsLong()));
     }
 
     /** 商户侧批次下钻/临期卡（WA/WE 只读）。 */

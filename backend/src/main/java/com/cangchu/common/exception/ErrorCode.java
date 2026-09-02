@@ -258,6 +258,12 @@ public enum ErrorCode {
     SPU_MERGE_TARGET_INVALID(50725, "合并目标标品无效（须为在用的其他标品）"),
     SPU_NOT_LINKABLE(50726, "该标品不可挂接（仅 ACTIVE 标品可挂接）"),
 
+    // ==================== P5-D C2 货位功能（25-p5-c-c2 §4.6，5082x，归属 inventory 域） ====================
+    /** locationEnabled=1 时入库/出库登记未填货位（K-3） */
+    LOCATION_REQUIRED(50822, "货位功能已启用，出入库登记须填写货位"),
+    /** 货位号超 64 字（DTO @Size 400 之外的防御性兜底） */
+    BATCH_LOCATION_TOO_LONG(50823, "货位号最长 64 字"),
+
     // ==================== P5-D C3 客户跟进（24-p5-c-c3 §4.7，508xx，归属 document 域） ====================
     /** 客户不存在或越权（wholesaler 不在登录人 scope 时假装不存在，防枚举，K-7） */
     CUSTOMER_NOT_FOUND(50840, "客户不存在或无权访问"),

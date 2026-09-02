@@ -972,7 +972,8 @@ public class TenantServiceImpl implements TenantService {
     private boolean hasAnySwitch(StoreSettingsDto dto) {
         return dto.getBatchEnabled() != null || dto.getPhotoMode() != null
                 || dto.getExpiryThresholdDays() != null
-                || dto.getDisplayImageSource() != null;
+                || dto.getDisplayImageSource() != null
+                || dto.getLocationEnabled() != null;
     }
 
     /**
@@ -994,6 +995,10 @@ public class TenantServiceImpl implements TenantService {
 
         if (dto.getDisplayImageSource() != null) settings.setDisplayImageSource(dto.getDisplayImageSource());
         else if (isInsert) settings.setDisplayImageSource("STANDARD");
+
+        // C2（25-p5-c-c2 §4.1）：货位开关无副作用走通用设置；settings 行缺失按默认 0 补建
+        if (dto.getLocationEnabled() != null) settings.setLocationEnabled(dto.getLocationEnabled());
+        else if (isInsert) settings.setLocationEnabled(0);
     }
 
     // ==================== P3b T4-W1 批次开关（13 §3.5） ====================
@@ -1007,6 +1012,8 @@ public class TenantServiceImpl implements TenantService {
                 .batchEnabledAt(settings != null ? settings.getBatchEnabledAt() : null)
                 .expiryThresholdDays(settings != null && settings.getExpiryThresholdDays() != null
                         ? settings.getExpiryThresholdDays() : 30)
+                .locationEnabled(settings != null && settings.getLocationEnabled() != null
+                        ? settings.getLocationEnabled() : 0)
                 .build();
     }
 
@@ -1114,6 +1121,8 @@ public class TenantServiceImpl implements TenantService {
                 .billingDim(settings != null ? settings.getBillingDim() : "QTY")
                 .expiryThresholdDays(settings != null ? settings.getExpiryThresholdDays() : 30)
                 .displayImageSource(settings != null ? settings.getDisplayImageSource() : "STANDARD")
+                .locationEnabled(settings != null && settings.getLocationEnabled() != null
+                        ? settings.getLocationEnabled() : 0)
                 .createdAt(tenant.getCreatedAt())
                 .build();
     }

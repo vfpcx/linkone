@@ -31,4 +31,8 @@ public class WkOutboundCreateDto {
 
     /** 大额复述件数（qty > 在库×50% 时必填且须等于 qty，否则 50338） */
     private Integer restatedQty;
+
+    /** 拣出货位（C2，25-p5-c-c2 §4.3：货位开关启用时代建出库必填 ≤64；落 outbound_requests.location 留痕，零记账副作用） */
+    @jakarta.validation.constraints.Size(max = 64, message = "货位号最长 64 字")
+    private String location;
 }

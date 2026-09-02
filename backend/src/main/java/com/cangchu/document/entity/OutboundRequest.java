@@ -89,6 +89,9 @@ public class OutboundRequest {
     /** 出库托盘数（V18，回补按此还原，默认 0） */
     private Integer palletQty;
 
+    /** 拣出货位（V40，C2 25-p5-c-c2 §3.1：登记出库/代建时落单留痕；货位开关启用时必填 50822；零记账副作用） */
+    private String location;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }
