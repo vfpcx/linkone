@@ -11,7 +11,7 @@
  */
 
 import { request } from './http'
-import type { RtStoreFront, Inquiry, SubmitInquiryRequest } from '@cangchu/api-types'
+import type { RtStoreFront, Inquiry, SubmitInquiryRequest, RtPriceList, MyPriceListRequest } from '@cangchu/api-types'
 
 export const rtApi = {
   /** 进店页：店铺 + 店内 ACTIVE 批发商 + 各自在售 SKU（含公开价 + 库存）。code = 租户简码。 */
@@ -27,6 +27,18 @@ export const rtApi = {
     request<Inquiry>({
       method: 'POST',
       url: '/rt/inquiry',
+      data,
+    }),
+
+  /**
+   * RT「我的价目」（C1 专属价复购，23-p5-c-c1 §4.1）：当前店为该手机号维护的
+   * 客户专属价清单（按 wholesaler 分组，含公开价对照）。
+   * POST body 传手机号（防明文落 GET query 日志）；响应仅回尾号归属提示。
+   */
+  getMyPriceList: (data: MyPriceListRequest) =>
+    request<RtPriceList>({
+      method: 'POST',
+      url: '/rt/my-pricelist',
       data,
     }),
 }

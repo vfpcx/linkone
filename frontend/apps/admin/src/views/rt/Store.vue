@@ -16,7 +16,15 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { RtStoreFront, RtStoreSku, RtStoreWholesaler, SubmitInquiryRequest } from '@cangchu/api-types'
+import type {
+  RtPriceGroup,
+  RtPriceItem,
+  RtPriceList,
+  RtStoreFront,
+  RtStoreSku,
+  RtStoreWholesaler,
+  SubmitInquiryRequest,
+} from '@cangchu/api-types'
 import { rtApi } from '@/api/rt'
 
 const route = useRoute()
@@ -69,6 +77,11 @@ const qtyMap = reactive<Record<string, number>>({})
 const rtPhone = ref('')
 const submitting = ref(false)
 
+// ============ C1 我的价目（专属价复购，architecture/23-p5-c-c1） ============
+const priceListLoading = ref(false)
+const priceList = ref<RtPriceList | null>(null)
+const priceSheetOpen = ref(false)
+
 /** 成功后展示的单号（docNo），非空即显示成功态 */
 const submittedDocNo = ref('')
 
@@ -108,20 +121,39 @@ function onQtyInput(skuId: string, val: string | number, max: number) {
   qtyMap[skuId] = n
 }
 
-/** 当前有数量(>0)的明细，按批发商聚合，用于提交（一次仅提交一个批发商的询价） */
+/**
+ * 当前有数量(>0)的明细，按批发商聚合（浏览在售 + C1 价目勾选的并集，同 sku 去重）。
+ * 价目行可能含浏览外 SKU（缺货/下架前已设专属价的可询商品），并入同组后
+ * 底部提交与抽屉内组提交都拿到完整明细。提交仍沿用一次仅一个批发商约束。
+ */
 const selectedByWholesaler = computed(() => {
   const groups: Record<string, { wholesalerId: string; name: string; items: Array<{ skuId: string; qty: number }> }> = {}
+  const qtyBySku: Record<string, Record<string, number>> = {}
   if (!store.value) return groups
+  const ensure = (wholesalerId: string, name: string) => {
+    if (!qtyBySku[wholesalerId]) qtyBySku[wholesalerId] = {}
+    if (!groups[wholesalerId]) groups[wholesalerId] = { wholesalerId, name, items: [] }
+  }
   for (const w of store.value.wholesalers) {
     for (const s of w.skus) {
       const qty = qtyMap[s.skuId] ?? 0
       if (qty > 0) {
-        if (!groups[w.wholesalerId]) {
-          groups[w.wholesalerId] = { wholesalerId: w.wholesalerId, name: w.name, items: [] }
-        }
-        groups[w.wholesalerId].items.push({ skuId: s.skuId, qty })
+        ensure(w.wholesalerId, w.name)
+        qtyBySku[w.wholesalerId][s.skuId] = qty
       }
     }
+  }
+  for (const g of priceList.value?.wholesalers ?? []) {
+    for (const i of g.items) {
+      const qty = qtyMap[i.skuId] ?? 0
+      if (i.listed && qty > 0) {
+        ensure(g.wholesalerId, g.name)
+        qtyBySku[g.wholesalerId][i.skuId] = qty
+      }
+    }
+  }
+  for (const [wholesalerId, skuQty] of Object.entries(qtyBySku)) {
+    groups[wholesalerId].items = Object.entries(skuQty).map(([skuId, qty]) => ({ skuId, qty }))
   }
   return groups
 })
@@ -133,10 +165,43 @@ const selectedCount = computed(() =>
 
 const PHONE_RE = /^1\d{10}$/
 
-// ============ 提交询价 ============
-async function submit() {
-  if (submitting.value) return
+// ============ 提交询价（浏览底部提交 + C1 价目抽屉提交共用链路） ============
+/** 执行提交（payload 已就绪）；成功后进入成功态，返回是否成功。 */
+async function doSubmit(group: {
+  wholesalerId: string
+  name: string
+  items: Array<{ skuId: string; qty: number }>
+}): Promise<boolean> {
+  if (submitting.value) return false
+  if (!group.items.length) {
+    ElMessage.warning('请先为至少一个商品填写数量')
+    return false
+  }
+  if (!PHONE_RE.test(rtPhone.value.trim())) {
+    ElMessage.warning('请输入正确的 11 位手机号')
+    return false
+  }
+  const payload: SubmitInquiryRequest = {
+    code: storeCode.value,
+    wholesalerId: group.wholesalerId,
+    rtPhone: rtPhone.value.trim(),
+    items: group.items,
+  }
+  submitting.value = true
+  try {
+    const res = await rtApi.submitInquiry(payload)
+    submittedDocNo.value = res.docNo || res.id
+    ElMessage.success('询价提交成功')
+    return true
+  } catch {
+    // http 拦截器已 toast 具体错误码
+    return false
+  } finally {
+    submitting.value = false
+  }
+}
 
+async function submit() {
   const groups = selectedGroupList.value
   if (groups.length === 0) {
     ElMessage.warning('请先为至少一个商品填写数量')
@@ -146,29 +211,73 @@ async function submit() {
     ElMessage.warning('一次仅能向一个批发商提交询价，请分别提交')
     return
   }
-  if (!PHONE_RE.test(rtPhone.value.trim())) {
-    ElMessage.warning('请输入正确的 11 位手机号')
+  await doSubmit(groups[0])
+}
+
+// ============ C1 我的价目（专属价复购，architecture/23-p5-c-c1） ============
+
+/** 打开「我的价目」抽屉：拉取当前店为该手机号维护的客户专属价目 */
+async function openPriceList() {
+  const phone = rtPhone.value.trim()
+  if (!PHONE_RE.test(phone)) {
+    ElMessage.warning('请输入正确的 11 位手机号后再查看专属价目')
     return
   }
-
-  const group = groups[0]
-  const payload: SubmitInquiryRequest = {
-    code: storeCode.value,
-    wholesalerId: group.wholesalerId,
-    rtPhone: rtPhone.value.trim(),
-    items: group.items,
-  }
-
-  submitting.value = true
+  priceListLoading.value = true
   try {
-    const res = await rtApi.submitInquiry(payload)
-    submittedDocNo.value = res.docNo || res.id
-    ElMessage.success('询价提交成功')
+    priceList.value = await rtApi.getMyPriceList({ code: storeCode.value, rtPhone: phone })
+    priceSheetOpen.value = true
   } catch {
     // http 拦截器已 toast 具体错误码
   } finally {
-    submitting.value = false
+    priceListLoading.value = false
   }
+}
+
+/** 价目行步进上限：有库存按库存；0 库存允许缺货询（放开上限） */
+function priceStepMax(item: RtPriceItem) {
+  return item.stockQty > 0 ? item.stockQty : 99999
+}
+
+function priceQty(item: RtPriceItem) {
+  return qtyMap[item.skuId] ?? 0
+}
+
+function stepPriceQty(item: RtPriceItem, delta: number) {
+  stepQty(item.skuId, delta, priceStepMax(item))
+}
+
+function onPriceQtyInput(item: RtPriceItem, val: string | number) {
+  onQtyInput(item.skuId, val, priceStepMax(item))
+}
+
+/** 组内可提交明细（listed 且数量>0） */
+function priceGroupItems(g: RtPriceGroup) {
+  return g.items
+    .filter((i) => i.listed && (qtyMap[i.skuId] ?? 0) > 0)
+    .map((i) => ({ skuId: i.skuId, qty: qtyMap[i.skuId] ?? 0 }))
+}
+
+function priceGroupCount(g: RtPriceGroup) {
+  return priceGroupItems(g).length
+}
+
+/** 从价目抽屉直接提交某批发商组询价（复用 doSubmit 链路与成功态） */
+async function submitPriceGroup(g: RtPriceGroup) {
+  const items = priceGroupItems(g)
+  if (items.length === 0) {
+    ElMessage.warning('请先在该批发商价目下为商品填写数量')
+    return
+  }
+  const ok = await doSubmit({ wholesalerId: g.wholesalerId, name: g.name, items })
+  if (ok) {
+    priceSheetOpen.value = false
+  }
+}
+
+/** 展示用日期：截取 YYYY-MM-DD */
+function fmtDate(v: string) {
+  return v.slice(0, 10)
 }
 
 /** 再来一单：清空草稿回到浏览态 */
@@ -281,14 +390,23 @@ function resetForNext() {
 
       <!-- 底部提交栏 -->
       <footer class="rt-footer">
-        <input
-          v-model="rtPhone"
-          class="rt-phone"
-          type="tel"
-          inputmode="numeric"
-          maxlength="11"
-          placeholder="请输入手机号"
-        />
+        <div class="rt-footer__row">
+          <input
+            v-model="rtPhone"
+            class="rt-phone"
+            type="tel"
+            inputmode="numeric"
+            maxlength="11"
+            placeholder="请输入手机号"
+          />
+          <button
+            class="rt-btn rt-btn--ghost rt-footer__price"
+            :disabled="priceListLoading || !PHONE_RE.test(rtPhone.trim())"
+            @click="openPriceList"
+          >
+            {{ priceListLoading ? '查询中…' : '我的价目' }}
+          </button>
+        </div>
         <button
           class="rt-btn rt-btn--primary rt-footer__submit"
           :disabled="submitting || selectedCount === 0"
@@ -298,6 +416,93 @@ function resetForNext() {
         </button>
       </footer>
     </template>
+
+    <!-- C1 我的价目 bottom sheet（architecture/23-p5-c-c1 §7） -->
+    <div v-if="priceSheetOpen" class="rt-sheet-mask" @click.self="priceSheetOpen = false">
+      <div class="rt-sheet">
+        <div class="rt-sheet__head">
+          <div class="rt-sheet__title">
+            我的价目<span v-if="priceList?.rtPhoneLast4">（尾号 {{ priceList.rtPhoneLast4 }}）</span>
+          </div>
+          <button class="rt-sheet__close" @click="priceSheetOpen = false">✕</button>
+        </div>
+
+        <div v-if="!priceList || priceList.wholesalers.length === 0" class="rt-sheet__empty">
+          暂无专属价目，可在店铺页按公开价询价
+        </div>
+
+        <template v-else>
+          <section v-for="g in priceList.wholesalers" :key="g.wholesalerId" class="rt-price-group">
+            <div class="rt-price-group__name">{{ g.name }}</div>
+            <ul class="rt-sku-list">
+              <li
+                v-for="i in g.items"
+                :key="i.skuId"
+                class="rt-sku"
+                :class="{ 'rt-sku--unlisted': !i.listed }"
+              >
+                <div class="rt-sku__main">
+                  <div class="rt-sku__name">
+                    {{ i.name }}
+                    <span v-if="!i.listed" class="rt-tag rt-tag--off">已下架</span>
+                  </div>
+                  <div v-if="i.spec" class="rt-sku__spec">{{ i.spec }}</div>
+                  <div class="rt-sku__price">
+                    <span class="rt-sku__matched">专属 ¥{{ i.customerPrice }}</span>
+                    <span class="rt-sku__unit rt-sku__unit--struck">¥{{ i.unitPrice }}</span>
+                    <span v-if="i.moqPrice != null && i.moqQty" class="rt-sku__moq">
+                      起批 ¥{{ i.moqPrice }} / {{ i.moqQty }}件
+                    </span>
+                  </div>
+                  <div class="rt-sku__meta">
+                    <span class="rt-tag rt-tag--source">
+                      {{ i.source === 'from_inquiry' ? '议价沉淀' : '商户价' }}
+                    </span>
+                    <span v-if="i.expireAt" class="rt-sku__expire">有效期至 {{ fmtDate(i.expireAt) }}</span>
+                    <span :class="i.stockQty > 0 ? 'rt-sku__stock' : 'rt-sku__stock rt-sku__stock--zero'">
+                      {{ i.stockQty > 0 ? '库存 ' + i.stockQty : '缺货（可询）' }}
+                    </span>
+                  </div>
+                </div>
+                <div v-if="i.listed" class="rt-stepper">
+                  <button
+                    class="rt-stepper__btn"
+                    :disabled="priceQty(i) <= 0"
+                    @click="stepPriceQty(i, -1)"
+                  >−</button>
+                  <input
+                    class="rt-stepper__input"
+                    type="number"
+                    inputmode="numeric"
+                    :value="priceQty(i)"
+                    @input="onPriceQtyInput(i, ($event.target as HTMLInputElement).value)"
+                  />
+                  <button
+                    class="rt-stepper__btn"
+                    :disabled="priceQty(i) >= priceStepMax(i)"
+                    @click="stepPriceQty(i, 1)"
+                  >＋</button>
+                </div>
+                <div v-else class="rt-sku__off-note">已下架不可询</div>
+              </li>
+            </ul>
+            <div class="rt-price-group__actions">
+              <span v-if="priceGroupCount(g) > 0" class="rt-price-group__count">
+                已选 {{ priceGroupCount(g) }} 项
+              </span>
+              <button
+                class="rt-btn rt-btn--primary rt-price-group__submit"
+                :disabled="submitting || priceGroupCount(g) === 0"
+                @click="submitPriceGroup(g)"
+              >
+                {{ submitting ? '提交中…' : `提交本组询价${priceGroupCount(g) ? `（${priceGroupCount(g)}）` : ''}` }}
+              </button>
+            </div>
+          </section>
+          <p class="rt-sheet__tip">提交后批发商将与您联系确认；专属价为当前有效期报价。</p>
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -502,10 +707,15 @@ function resetForNext() {
   bottom: 0;
   z-index: 20;
   display: flex;
+  flex-direction: column;
   gap: 10px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   background: #fff;
   border-top: 1px solid #eceef1;
+}
+.rt-footer__row {
+  display: flex;
+  gap: 10px;
 }
 .rt-phone {
   flex: 1;
@@ -516,9 +726,19 @@ function resetForNext() {
   font-size: 15px;
   box-sizing: border-box;
 }
+/* C1：价目入口按钮（ghost 基础样式被通用 .rt-btn--ghost 的 margin-top:12px 影响，此处归零） */
+.rt-footer__price {
+  margin-top: 0;
+  flex-shrink: 0;
+  height: 42px;
+  padding: 0 12px;
+  font-size: 14px;
+  white-space: nowrap;
+}
 .rt-footer__submit {
   flex-shrink: 0;
-  min-width: 130px;
+  width: 100%;
+  height: 44px;
 }
 
 .rt-btn {
@@ -543,6 +763,12 @@ function resetForNext() {
   border: 1px solid #dcdfe6;
   color: #333;
   margin-top: 12px;
+}
+.rt-btn--ghost:disabled {
+  color: #b0b5bd;
+  border-color: #e5e7eb;
+  background: #f7f8fa;
+  cursor: not-allowed;
 }
 
 .rt-success {
@@ -573,5 +799,119 @@ function resetForNext() {
   margin: 12px 0 24px;
   font-size: 13px;
   color: #8a9099;
+}
+
+/* ============ C1 我的价目 bottom sheet（architecture/23-p5-c-c1 §7） ============ */
+.rt-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.rt-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+.rt-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid #f0f1f3;
+}
+.rt-sheet__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.rt-sheet__close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: #f2f3f5;
+  border-radius: 50%;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+}
+.rt-sheet__empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #8a9099;
+  font-size: 14px;
+}
+.rt-price-group {
+  padding: 10px 0 4px;
+}
+.rt-price-group + .rt-price-group {
+  border-top: 1px dashed #eceef1;
+  margin-top: 10px;
+}
+.rt-price-group__name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.rt-price-group__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 0 4px;
+}
+.rt-price-group__count {
+  font-size: 12px;
+  color: #34a853;
+}
+.rt-price-group__submit {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+/* 下架行：整行降透明度置灰 */
+.rt-sku--unlisted .rt-sku__main {
+  opacity: 0.55;
+}
+.rt-sku__meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.rt-tag--off {
+  background: #f2f3f5;
+  color: #8a9099;
+  border: 1px solid #e5e7eb;
+}
+.rt-tag--source {
+  background: #e8f3ff;
+  color: #1f5fa8;
+  border: 1px solid #b8d9f5;
+}
+.rt-sku__expire {
+  font-size: 12px;
+  color: #8a9099;
+}
+.rt-sku__stock--zero {
+  color: #d46b08;
+}
+.rt-sku__off-note {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #b0b5bd;
+}
+.rt-sheet__tip {
+  margin: 6px 0 4px;
+  font-size: 12px;
+  color: #8a9099;
+  text-align: center;
 }
 </style>

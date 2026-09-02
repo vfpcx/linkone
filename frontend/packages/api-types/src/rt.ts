@@ -71,3 +71,57 @@ export interface RtStoreFront {
   /** 置顶批发商 id 序（P5-A W4 · 撮合配置，服务端已按置顶前置排序） */
   pinnedWholesalerIds?: SnowflakeId[]
 }
+
+// ============ C1 · RT「我的价目」（专属价复购，architecture/23-p5-c-c1 §4.1） ============
+
+/**
+ * 「我的价目」单行（RtPriceItemVo）：当前店为输入手机号维护的客户专属价。
+ * customerPrice=专属价现值（主价）；unitPrice/moqPrice/moqQty=公开价对照；
+ * listed=false 表示 SKU 已下架（行仍展示但置灰禁提交）；库存 0 不拦询价（可缺货询）。
+ */
+export interface RtPriceItem {
+  skuId: SnowflakeId
+  name: string
+  spec: string | null
+  mainImage: string | null
+  /** 公开价：单价（对照，划线展示） */
+  unitPrice: number
+  /** 公开价：起批价（对照） */
+  moqPrice: number
+  /** 公开价：起批量（对照） */
+  moqQty: number
+  /** 当前库存量（0=缺货，可询） */
+  stockQty: number
+  /** 专属价现值（价目行主价） */
+  customerPrice: number
+  /** 专属价失效时间（空=永久有效） */
+  expireAt: string | null
+  /** 专属价来源：manual=商户设定 / from_inquiry=议价沉淀 */
+  source: 'manual' | 'from_inquiry'
+  /** false=SKU 已下架（置灰禁提交） */
+  listed: boolean
+}
+
+/** 「我的价目」组（RtPriceGroupVo）：某批发商下该客户的有效专属价行 */
+export interface RtPriceGroup {
+  wholesalerId: SnowflakeId
+  name: string
+  /** 该客户在此商户的有效专属价行（createdAt 倒序；含下架行 listed=false） */
+  items: RtPriceItem[]
+}
+
+/** 「我的价目」响应（RtPriceListVo）：仅回尾号作归属提示，不含明文手机号 */
+export interface RtPriceList {
+  /** 价目归属提示：手机号尾号 4 位 */
+  rtPhoneLast4: string
+  /** 有专属价目的店内批发商（无价目商户不出组） */
+  wholesalers: RtPriceGroup[]
+}
+
+/** 「我的价目」查询入参（MyPriceListQueryDto）：手机号放 POST body，防明文落 GET 日志 */
+export interface MyPriceListRequest {
+  /** 店铺码（= 租户简码） */
+  code: string
+  /** RT 手机号 */
+  rtPhone: string
+}
