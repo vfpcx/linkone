@@ -3,12 +3,17 @@ package com.cangchu.storefront.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
+import com.cangchu.common.pii.PiiCrypto;
 import com.cangchu.inventory.service.InventoryService;
 import com.cangchu.inventory.vo.InventoryVo;
 import com.cangchu.pricing.service.PricingService;
+import com.cangchu.pricing.vo.CustomerPriceRef;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.storefront.service.StoreFrontService;
+import com.cangchu.storefront.vo.RtPriceGroupVo;
+import com.cangchu.storefront.vo.RtPriceItemVo;
+import com.cangchu.storefront.vo.RtPriceListVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
@@ -59,6 +64,8 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     private final PricingService pricingService;
     // P5-A W4：撮合配置读 tenant 域 Service 出口（G-S2，禁跨域 mapper 直连 / 禁跨域 entity 直用）
     private final StorefrontFeatureService storefrontFeatureService;
+    // C1（23-p5-c-c1 §5.1）：价目查询的 hmac 盲索引 + 尾号归属提示（PII 单入口，不落明文）
+    private final PiiCrypto piiCrypto;
 
     @Override
     public StoreFrontVo getStorePage(Long storeId, String code) {
@@ -271,6 +278,80 @@ public class StoreFrontServiceImpl implements StoreFrontService {
             return null;
         }
         return resolved;
+    }
+
+    /**
+     * RT「我的价目」（C1，23-p5-c-c1 §4.1/§5.1）：当前店 × 该手机号有效专属价行，
+     * 按店内 ACTIVE wholesaler 分组。纯只读。
+     *
+     * <p>隔离（安全规约 G-2.1，三重防跨店）：store→tenant 解析为唯一可信来源；价目行按
+     * wholesaler 归属（listActiveRefsByPhone 按 wholesalerId 收敛）；SKU 快照按
+     * tenant+wholesaler 显式 eq（listForRtBySkuIds），越店 sku 直接查不到。
+     * 手机号仅在方法内转 hmac（不打印/不返回），响应只带尾号 4 位归属提示。
+     */
+    @Override
+    public RtPriceListVo getMyPriceList(Long storeId, String code, String rtPhone) {
+        ResolvedStore rs = resolve(storeId, code);
+        if (rtPhone == null || rtPhone.isBlank()) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "RT手机号不能为空");
+        }
+        String rtPhoneHmac = piiCrypto.phoneHmac(rtPhone);
+
+        List<RtPriceGroupVo> groups = new ArrayList<>();
+        // 店内 ACTIVE wholesaler（保留 listByTenant 顺序）；某商户无有效价目行则不出组
+        var actives = wholesalerService.listByTenant(rs.tenantId()).stream()
+                .filter(w -> "ACTIVE".equals(w.getStatus()))
+                .toList();
+        for (var w : actives) {
+            List<CustomerPriceRef> refs = pricingService.listActiveRefsByPhone(w.getId(), rtPhoneHmac);
+            if (refs.isEmpty()) {
+                continue;
+            }
+            List<Long> skuIds = refs.stream().map(CustomerPriceRef::getSkuId).toList();
+            // 含下架批量快照：仅回命中 (tenant, wholesaler) 的行，越店/越商户不泄漏
+            Map<Long, SkuVo> skuById = skuService.listForRtBySkuIds(rs.tenantId(), w.getId(), skuIds).stream()
+                    .collect(Collectors.toMap(SkuVo::getId, s -> s, (a, b) -> a));
+            if (skuById.isEmpty()) {
+                continue;
+            }
+            // 库存索引：仅在库(qty>0)有数，价目行无在库按 0（缺货不拦询价，仅提示）
+            Map<Long, Integer> stockBySku = inventoryService.listInStockSkusFor(w.getId()).stream()
+                    .filter(inv -> rs.tenantId().equals(inv.getTenantId()))
+                    .collect(Collectors.toMap(InventoryVo::getSkuId, InventoryVo::getQty, (a, b) -> a));
+
+            List<RtPriceItemVo> items = refs.stream()
+                    .filter(ref -> skuById.containsKey(ref.getSkuId()))
+                    .map(ref -> {
+                        SkuVo sku = skuById.get(ref.getSkuId());
+                        return RtPriceItemVo.builder()
+                                .skuId(ref.getSkuId())
+                                .name(sku.getName())
+                                .spec(sku.getSpec())
+                                .mainImage(sku.getMainImage())
+                                .unitPrice(sku.getUnitPrice())
+                                .moqPrice(sku.getMoqPrice())
+                                .moqQty(sku.getMoqQty())
+                                .stockQty(stockBySku.getOrDefault(ref.getSkuId(), 0))
+                                .customerPrice(ref.getUnitPrice())
+                                .expireAt(ref.getExpireAt())
+                                .source(ref.getSource())
+                                .listed(Boolean.TRUE.equals(sku.getListed()))
+                                .build();
+                    })
+                    .toList();
+            if (items.isEmpty()) {
+                continue;
+            }
+            groups.add(RtPriceGroupVo.builder()
+                    .wholesalerId(w.getId())
+                    .name(w.getName())
+                    .items(items)
+                    .build());
+        }
+        return RtPriceListVo.builder()
+                .rtPhoneLast4(piiCrypto.last4(rtPhone))
+                .wholesalers(groups)
+                .build();
     }
 
     // ==================== 进店解析（storeId / code → tenant） ====================

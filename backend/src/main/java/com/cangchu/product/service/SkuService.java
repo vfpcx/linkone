@@ -4,6 +4,7 @@ import com.cangchu.product.dto.SkuCreateDto;
 import com.cangchu.product.dto.SkuUpdateDto;
 import com.cangchu.product.vo.SkuVo;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -50,4 +51,14 @@ public interface SkuService {
      * @param wholesalerId 可空；非空则只取该商户的在售 SKU
      */
     List<SkuVo> listByTenantForRt(Long tenantId, Long wholesalerId);
+
+    /**
+     * RT 价目批量取数出口（C1，23-p5-c-c1 §5.1）：按 tenant+wholesaler 取任意状态
+     * （<b>含已下架</b>）的 SKU 快照，供「我的价目」行展示（下架行置灰）。
+     *
+     * <p>RT 入口无可信租户上下文（TenantLine 不注入），故以入参 tenantId + wholesalerId
+     * 显式 eq 双重隔离（与 {@link #listByTenantForRt} 同口径）；仅回命中该商户的 SKU，
+     * 不泄漏跨店/跨商户数据。空 skuIds → 空列表。
+     */
+    List<SkuVo> listForRtBySkuIds(Long tenantId, Long wholesalerId, Collection<Long> skuIds);
 }

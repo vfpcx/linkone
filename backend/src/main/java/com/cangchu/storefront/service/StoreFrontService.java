@@ -1,5 +1,6 @@
 package com.cangchu.storefront.service;
 
+import com.cangchu.storefront.vo.RtPriceListVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
@@ -48,4 +49,15 @@ public interface StoreFrontService {
      * @param rtPhone 已登录 RT 的手机号；匿名传 null
      */
     List<StoreSkuVo> listSkus(Long storeId, String code, Long wholesalerId, String rtPhone);
+
+    /**
+     * RT「我的价目」（C1 专属价复购，23-p5-c-c1 §4.1）：当前店 × 该手机号有效客户专属价
+     * 清单，按店内 ACTIVE wholesaler 分组（无价目行的商户不出组）。
+     *
+     * <p>手机号只在服务内转 hmac 盲查（不落日志/不返回明文），响应仅回尾号 4 位归属提示。
+     * 纯只读，不建单不改库存；供公开端点 POST /rt/my-pricelist。
+     *
+     * @param rtPhone 客户身份（RT 手机号，必填非空）
+     */
+    RtPriceListVo getMyPriceList(Long storeId, String code, String rtPhone);
 }

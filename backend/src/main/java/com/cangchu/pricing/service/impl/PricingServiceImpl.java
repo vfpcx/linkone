@@ -19,6 +19,7 @@ import com.cangchu.pricing.mapper.CustomerPriceMapper;
 import com.cangchu.pricing.mapper.PriceChangeLogMapper;
 import com.cangchu.pricing.service.PricingService;
 import com.cangchu.pricing.vo.BatchPriceResultVo;
+import com.cangchu.pricing.vo.CustomerPriceRef;
 import com.cangchu.pricing.vo.CustomerPriceVo;
 import com.cangchu.pricing.vo.PriceChangeLogVo;
 import com.cangchu.product.dto.SkuUpdateDto;
@@ -44,6 +45,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -320,6 +322,28 @@ public class PricingServiceImpl implements PricingService {
                 .eq(CustomerPrice::getWholesalerId, wholesalerId)
                 .orderByDesc(CustomerPrice::getCreatedAt));
         return list.stream().map(this::toVo).toList();
+    }
+
+    @Override
+    public List<CustomerPriceRef> listActiveRefsByPhone(Long wholesalerId, String rtPhoneHmac) {
+        // C1 RT 价目（23-p5-c-c1 §5.1）：无登录态/无 TenantContext 时也显式按 wholesaler + hmac 盲查；
+        // 无谓词 → 空（调用方保证 wholesalerId 有效）。逻辑删除行由 MyBatis-Plus 自动排除。
+        if (wholesalerId == null || rtPhoneHmac == null || rtPhoneHmac.isBlank()) {
+            return List.of();
+        }
+        return customerPriceMapper.selectList(
+                        PiiHmacQueries.customerPriceRows(wholesalerId, null, rtPhoneHmac))
+                .stream()
+                .filter(CustomerPrice::isActive)
+                .sorted(Comparator.comparing(CustomerPrice::getCreatedAt).reversed())
+                .map(cp -> CustomerPriceRef.builder()
+                        .skuId(cp.getSkuId())
+                        .unitPrice(cp.getUnitPrice())
+                        .source(cp.getSource())
+                        .expireAt(cp.getExpireAt())
+                        .createdAt(cp.getCreatedAt())
+                        .build())
+                .toList();
     }
 
     @Override

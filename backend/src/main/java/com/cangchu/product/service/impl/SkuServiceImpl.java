@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -215,6 +216,20 @@ public class SkuServiceImpl implements SkuService {
         // （受 TenantLine 兜底），跨租户不可见返回 null；归属核对留给调用方。
         Sku sku = skuMapper.selectById(skuId);
         return sku == null ? null : toVo(sku);
+    }
+
+    @Override
+    public List<SkuVo> listForRtBySkuIds(Long tenantId, Long wholesalerId, Collection<Long> skuIds) {
+        // C1 RT 价目（23-p5-c-c1 §5.1）：含下架的批量快照。RT 无 TenantContext → 显式 eq 隔离；
+        // 只回属于 (tenantId, wholesalerId) 的行，越店/越商户的 skuId 一律不出现（不泄漏）。
+        if (skuIds == null || skuIds.isEmpty()) {
+            return List.of();
+        }
+        return skuMapper.selectList(new LambdaQueryWrapper<Sku>()
+                        .eq(Sku::getTenantId, tenantId)
+                        .eq(Sku::getWholesalerId, wholesalerId)
+                        .in(Sku::getId, skuIds))
+                .stream().map(this::toVo).toList();
     }
 
     // ==================== 私有方法 ====================

@@ -3,13 +3,18 @@ package com.cangchu.storefront.controller;
 import cn.dev33.satoken.stp.StpUtil;
 import com.cangchu.account.service.AccountService;
 import com.cangchu.common.response.R;
+import com.cangchu.storefront.dto.MyPriceListQueryDto;
 import com.cangchu.storefront.service.StoreFrontService;
+import com.cangchu.storefront.vo.RtPriceListVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -60,6 +65,18 @@ public class RtStoreController {
                                     @RequestParam(required = false) String code,
                                     @RequestParam Long wholesalerId) {
         return R.ok(storeFrontService.listSkus(storeId, code, wholesalerId, currentRtPhone()));
+    }
+
+    /**
+     * RT「我的价目」（C1 专属价复购，23-p5-c-c1 §4.1）：当前店为该手机号维护的
+     * 客户专属价清单（按 wholesaler 分组）。公开端点。
+     *
+     * <p>手机号放 POST body（不放 GET query——防明文手机号落访问日志）；
+     * 服务内 hmac 盲查，响应仅尾号 4 位归属提示，永不返回明文。
+     */
+    @PostMapping("/my-pricelist")
+    public R<RtPriceListVo> myPriceList(@Valid @RequestBody MyPriceListQueryDto dto) {
+        return R.ok(storeFrontService.getMyPriceList(dto.getStoreId(), dto.getCode(), dto.getRtPhone()));
     }
 
     /**

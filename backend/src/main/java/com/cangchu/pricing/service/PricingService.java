@@ -5,6 +5,7 @@ import com.cangchu.pricing.dto.BatchPublicPriceDto;
 import com.cangchu.pricing.dto.SetCustomerPriceDto;
 import com.cangchu.pricing.dto.UpdateCustomerPriceDto;
 import com.cangchu.pricing.vo.BatchPriceResultVo;
+import com.cangchu.pricing.vo.CustomerPriceRef;
 import com.cangchu.pricing.vo.CustomerPriceVo;
 import com.cangchu.pricing.vo.PriceChangeLogVo;
 
@@ -63,6 +64,16 @@ public interface PricingService {
 
     /** 列出某商户的专属价（归属校验），仅未软删记录。 */
     List<CustomerPriceVo> listCustomerPrices(Long wholesalerId, Long operatorUserId);
+
+    /**
+     * RT 价目跨域出口（C1，23-p5-c-c1 §5.1）：按 (wholesalerId, rtPhoneHmac) 返回该商户下
+     * 该客户的所有<b>有效</b>专属价行（isActive：ACTIVE 且未过期），createdAt 倒序。
+     *
+     * <p>供 storefront 域在 RT 场景组装「我的价目」调用（storefront 不直连 CustomerPriceMapper）。
+     * 无鉴权入参：调用方（storefront）已以店铺→租户解析 + wholesaler 归属完成隔离；
+     * hmac 盲查不返回任何明文/尾号。无登录态 → 显式回 List.of()。
+     */
+    List<CustomerPriceRef> listActiveRefsByPhone(Long wholesalerId, String rtPhoneHmac);
 
     /**
      * 议价沉淀（P2 定价 Wave 3a）：确认询价时把议定成交价落为客户专属价（upsert）。
