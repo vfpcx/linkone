@@ -73,4 +73,10 @@ public interface ArbitrationService {
      * R13 退驻前置出口（12 §8.2）：该商户 PENDING 仲裁单数（争议中/客诉中商户不能退驻）。
      */
     long countPendingForWholesaler(Long wholesalerId);
+
+    /**
+     * TA 工作台「申诉处理」计数（P5-C dashboard，19 §3）：该租户全部 PENDING 仲裁单数。
+     * 与审批中心角标同口径（listForTa 不分 bizType，含入库异议 + 出库客诉）。
+     */
+    long countPendingForTa(Long tenantId);
 }

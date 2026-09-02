@@ -559,6 +559,16 @@ public class BatchServiceImpl implements BatchService {
     }
 
     @Override
+    public long countExpiringWithinDays(Long tenantId, int days) {
+        // P5-C（19 §3）：按到期日口径，终态（CLEARED/CLOSED/SOLD_OUT）不计
+        Long cnt = batchMapper.selectCount(new LambdaQueryWrapper<Batch>()
+                .eq(Batch::getTenantId, tenantId)
+                .le(Batch::getExpiryDate, LocalDate.now().plusDays(days))
+                .notIn(Batch::getStatus, Batch.STATUS_CLEARED, Batch.STATUS_CLOSED, Batch.STATUS_SOLD_OUT));
+        return cnt != null ? cnt : 0;
+    }
+
+    @Override
     public ExpiryDashboardVo expiryDashboard(Long tenantId, Long userId) {
         if (!authService.hasRole(userId, "TA", tenantId)) {
             throw new BizException(ErrorCode.PERMISSION_ROLE_001, "仅租户管理员可查看临期看板");

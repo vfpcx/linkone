@@ -447,6 +447,15 @@ public class CountSheetServiceImpl implements CountSheetService {
                 .in(CountSheet::getStatus, CountSheet.STATUS_DRAFT, CountSheet.STATUS_PENDING_APPROVAL));
     }
 
+    @Override
+    public long countPendingApprovalForTenant(Long tenantId) {
+        // TA 工作台「待审批盘点单」计数（P5-C，19 §3）；照抄 Clearance 同名出口
+        Long cnt = countSheetMapper.selectCount(new LambdaQueryWrapper<CountSheet>()
+                .eq(CountSheet::getTenantId, tenantId)
+                .eq(CountSheet::getStatus, CountSheet.STATUS_PENDING_APPROVAL));
+        return cnt != null ? cnt : 0;
+    }
+
     // ==================== 私有 ====================
 
     /**

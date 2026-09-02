@@ -47,4 +47,7 @@ public interface CountSheetService {
 
     /** R13 未结计数（13 §7.1 终版枚举）：DRAFT/PENDING_APPROVAL 在途阻退驻。 */
     long countOpenForWholesaler(Long wholesalerId);
+
+    /** TA 工作台「待审批盘点单」计数（P5-C dashboard 编排合入，G-S1：不跨域直连）。 */
+    long countPendingApprovalForTenant(Long tenantId);
 }

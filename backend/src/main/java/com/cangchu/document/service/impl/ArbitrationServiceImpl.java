@@ -385,6 +385,15 @@ public class ArbitrationServiceImpl implements ArbitrationService {
                 .eq(Arbitration::getStatus, Arbitration.STATUS_PENDING));
     }
 
+    @Override
+    public long countPendingForTa(Long tenantId) {
+        // TA 工作台「申诉处理」计数（P5-C，19 §3）：对齐审批中心角标（不分 bizType）
+        Long cnt = arbitrationMapper.selectCount(new LambdaQueryWrapper<Arbitration>()
+                .eq(Arbitration::getTenantId, tenantId)
+                .eq(Arbitration::getStatus, Arbitration.STATUS_PENDING));
+        return cnt != null ? cnt : 0;
+    }
+
     // ==================== 私有 ====================
 
     /** OPS 平台角色鉴权（requireOpsRole 先例，写法对齐 BlacklistServiceImpl）。 */

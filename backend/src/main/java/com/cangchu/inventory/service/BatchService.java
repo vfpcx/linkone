@@ -88,6 +88,13 @@ public interface BatchService {
     BatchListVo listExpiring(Long tenantId, Long userId);
 
     /**
+     * TA 工作台「临期 N 天内」批次数（P5-C，19 §3）：expiry_date ≤ 今日+days 且未处置
+     * （status ∉ CLEARED/CLOSED/SOLD_OUT）。基于日期口径而非状态——02:00 推算阈值（默认 30 天）
+     * 通常宽于窗口，故直接按到期日命中「窗口内到期未处置」。纯读、无鉴权（调用方已 requireTa）。
+     */
+    long countExpiringWithinDays(Long tenantId, int days);
+
+    /**
      * TA 临期看板汇总（PRD §3.6-A）：临期/待清理批次数与推算件数、已清库累计、按 SKU 分组。
      * 清库单待审批数由 Controller 经 ClearanceRequestService 编排填充（G-S1：不跨域直连）。
      */
