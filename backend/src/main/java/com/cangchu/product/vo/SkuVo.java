@@ -32,6 +32,13 @@ public class SkuVo {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long spuId;
 
+    /** 标品快照（挂接时写入，免 join 展示；合并后整体刷新） */
+    private String spuName;
+
+    private String spuCategoryL1;
+
+    private String spuCategoryL2;
+
     private String name;
 
     private String spec;

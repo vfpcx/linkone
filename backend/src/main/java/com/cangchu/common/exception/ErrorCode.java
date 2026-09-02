@@ -247,7 +247,16 @@ public enum ErrorCode {
     STOREFRONT_MAIN_SKU_LIMIT(50711, "主推商品数量超出上限（最多 20 个）"),
     STOREFRONT_PIN_WA_LIMIT(50712, "置顶批发商数量超出上限（最多 5 个）"),
     STOREFRONT_FEATURED_DUPLICATED(50713, "主推/置顶条目重复"),
-    STOREFRONT_REF_INVALID(50714, "引用无效（非本店在售商品或非本店入驻批发商）");
+    STOREFRONT_REF_INVALID(50714, "引用无效（非本店在售商品或非本店入驻批发商）"),
+
+    // ==================== P5-D D56 标品库（16-p5-d56-catalog §4/22 §4，5072x，归属 product 域） ====================
+    SPU_NOT_FOUND(50720, "标品不存在"),
+    SPU_NAME_REQUIRED(50721, "标品名称不能为空"),
+    SPU_STATE_INVALID(50722, "标品当前状态不允许该操作"),
+    SPU_CATEGORY_INVALID(50723, "品类不在平台预置字典中"),
+    SPU_CODE_DUPLICATED(50724, "平台编码已存在，请更换或留空自动生成"),
+    SPU_MERGE_TARGET_INVALID(50725, "合并目标标品无效（须为在用的其他标品）"),
+    SPU_NOT_LINKABLE(50726, "该标品不可挂接（仅 ACTIVE 标品可挂接）");
 
     private final int code;
     private final String message;

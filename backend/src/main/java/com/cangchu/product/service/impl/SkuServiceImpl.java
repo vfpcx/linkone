@@ -9,8 +9,10 @@ import com.cangchu.common.util.SnowflakeIdUtil;
 import com.cangchu.product.dto.SkuCreateDto;
 import com.cangchu.product.dto.SkuUpdateDto;
 import com.cangchu.product.entity.Sku;
+import com.cangchu.product.entity.Spu;
 import com.cangchu.product.mapper.SkuMapper;
 import com.cangchu.product.service.SkuService;
+import com.cangchu.product.service.SpuService;
 import com.cangchu.product.vo.SkuVo;
 import com.cangchu.tenant.service.WholesalerService;
 import com.cangchu.tenant.vo.WholesalerVo;
@@ -44,6 +46,7 @@ import java.util.List;
 public class SkuServiceImpl implements SkuService {
 
     private final SkuMapper skuMapper;
+    private final SpuService spuService;
     private final WholesalerService wholesalerService;
     private final AuthService authService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -72,7 +75,9 @@ public class SkuServiceImpl implements SkuService {
         // tenant_id 由 MetaObjectHandler 自动填充；显式设为商户真实租户，保证与归属一致
         sku.setTenantId(wholesaler.getTenantId());
         sku.setWholesalerId(wholesalerId);
-        sku.setSpuId(dto.getSpuId());
+        // P5-D D56（22 §3.2）：可选挂接平台标品——spuId 非空时校验 ACTIVE 并写名称/品类快照
+        //（编辑不改挂接，16 §2.3；历史自由 spec 文本保留）
+        applySpuSnapshot(sku, dto.getSpuId());
         sku.setName(dto.getName().trim());
         sku.setSpec(dto.getSpec());
         sku.setUnitPrice(dto.getUnitPrice());
@@ -215,6 +220,26 @@ public class SkuServiceImpl implements SkuService {
     // ==================== 私有方法 ====================
 
     /**
+     * 挂接平台标品并写名称/品类快照（P5-D D56，22 §3.2）。
+     * spuId 为空 = 不挂接（清空快照）；非空 → ACTIVE 校验（不存在 SPU_NOT_FOUND / 非 ACTIVE
+     * SPU_NOT_LINKABLE）后快照随标品落库。S4 鉴权由本方法调用方（createSku）完成。
+     */
+    private void applySpuSnapshot(Sku sku, Long spuId) {
+        if (spuId == null) {
+            sku.setSpuId(null);
+            sku.setSpuName(null);
+            sku.setSpuCategoryL1(null);
+            sku.setSpuCategoryL2(null);
+            return;
+        }
+        Spu spu = spuService.requireLinkable(spuId);
+        sku.setSpuId(spu.getId());
+        sku.setSpuName(spu.getName());
+        sku.setSpuCategoryL1(spu.getCategoryL1());
+        sku.setSpuCategoryL2(spu.getCategoryL2());
+    }
+
+    /**
      * S4 归属鉴权：operator 须为该商户的 WA（role=WA & wholesaler_id=商户 & ACTIVE）
      * 或该商户所属租户的 TA（role=TA & tenant_id=租户 & ACTIVE）。皆非则越权拒绝。
      */
@@ -272,6 +297,9 @@ public class SkuServiceImpl implements SkuService {
                 .wholesalerId(s.getWholesalerId())
                 .tenantId(s.getTenantId())
                 .spuId(s.getSpuId())
+                .spuName(s.getSpuName())
+                .spuCategoryL1(s.getSpuCategoryL1())
+                .spuCategoryL2(s.getSpuCategoryL2())
                 .name(s.getName())
                 .spec(s.getSpec())
                 .unitPrice(s.getUnitPrice())

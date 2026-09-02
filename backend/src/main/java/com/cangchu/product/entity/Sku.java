@@ -28,9 +28,18 @@ public class Sku {
     @TableField(fill = FieldFill.INSERT)
     private Long tenantId;
 
-    /** 平台 SPU（phase-1 可空，不强制） */
+    /** 平台 SPU（phase-1 可空；P5-D D56 可挂接 ACTIVE 标品） */
     @JsonSerialize(using = ToStringSerializer.class)
     private Long spuId;
+
+    /** 标品名称快照（挂接/合并时整体刷新，22 §2.3；以 OPS 标品为准） */
+    private String spuName;
+
+    /** 一级品类快照 */
+    private String spuCategoryL1;
+
+    /** 二级品类快照 */
+    private String spuCategoryL2;
 
     private String name;
 
