@@ -143,3 +143,57 @@ export interface OpsDashboardResponse {
     newComplaintsToday: number
   }
 }
+
+// ============================================================
+// P5-D D56 · 平台标品库（16-p5-d56-catalog §4 / 22 §3）
+//   管理：/api/v1/ops/spus*（requireOps，非 OPS → 42002）
+//   只读目录：/api/v1/catalog/spus（登录态可见，仅 ACTIVE）
+// ============================================================
+
+/** 两级品类字典项（预置 seed，SpuCatalog；OPS 新增弹窗两级联动下拉） */
+export interface SpuCategoryGroup {
+  /** 一级品类（中文文本） */
+  l1: string
+  /** 该一级下的二级品类 */
+  l2s: string[]
+}
+
+export interface Spu {
+  id: string
+  /** 平台编码（OPS 填 / 自动 GSPU-xxx） */
+  spuCode: string
+  name: string
+  categoryL1: string
+  categoryL2: string
+  brand: string | null
+  standardImageUrl: string | null
+  note: string | null
+  /** ACTIVE / OFFLINE / MERGED */
+  status: 'ACTIVE' | 'OFFLINE' | 'MERGED'
+  /** 合并源指向的新主标品（仅 MERGED 非空） */
+  mergedToSpuId: string | null
+  /** 引用该标品的在库 SKU 数 */
+  referencedSkuCount: number
+  createdAt: string
+}
+
+export interface SpuQuery {
+  page: number
+  size: number
+  /** 名称/编码模糊 */
+  keyword?: string
+  categoryL1?: string
+  categoryL2?: string
+  status?: 'ACTIVE' | 'OFFLINE' | 'MERGED'
+}
+
+export interface CreateSpuRequest {
+  name: string
+  categoryL1: string
+  categoryL2: string
+  brand?: string
+  standardImageUrl?: string
+  note?: string
+  /** 平台编码（可空，空则自动生成） */
+  spuCode?: string
+}

@@ -41,11 +41,12 @@ import {
   makeClientPickerFetch,
   type EntityPickerColumn,
 } from '@cangchu/ui-shared'
-import type { Wholesaler, Sku, CreateSkuRequest } from '@cangchu/api-types'
+import type { Wholesaler, Sku, CreateSkuRequest, Spu } from '@cangchu/api-types'
 import { useAuthStore } from '@/stores/auth'
 import WarehouseSwitcher from '@/components/WarehouseSwitcher.vue'
 import { wholesalerApi } from '@/api/wholesaler'
 import { skuApi } from '@/api/sku'
+import { catalogApi } from '@/api/catalog'
 import { accountApi } from '@/api/account'
 
 const router = useRouter()
@@ -235,6 +236,8 @@ const form = reactive({
   moqPrice: undefined as number | undefined,
   moqQty: undefined as number | undefined,
   mainImage: '',
+  /** 挂接平台标品（P5-D D56；可选，空=不挂） */
+  spuId: '',
 })
 
 const rules: FormRules = {
@@ -266,12 +269,34 @@ const resetForm = () => {
   form.moqPrice = undefined
   form.moqQty = undefined
   form.mainImage = ''
+  form.spuId = ''
+}
+
+// ============ 选择标品（P5-D D56：标品目录只读 ACTIVE，登录态可见） ============
+const spuOptions = ref<Spu[]>([])
+const spuSearching = ref(false)
+
+const searchSpus = async (kw?: string) => {
+  spuSearching.value = true
+  try {
+    const data = await catalogApi.searchSpus({
+      page: 1,
+      size: 10,
+      keyword: kw?.trim() || undefined,
+    })
+    spuOptions.value = data?.records ?? []
+  } catch {
+    spuOptions.value = []
+  } finally {
+    spuSearching.value = false
+  }
 }
 
 const openCreate = () => {
   resetForm()
   dialogVisible.value = true
   formRef.value?.clearValidate()
+  void searchSpus()
 }
 
 const onSubmit = async () => {
@@ -295,6 +320,7 @@ const onSubmit = async () => {
     if (form.moqQty !== undefined && form.moqQty !== null)
       payload.moqQty = Number(form.moqQty)
     if (form.mainImage.trim()) payload.mainImage = form.mainImage.trim()
+    if (form.spuId) payload.spuId = form.spuId
 
     await skuApi.create(selectedWholesalerId.value, payload)
     ElMessage.success('SKU 上架成功')
@@ -383,6 +409,15 @@ onMounted(fetchWholesalers)
                 <span class="cell-muted">{{ row.spec || '—' }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="所属标品" min-width="160">
+              <template #default="{ row }">
+                <span v-if="row.spuName">
+                  <span class="cell-spu">{{ row.spuName }}</span>
+                  <span class="cell-muted">（{{ row.spuCategoryL1 }}/{{ row.spuCategoryL2 }}）</span>
+                </span>
+                <span v-else class="cell-muted">—</span>
+              </template>
+            </el-table-column>
             <el-table-column label="单价" width="120" align="right">
               <template #default="{ row }">
                 <span class="cell-price">{{ formatPrice(row.unitPrice) }}</span>
@@ -443,6 +478,26 @@ onMounted(fetchWholesalers)
             maxlength="128"
             show-word-limit
           />
+        </el-form-item>
+
+        <el-form-item label="选择标品（可选）">
+          <el-select
+            v-model="form.spuId"
+            placeholder="挂接平台标品（仅「在用」可挂，搜索后选择）"
+            filterable
+            remote
+            clearable
+            :remote-method="(kw: string) => searchSpus(kw)"
+            :loading="spuSearching"
+            class="full-width"
+          >
+            <el-option
+              v-for="s in spuOptions"
+              :key="s.id"
+              :label="`${s.name}（${s.categoryL1}/${s.categoryL2}）`"
+              :value="s.id"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="规格（可选）" prop="spec">
@@ -590,6 +645,10 @@ onMounted(fetchWholesalers)
   width: 100%;
 }
 .cell-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-fg-1);
+}
+.cell-spu {
   font-weight: var(--font-weight-medium);
   color: var(--color-fg-1);
 }

@@ -19,7 +19,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, CircleClose, Stamp, Bell, Refresh, ScaleToOriginal } from '@element-plus/icons-vue'
+import { Monitor, CircleClose, Stamp, Bell, Goods, Refresh, ScaleToOriginal } from '@element-plus/icons-vue'
 import { AppTopbar, NavCountBadge, roleLabel } from '@cangchu/ui-shared'
 import type {
   Arbitration,
@@ -71,6 +71,7 @@ const menus = [
   { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
   { key: '/ops/announcements', label: '公告管理', icon: Bell },
+  { key: '/ops/spu-catalog', label: '标品库', icon: Goods },
   { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal },
 ]
 
@@ -83,7 +84,8 @@ const handleMenuSelect = (key: string) => {
     key === '/ops/dashboard' ||
     key === '/ops/tenant-audit' ||
     key === '/ops/blacklist' ||
-    key === '/ops/announcements'
+    key === '/ops/announcements' ||
+    key === '/ops/spu-catalog'
   ) {
     router.push(key)
     return

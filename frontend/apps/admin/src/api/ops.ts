@@ -19,8 +19,12 @@ import type {
   BlacklistListQuery,
   CreateAnnouncementRequest,
   CreateBlacklistRequest,
+  CreateSpuRequest,
   OpsDashboardResponse,
   PageRecords,
+  Spu,
+  SpuCategoryGroup,
+  SpuQuery,
 } from '@cangchu/api-types'
 
 export const opsApi = {
@@ -30,6 +34,32 @@ export const opsApi = {
    */
   getDashboard: () =>
     request<OpsDashboardResponse>({ method: 'GET', url: '/ops/dashboard' }),
+
+  // ---------------- P5-D D56 · 平台标品库（22 §3.1，requireOps 42002） ----------------
+
+  /** OPS 标品分页（keyword 名称/编码模糊 + 品类/状态过滤；含引用 SKU 数） */
+  listSpus: (params: SpuQuery) =>
+    request<PageRecords<Spu>>({ method: 'GET', url: '/ops/spus', params }),
+
+  /** 新增标品（ACTIVE；spuCode 空则自动生成） */
+  createSpu: (data: CreateSpuRequest) =>
+    request<Spu>({ method: 'POST', url: '/ops/spus', data }),
+
+  /** 下架（ACTIVE→OFFLINE；存量 SKU 引用保留） */
+  offlineSpu: (id: string) =>
+    request<void>({ method: 'POST', url: `/ops/spus/${id}/offline` }),
+
+  /** 合并 source→target（同事务重指引用 SKU） */
+  mergeSpu: (id: string, targetSpuId: string) =>
+    request<void>({
+      method: 'POST',
+      url: `/ops/spus/${id}/merge`,
+      params: { targetSpuId },
+    }),
+
+  /** 两级品类字典（新增弹窗下拉同源） */
+  listSpuCategories: () =>
+    request<SpuCategoryGroup[]>({ method: 'GET', url: '/ops/spus/spu-categories' }),
 
   /** ✅ P2 · 黑名单分页列表（DEF-6 · §31：{records,total,page,size}，keyword 键值搜索） */
   listBlacklist: (params?: BlacklistListQuery) =>

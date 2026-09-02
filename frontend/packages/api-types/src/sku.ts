@@ -24,8 +24,12 @@ export interface Sku {
   id: SnowflakeId
   wholesalerId: SnowflakeId
   tenantId: SnowflakeId
-  /** SPU（phase-1 可空） */
+  /** SPU（phase-1 可空；P5-D D56 可挂接 ACTIVE 标品） */
   spuId: SnowflakeId | null
+  /** 标品快照（挂接/合并时整体刷新；22 §2.3，列表免 join） */
+  spuName: string | null
+  spuCategoryL1: string | null
+  spuCategoryL2: string | null
   name: string
   spec: string | null
   /** 公开价：单价 */
@@ -51,6 +55,8 @@ export interface CreateSkuRequest {
   moqPrice?: number
   moqQty?: number
   mainImage?: string
+  /** 挂接平台标品（P5-D D56，可选；须 ACTIVE 标品，空=不挂） */
+  spuId?: string
 }
 
 /** 修改 SKU 请求（SkuUpdateDto，null/缺省表示不改） */

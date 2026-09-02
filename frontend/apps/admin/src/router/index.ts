@@ -239,6 +239,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ops/Announcements.vue'),
     meta: { role: 'OPS', title: '公告管理' },
   },
+  // OPS 标品库（P5-D D56 · 22-p5-d56-catalog-design：新增/下架/合并 + 两级品类）
+  {
+    path: '/ops/spu-catalog',
+    name: 'ops-spu-catalog',
+    component: () => import('@/views/ops/SpuCatalog.vue'),
+    meta: { role: 'OPS', title: '标品库' },
+  },
 
   // ST 结算员业务面（P4 W4 · 占位转真实；requireStOrTa——仓库老板兼岗同享）
   {

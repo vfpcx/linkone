@@ -19,6 +19,7 @@ import {
   CircleClose,
   Stamp,
   Bell,
+  Goods,
   Refresh,
   ScaleToOriginal,
 } from '@element-plus/icons-vue'
@@ -71,6 +72,7 @@ const menus = computed(() => [
   { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp, badge: pendingTotal.value },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose, badge: 0 },
   { key: '/ops/announcements', label: '公告管理', icon: Bell, badge: 0 },
+  { key: '/ops/spu-catalog', label: '标品库', icon: Goods },
   { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal, badge: 0 },
 ])
 
@@ -83,6 +85,7 @@ const handleMenuSelect = (key: string) => {
     key === '/ops/dashboard' ||
     key === '/ops/blacklist' ||
     key === '/ops/announcements' ||
+    key === '/ops/spu-catalog' ||
     key === '/ops/arbitrations'
   ) {
     router.push(key)

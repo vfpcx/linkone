@@ -20,6 +20,7 @@ import {
   CircleClose,
   Bell,
   ScaleToOriginal,
+  Goods,
   Shop,
   UserFilled,
   WarningFilled,
@@ -72,6 +73,7 @@ const menus = computed(() => [
   { key: '/ops/tenant-audit', label: '租户审核', icon: Stamp, badge: data.value.pending.pendingTenantAudits },
   { key: '/ops/blacklist', label: '黑名单', icon: CircleClose },
   { key: '/ops/announcements', label: '公告管理', icon: Bell, badge: data.value.pending.draftAnnouncements },
+  { key: '/ops/spu-catalog', label: '标品库', icon: Goods },
   { key: '/ops/arbitrations', label: '客诉仲裁', icon: ScaleToOriginal, badge: data.value.pending.pendingComplaints },
 ])
 
