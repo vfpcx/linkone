@@ -21,6 +21,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  ChatDotRound,
   Document,
   Refresh,
   Shop,
@@ -78,6 +79,8 @@ const activeMenu = ref('/wa/batches')
 
 const menus = [
   { key: '/wa/inquiry', label: '询价确认', icon: Document },
+  // P5-D C3 客户跟进（US-WE-04 · WE/WA 可见：WA 全量，WE 本商户直连）
+  { key: '/wa/customers', label: '客户跟进', icon: ChatDotRound },
   { key: '/wa/inbound', label: '入库确认', icon: Box },
   { key: '/wa/outbound', label: '出库单', icon: Van },
   { key: '/wa/returns', label: '退货', icon: RefreshLeft },

@@ -674,6 +674,65 @@ export interface SubmitInquiryRequest {
 }
 
 // ============================================================
+// C3 客户跟进（US-WE-04 · architecture/24-p5-c-c3 §4，document 域）
+// 客户 = 当前商户按 rt_phone_hmac 归并的询价买家；customerKey = URL-safe Base64(hmac)，
+// wholesalerId 回传收敛；越权一律 50840（假装不存在）；仅回打码号，查全号复用
+// GET /pii/phone-reveal?biz=INQUIRY&id={lastInquiryId}。
+// ============================================================
+
+/** 跟进提醒出参（FollowupReminderVo） */
+export interface WaFollowupReminder {
+  id: SnowflakeId
+  content: string
+  /** 提醒时点（YYYY-MM-DD HH:mm） */
+  remindAt: string
+  /** 站内信触发时刻（空=未触发/待提醒） */
+  remindedAt: string | null
+  createdAt: string
+}
+
+/** wa 客户列表行（CustomerListItemVo）：客户 × 商户行，仅打码号 */
+export interface WaCustomer {
+  wholesalerId: SnowflakeId
+  wholesalerName: string
+  customerKey: string
+  /** 138****6666（后端打码） */
+  maskedPhone: string
+  inquiryCount: number
+  /** 最近询价时间 */
+  lastInquiryAt: string
+  /** 最近成交（CONFIRMED 单）时刻；无则 null */
+  lastConfirmedAt: string | null
+  /** 最新询价单 id（查全号锚点：reveal biz=INQUIRY） */
+  lastInquiryId: SnowflakeId
+  /** 档案备注（无档案 null） */
+  remark: string | null
+  remarkUpdatedAt: string | null
+  /** 最近未触发提醒时点 */
+  nextReminderAt: string | null
+  /** 已到点未触发条数（Job 触发后归零） */
+  dueReminderCount: number
+}
+
+/** wa 客户详情（CustomerDetailVo）：列表行字段 + 全部提醒（含已触发历史） */
+export interface WaCustomerDetail extends WaCustomer {
+  reminders: WaFollowupReminder[]
+}
+
+/** 备注覆盖保存（CustomerRemarkDto）：remark 空串=清除备注（无提醒则清档） */
+export interface SaveCustomerRemarkRequest {
+  wholesalerId: SnowflakeId
+  remark: string
+}
+
+/** 新建跟进提醒（CustomerReminderDto）：remindAt 须晚于 now（50841） */
+export interface AddCustomerReminderRequest {
+  wholesalerId: SnowflakeId
+  content: string
+  remindAt: string
+}
+
+// ============================================================
 // 公开租户目录（DEF-1 · 10-onboarding-design.md §32，Wave6）
 // ============================================================
 /**

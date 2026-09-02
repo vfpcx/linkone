@@ -126,6 +126,8 @@ const NOTIF_TYPE_LABELS: Record<string, string> = {
   BILL_DISPUTE_RESOLVED: '申诉结果',
   BILLING_RULE_CHANGED: '计费规则变更',
   BILL_DISPUTED_MARKED: '账单转入争议',
+  // P5-D C3 客户跟进（24-p5-c-c3 §5：FollowupReminderJob 到点站内信给创建人）
+  CUSTOMER_FOLLOWUP: '客户跟进',
 }
 const typeLabel = (t: string | null | undefined): string =>
   t ? (NOTIF_TYPE_LABELS[t] ?? '') : ''

@@ -151,6 +151,13 @@ const routes: RouteRecordRaw[] = [
     meta: { role: 'WA', title: '询价确认' },
   },
   {
+    // P5-D C3 客户跟进（US-WE-04 · 24-p5-c-c3 §4，WE/WA 均可见：WA 全量，WE 本商户直连）
+    path: '/wa/customers',
+    name: 'wa-customers',
+    component: () => import('@/views/wa/Customers.vue'),
+    meta: { role: 'WA', title: '客户跟进' },
+  },
+  {
     path: '/wa/inbound',
     name: 'wa-inbound',
     component: () => import('@/views/wa/Inbound.vue'),
