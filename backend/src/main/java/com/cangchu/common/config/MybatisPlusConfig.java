@@ -79,7 +79,11 @@ public class MybatisPlusConfig {
             "bill_disputes",
             // P5-A W4（18-p5-design §2.2 V36）：店铺撮合配置纳入兜底隔离
             // （storefront RT 匿名浏览无 TenantContext → 不注入，由 tenant 域 Service 显式 tenantId 过滤）
-            "storefront_featured"
+            "storefront_featured",
+            // P5-D C3（24-p5-c-c3 §3.3 V39）：客户跟进档案两表纳入兜底隔离
+            // （FollowupReminderJob 系统态无 TenantContext → 不注入，全量扫描按行内 tenant 入通知）
+            "customer_followups",
+            "followup_reminders"
     );
 
     @Bean

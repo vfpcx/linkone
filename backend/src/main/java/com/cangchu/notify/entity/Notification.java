@@ -95,6 +95,8 @@ public class Notification {
     public static final String TYPE_BILL_DISPUTED_MARKED = "BILL_DISPUTED_MARKED";
     /** P5-A W3：平台公告（18-p5-design §2.2/§4.4）→ 目标角色（通知中心「公告」分组常驻 + 登录弹窗 1 次） */
     public static final String TYPE_PLATFORM_ANNOUNCEMENT = "PLATFORM_ANNOUNCEMENT";
+    /** P5-D C3：客户跟进提醒（24-p5-c-c3 §5，FollowupReminderJob 到点 → 创建人 WE，无跳转） */
+    public static final String TYPE_CUSTOMER_FOLLOWUP = "CUSTOMER_FOLLOWUP";
 
     // 跳转引用类型
     public static final String REF_INBOUND = "INBOUND";

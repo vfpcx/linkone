@@ -256,7 +256,15 @@ public enum ErrorCode {
     SPU_CATEGORY_INVALID(50723, "品类不在平台预置字典中"),
     SPU_CODE_DUPLICATED(50724, "平台编码已存在，请更换或留空自动生成"),
     SPU_MERGE_TARGET_INVALID(50725, "合并目标标品无效（须为在用的其他标品）"),
-    SPU_NOT_LINKABLE(50726, "该标品不可挂接（仅 ACTIVE 标品可挂接）");
+    SPU_NOT_LINKABLE(50726, "该标品不可挂接（仅 ACTIVE 标品可挂接）"),
+
+    // ==================== P5-D C3 客户跟进（24-p5-c-c3 §4.7，508xx，归属 document 域） ====================
+    /** 客户不存在或越权（wholesaler 不在登录人 scope 时假装不存在，防枚举，K-7） */
+    CUSTOMER_NOT_FOUND(50840, "客户不存在或无权访问"),
+    /** 提醒时点须晚于当前时间（K-4） */
+    REMIND_TIME_INVALID(50841, "提醒时间须晚于当前时间"),
+    /** 提醒不存在或不属于该客户档案 */
+    REMINDER_NOT_FOUND(50842, "跟进提醒不存在");
 
     private final int code;
     private final String message;

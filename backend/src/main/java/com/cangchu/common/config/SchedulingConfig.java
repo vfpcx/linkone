@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   <li>0 50 0 * * ?   — BillAutoConfirmJob（P4 W3：下发满 1 日自动转待回款）</li>
  *   <li>0 20 1 1 * ?   — MonthlyBillJob（P4 W3：每月 1 日生成上月账单）</li>
  *   <li>0 5/10 * * * ?  — InboundAutoConfirmJob（72h 超时自动确认）</li>
+ *   <li>0 5/5 * * * ?   — FollowupReminderJob（P5-D C3：客户跟进提醒到点站内信，24-p5-c-c3 §5）</li>
  *   <li>0 0 2 * * ?    — BatchRecalcJob（P3b T4：批次 FIFO 推算 + 临期首发通知 D-12）</li>
  *   <li>0 30 2 * * ?   — BatchExpiryMarkJob（P3b T4：到期归零标记「待清理」）</li>
  *   <li>0 40 3 * * ?   — WholesalerArchiveJob（退驻 60 天归档）</li>
