@@ -3,6 +3,10 @@ spring:
     name: cangchu-backend
   profiles:
     active: dev
+  # D 波 W8-L5（13 §10）：优雅停机硬化——SIGTERM/正常停服时停止收新请求，
+  # 在途请求限时完成后再关停（Windows 停服/服务管理器停止均触发 JVM shutdown hook）。
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
@@ -22,6 +26,7 @@ spring:
 
 server:
   port: 8080
+  shutdown: graceful
   servlet:
     encoding:
       charset: UTF-8
