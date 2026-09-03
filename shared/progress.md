@@ -2,6 +2,22 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-03 · F5-W1 WK 库管移动端（F 波第四业务子波·出入库作业：工作台/入库作业/出库作业/代建出库，CodeBuddy）
+
+> 用户续「按你的进度安排继续往后走」F4→F5（上轮已完成 F3 收尾+F1-F4 全部提交）。需求锚点：US-WK-01/01b 入库（受理/登记/驳回）、US-WK-02/02b 出库（打印/登记/代建）、US-WK-06（D20 手机端 P0 操作口径）+ 货位 C2 联动；**后端零改动**（P3/P3b 既有 InboundController/TenantOutboundController 契约）。W1 = 出入库作业核心高频链；W2（库存查询/批次·移库/临期预警/盘点核对）下轮续。
+> 与 F3 WA/F4 ST 不同：WK 是**仓库内执行角色**（X-Tenant-Id = 所服务仓），对 SKU/商户/库存均有**只读放宽**（P3b 起 `listSkuByWholesaler` 等端点 WK 可读）——移动端用 tenant 侧列表端点直接取数补名，无需 admin 页缓存。
+
+- **F5-W1 范围收敛决策**：US-WK-06 的 P0 操作里「出入库登记执行」是最高频且受状态机约束的日常任务 → 本子波先做执行链；「拍照举证/附件」与「现场代建入库（WK 登记建单走 PENDING_WA_CONFIRM 等商户 72h 确认）」留 admin/W2（移动端登记正向链为主，避免照片上传与 WK 代建链扩面）；盘点/库存/临期亦归 W2
+- **会话/入口（WK）**：`utils/session.ts`——`WorkRole` 增 `WK`；新增 `wkEntries`（WK 且带仓按 priority 排序）/`hasWkScope`；`healWork` zone 扩为 `'wa'|'st'|'wk'`（wk 区自愈防 WA/ST/WK 三角色串仓请求头）；`pages/wa/login` 分流补 WK（顺序 ST→WK→WA，账号多区角色取 priority 小者、跨区重登约定不变）；RT 首页入口文案「我是批发商 / 结算员 / 库管」
+- **API 与工具**：`api/wk.ts`——inbound 5（list/accept/reject/registerForward/print）+ outbound 7（list 分页 MpPage/print/revertToPending/register/confirmWithdraw/rejectWithdraw/createByWk）+ 共享 4（listWholesalers/listSkuByWholesaler/listInventories/batchConfig）+ rejectReasonOptions；**端点逐项对照真实 Controller 零漂移**（含 P3b `POST /tenant/wk/outbound-requests` 代建直达 COMPLETED、`/outbound-requests/{id}/print|revert-to-pending|confirm-withdraw|reject-withdraw`、入库 `/{id}/accept|reject|register`、`/tenant/inbound` 非分页 List）；`utils/warehouse.ts`（出入库状态/来源/驳回理由话术对齐 12-p3-design+13-p3b-design + tone 色板 + fmtDateTime）
+- **页面（pages/wk/ 4 个）**：
+  - `index` 库管工作台：仓卡（渐变青绿 + WK chip + 多仓切换 sheet + 退出）、入库待办（WA_SUBMIT & SUBMITTED/ACCEPTED 计数）/出库待办（PENDING_ACCEPT+PRINTED total）实时统计、入口 2×2（入库作业/出库作业/代建出库/库存·盘点占位注明电脑端）、作业提示
+  - `inbound/index` 入库作业：四段（待受理/待登记/已驳回/已完成，WA_SUBMIT 正向链）+ 行卡（docNo/商户/SKU+批次/申请件数/状态 tag）；详情弹层 = 单证只读核对（含批次三字段、驳回理由、撤回原因）+ 操作：SUBMITTED→[受理][驳回]、ACCEPTED→[登记入库]；**登记校验**：实收≠申请必须备注（R 留痕）、过期批次登记需勾选二次确认、货位开关开启时货位号必填；驳回 = 理由 chips（QTY/QUALITY/BATCH/OTHER）+ 说明必填
+  - `outbound/index` 出库作业：四段（待受理/待登记/已完成/全部）+ 分页队列（onReachBottom 加载更多 + 下拉刷新）+ 行卡（docNo/来源标签/商户/SKU/件数/托盘/撤回申请角标）；操作链：PENDING_ACCEPT→「受理并登记」（modal 说明纸单可电脑补打 → print 标记 PRINTED）→PRINTED→「登记出库」（托盘释放可空/货位联动必填）→COMPLETED；PRINTED 附加：回退待受理 + 若商户申请撤回则[同意撤回]（CANCELLED 库存回补）/[拒绝撤回]（继续履约）；名称映射走 listWholesalers + 按商户 listSkuByWholesaler
+  - `outbound/create` 代建出库：选商户 chips → 选货品列表（名称/公开价 + 在库实时展示）→ 件数/托盘/货位（开关联动）→ **大额判定 qty > 在库×50% 强制复述件数==qty**（50338 前端预检）+ 在库不足预检 + confirmed 凭据勾选 → POST 代建直达 COMPLETED
+- **验证**：vue-tsc 0 错（修 3 类：`LoginResponse` 无 user/tenantName、`writeWork` 单参需先构 `WaWork`、模板箭头闭包对 ref 窄化失效改参数化 helper）；`MpPage.total` 为 string|number 需 Number 化；read_lints 0；build:h5 + build:mp-weixin 双端 DONE（仅 legacy-sass 警告）
+- **边界与说明**：手机端「打印」= 状态标记（纸单在电脑端补打）；现场代建入库/拍照附件/盘点/库存查询归 F5-W2；多区角色（WK+ST/WA）移动端按 priority 落一区、跨区重登（与 F3/F4 约定一致）
+
 ## 2026-09-03 · F4 ST 结算员移动端（F 波第三业务子波：工作台/账单一览/账单详情/申诉处理，CodeBuddy）
 
 > 用户续「继续吧」按序推进 F3→F4（本会话先收 F3 遗留 + 提交 F1-F3，再落 F4）。需求锚点：US-ST-06（D20 口径 ST 移动端支持、admin 电脑全功能保留）+ P4 账单状态机/US-ST-04 回款登记/R12 冲销二次确认；后端零改动（P4/W3 既有 StBillController 契约）。
@@ -42,7 +58,7 @@
 - **工程**：`frontend/apps/uni`（@cangchu/uni）——uni-app 编译器 5.25（vue3）/ vite 5.2.8（插件 peer 精确锁）/ vue 3.4.21（uni-h5 内部锁）/ @dcloudio 全链 `3.0.0-alpha-5020520260829001`（npm `vue3` tag 2026-08-29，7 包同版）；文件 = vite.config（端口 5175、`/api`+`/files` 代理对齐 admin）/ tsconfig（extends 根 base + @dcloudio/types）/ index.html / src{pages.json、manifest.json（h5 hash 路由 + mp-weixin urlCheck:false）、uni.scss（主题变量对齐 design-tokens：品牌深蓝/操作蓝/RT 生鲜绿）、App.vue、main.ts、pages/index 骨架页}
 - **验证**：vue-tsc 0 错；`build:h5` DONE（dist/build/h5）；`build:mp-weixin` DONE（dist/build/mp-weixin 可直接导入微信开发者工具）；仅无危害警告（appid 未配 + Dart Sass legacy-js-api）
 - **踩坑（本机环境）**：GitHub 443 直连不通 → degit/`create-uni -t vue3` 均不可用，改**手写工程骨架**（npm registry 可达，依赖约束逐包核实：vite-plugin-uni peer vite=5.2.8、uni-h5 内部锁 vue 3.4.21）；pnpm 增量链接触发 CodeBuddy safe-delete 批量保护（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，替换大 junction 逐个卡死）→ 以 `$env:CODEBUDDY_SAFE_DELETE_ENABLED='0'` 进程级放行完成 install（**后续 pnpm install 需同法**）；残留 `frontend/_tmp_*`（safe-delete 回收目录）待清理（删除操作需用户在场批准）；`@vueuse/core@14` peer vue^3.5 警告源自 uni-cli-shared→unplugin-auto-import@19 构建链（非运行时依赖、uni 未启用 unplugin 注入）暂容忍
-- **F 波子波进度**：F1 uni 工程 ✅ → F2 RT 买家正式端 ✅（详录见 F2 段落）→ **F3 WA+WE 批发商移动端 ✅（详录见 F3 段落）** → **F4 ST 结算员移动端 ✅（详录见顶部段落）** → F5 = WK 库管移动端（待排，US-WK-06/07 出入库登记·盘点核对等高频操作的移动化）
+- **F 波子波进度**：F1 uni 工程 ✅ → F2 RT 买家正式端 ✅（详录见 F2 段落）→ **F3 WA+WE 批发商移动端 ✅（详录见 F3 段落）** → **F4 ST 结算员移动端 ✅（详录见 F4 段落）** → **F5-W1 WK 库管出入库作业 🚧 2026-09-03 落地（详录见顶部段落；工作台/入库作业/出库作业/代建出库，vue-tsc 0 错 + 双端 DONE）** → F5-W2 WK 库存查询/批次·移库/临期预警/盘点核对（下轮续）
 
 ## 2026-09-03 · F2 RT 买家正式端（F 波第一业务子波：US-RT-01~04 全链，CodeBuddy）
 
