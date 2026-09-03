@@ -2,6 +2,22 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-03 · F4 ST 结算员移动端（F 波第三业务子波：工作台/账单一览/账单详情/申诉处理，CodeBuddy）
+
+> 用户续「继续吧」按序推进 F3→F4（本会话先收 F3 遗留 + 提交 F1-F3，再落 F4）。需求锚点：US-ST-06（D20 口径 ST 移动端支持、admin 电脑全功能保留）+ P4 账单状态机/US-ST-04 回款登记/R12 冲销二次确认；后端零改动（P4/W3 既有 StBillController 契约）。
+> 与 F3 WA/WE 不同：ST 是**仓库主体角色**（X-Tenant-Id = 所服务仓），会话在 F3 账号体系上直接扩展，无新身份模型。
+
+- **F3 收尾（本会话前置）**：契约逐项对照后端真实 Controller，修正 uni 两处漂移——① `api/pii.ts` 原写 `POST /tenant/pii/phone-reveal`+body，实际后端为 **`GET /api/v1/pii/phone-reveal?biz=&id=`**（PiiRevealController，biz 四枚举，uni 仅 INQUIRY）→ 重写与 admin 同口径；② `api/customers.ts` 三漂移：detail 路径补 `/detail` 后缀、saveRemark POST→**PUT**、deleteReminder 补 `wholesalerId` query（逐项对 CustomerController 修正 + detail.vue 调用点同步）；随后 **F 波 F1-F3 三笔提交**（7b3c375 backend F2 / 656ccb7 frontend F1-F3 / 03a7b02 docs F 波记录）
+- **会话/请求扩展（ST）**：`utils/session.ts`——`WorkRole` 增 `ST`；新增 `stEntries`/`hasStScope`；`pickDefaultWork` 全工作角色（WA/WE/ST）按 priority 选默认；新增 **`healWork(zone)`** 角色区自愈（工作台 onLoad/onShow 保证当前 work 属本区角色，防 WA/ST 双角色账号串仓请求头）；`pages/wa/login` 泛化为 WA/WE/ST 统一登录（文案/落地页按可用工作区角色分流：ST→/pages/st/index，WA/WE→/pages/wa/index，其余提示电脑端）；RT 首页补「我是批发商 / 结算员」工作台入口（F3 曾缺失）
+- **API 与工具**：`api/st.ts`（stBillApi.list/detail/dispatch/withdraw/registerPayment/reversePayment/listDisputes/resolveDispute，端点逐项对照 StBillController 零漂移）；`utils/billing.ts`（话术对齐 13-p4-prd：6 态/明细行/收款方式/申诉标签 + tone 语义色映射 + fmtMoney/recentMonths/currentMonth/toCents 分转）
+- **页面（pages/st/ 4 个）**：
+  - `index` 结算工作台：仓卡（storeName/tenantName + 结算员紫 chip）、本月应收/已收/未收汇总（list month=当前月）、入口（账单一览 / 申诉处理带待处理角标）、多仓切换 sheet、退出登录、买家入口
+  - `bills/index` 账单一览：月份 chips（近 6 月 + 全部账期）+ 状态分段（7 项）+ 按筛选汇总条（应收/已收/未收/账单数）+ 分页触底 + 下拉刷新 + 空态
+  - `bills/detail` 账单详情：头部（商户/billNo/账期/状态 tag）+ 争议冻结横幅 + 三金额（应收/已收/未收高亮）+ 明细（冲销划线/负数红）+ 回款记录（行内冲销）+ 申诉记录；**操作栏按状态机**——DRAFT→下发（modal）/ DISPATCHED→撤回（modal）/ PENDING_PAYMENT·PARTIAL_PAID→登记回款（bottom-sheet：金额默认未收、不超收校验、日期 picker、方式五选、备注）/ EFFECTIVE 回款行→冲销（bottom-sheet：理由必填 + 勾选二次确认，R12）；回款/冲销后重拉详情
+  - `disputes/index` 申诉处理：待处理/已成立/已驳回三态分段 + 卡片（申诉理由/处理说明/时间）；待处理卡点击 → 处理弹层（结论成立/不成立 chips + 处理说明必填 → resolve，留痕）
+- **验证**：vue-tsc 0 错（修 2 类：`||`/`??` 混用 TS5076 → 统一 `??`；textarea 冗余 `@input` 移除）；build:h5 + build:mp-weixin 双端 DONE（仅 legacy-sass 警告）；read_lints 0
+- **边界与说明**：调整/行冲销（US-ST-02/R10）与导出留 admin 电脑端（移动端 P0 = 核对/下发/撤回/回款/冲销/申诉）；多区角色（ST+WA）移动端 v1 按 priority 落地一区，跨区需重登（文档化）；待 F5 = WK 库管移动端
+
 ## 2026-09-03 · F3 WA/WE 批发商移动端（F 波第二业务子波：登录/工作台/询价处理/客户跟进/我的商品，CodeBuddy）
 
 > 用户续「继续吧」按序执行 F3。需求锚点：US-WA-06/US-WE-03 询价处理（含授权员工）、US-WE-04 客户跟进、US-WE-01 上下架；D20 口径 **WA/WE 一定走移动端**（admin 电脑全功能保留）。
@@ -26,7 +42,7 @@
 - **工程**：`frontend/apps/uni`（@cangchu/uni）——uni-app 编译器 5.25（vue3）/ vite 5.2.8（插件 peer 精确锁）/ vue 3.4.21（uni-h5 内部锁）/ @dcloudio 全链 `3.0.0-alpha-5020520260829001`（npm `vue3` tag 2026-08-29，7 包同版）；文件 = vite.config（端口 5175、`/api`+`/files` 代理对齐 admin）/ tsconfig（extends 根 base + @dcloudio/types）/ index.html / src{pages.json、manifest.json（h5 hash 路由 + mp-weixin urlCheck:false）、uni.scss（主题变量对齐 design-tokens：品牌深蓝/操作蓝/RT 生鲜绿）、App.vue、main.ts、pages/index 骨架页}
 - **验证**：vue-tsc 0 错；`build:h5` DONE（dist/build/h5）；`build:mp-weixin` DONE（dist/build/mp-weixin 可直接导入微信开发者工具）；仅无危害警告（appid 未配 + Dart Sass legacy-js-api）
 - **踩坑（本机环境）**：GitHub 443 直连不通 → degit/`create-uni -t vue3` 均不可用，改**手写工程骨架**（npm registry 可达，依赖约束逐包核实：vite-plugin-uni peer vite=5.2.8、uni-h5 内部锁 vue 3.4.21）；pnpm 增量链接触发 CodeBuddy safe-delete 批量保护（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，替换大 junction 逐个卡死）→ 以 `$env:CODEBUDDY_SAFE_DELETE_ENABLED='0'` 进程级放行完成 install（**后续 pnpm install 需同法**）；残留 `frontend/_tmp_*`（safe-delete 回收目录）待清理（删除操作需用户在场批准）；`@vueuse/core@14` peer vue^3.5 警告源自 uni-cli-shared→unplugin-auto-import@19 构建链（非运行时依赖、uni 未启用 unplugin 注入）暂容忍
-- **F 波子波进度**：F1 uni 工程 ✅ → F2 RT 买家正式端 ✅（详录见 F2 段落）→ **F3 WA+WE 批发商移动端 ✅（详录见顶部段落）** → F4 待拍板：ST 结算员移动端（D20/US-ST-06，admin 电脑全功能保留）；F5 = WK 库管移动端
+- **F 波子波进度**：F1 uni 工程 ✅ → F2 RT 买家正式端 ✅（详录见 F2 段落）→ **F3 WA+WE 批发商移动端 ✅（详录见 F3 段落）** → **F4 ST 结算员移动端 ✅（详录见顶部段落）** → F5 = WK 库管移动端（待排，US-WK-06/07 出入库登记·盘点核对等高频操作的移动化）
 
 ## 2026-09-03 · F2 RT 买家正式端（F 波第一业务子波：US-RT-01~04 全链，CodeBuddy）
 
