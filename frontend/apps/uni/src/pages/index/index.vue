@@ -67,6 +67,11 @@ function onSavePhone(): void {
   uni.showToast({ title: '手机号已保存', icon: 'none' })
 }
 
+/** 商户/结算工作台登录入口（WA/WE/ST 统一登录页；WK 待 F5） */
+function goBiz(): void {
+  uni.reLaunch({ url: '/pages/wa/login/index' })
+}
+
 function onScan(): void {
   // #ifdef MP-WEIXIN
   uni.scanCode({
@@ -143,6 +148,10 @@ function onScan(): void {
       </view>
     </view>
 
+    <view class="biz-entry" @click="goBiz">
+      <text class="biz-entry__t">我是批发商 / 结算员</text>
+      <text class="biz-entry__arrow">›</text>
+    </view>
     <view class="foot-note">
       <text>进店后即可浏览在库商品与公开价；提交意向单前需填写手机号，商户确认后可直接成交。</text>
     </view>
@@ -328,6 +337,24 @@ function onScan(): void {
   font-size: 22rpx;
   font-weight: 400;
   color: $cc-fg-4;
+}
+
+/* ===== 商户/结算入口 ===== */
+.biz-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  margin: 4rpx 0 20rpx;
+  padding: 24rpx;
+  font-size: 26rpx;
+  color: $cc-accent;
+  background: $cc-info-bg;
+  border-radius: 12rpx;
+
+  &__arrow {
+    font-size: 30rpx;
+  }
 }
 
 .foot-note {

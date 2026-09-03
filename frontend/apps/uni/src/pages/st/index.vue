@@ -1,26 +1,29 @@
 <script setup lang="ts">
-// WA/WE 批发商移动端工作台（F3 · 登录后落地页）。
-// 含：当前仓信息、待处理询价统计、功能入口、多仓切换、退出登录。
+// ST 结算员移动端工作台（F4 · 登录后落地页）。
+// 含：当前仓、本月应收/已收/未收汇总、功能入口（账单一览/申诉处理）、多仓切换、退出登录。
 import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import type { LoginResponse } from '@cangchu/api-types'
-import { inquiryApi } from '../../api/inquiry'
+import { stBillApi } from '../../api/st'
 import { accountApi } from '../../api/account'
 import {
   clearAuth,
-  hasWaScope,
+  hasStScope,
   healWork,
   readAuth,
   readWork,
   roleLabel,
-  workEntries,
+  stEntries,
   writeWork,
   type WaWork,
 } from '../../utils/session'
+import { currentMonth, fmtMoney } from '../../utils/billing'
 
 const auth = ref<LoginResponse | null>(null)
 const work = ref<WaWork | null>(null)
-const pendingCount = ref(0)
+const month = ref(currentMonth())
+const sum = ref({ receivable: 0, received: 0, outstanding: 0 })
+const disputePending = ref(0)
 const statsLoading = ref(false)
 const showSwitch = ref(false)
 const loggingOut = ref(false)
@@ -28,10 +31,10 @@ const loggingOut = ref(false)
 const entries = computed(() => {
   const a = auth.value
   if (!a) return []
-  return workEntries(a).map((e) => ({ ...e }))
+  return stEntries(a).map((e) => ({ ...e }))
 })
 
-const currentStoreName = computed(() => work.value?.storeName ?? '')
+const tenantName = computed(() => work.value?.storeName || auth.value?.tenantInfo?.tenantName || '未命名仓')
 
 function go(path: string): void {
   uni.navigateTo({ url: path })
@@ -45,8 +48,16 @@ async function refreshStats(): Promise<void> {
   if (!work.value) return
   statsLoading.value = true
   try {
-    const list = await inquiryApi.list()
-    pendingCount.value = list.filter((i) => i.status === 'PENDING').length
+    const [list, disputes] = await Promise.all([
+      stBillApi.list({ month: month.value, page: 1, size: 1 }),
+      stBillApi.listDisputes('PENDING'),
+    ])
+    sum.value = {
+      receivable: list.receivable,
+      received: list.received,
+      outstanding: list.outstanding,
+    }
+    disputePending.value = disputes.length
   } catch {
     // request 已 toast；统计失败不阻塞页面
   } finally {
@@ -59,21 +70,21 @@ function switchTo(e: LoginResponse['roles'][number]): void {
   if (!a || !e.tenantId) return
   writeWork({
     userId: a.userId,
-    role: e.role as WaWork['role'],
+    role: 'ST',
     tenantId: e.tenantId,
-    wholesalerId: e.wholesalerId,
+    wholesalerId: null,
     storeName: e.storeName ?? null,
   })
   work.value = readWork()
   showSwitch.value = false
-  uni.showToast({ title: '已切换工作仓', icon: 'success' })
+  uni.showToast({ title: '已切换结算仓', icon: 'success' })
   void refreshStats()
 }
 
 function confirmLogout(): void {
   uni.showModal({
     title: '退出登录',
-    content: '确定退出当前批发商账号？',
+    content: '确定退出当前结算员账号？',
     confirmColor: '#dc2626',
     success: (r) => {
       if (!r.confirm) return
@@ -98,27 +109,26 @@ function goBuyer(): void {
 }
 
 onLoad(() => {
-  if (!hasWaScope()) {
+  if (!hasStScope()) {
     goLogin()
     return
   }
   auth.value = readAuth()
   work.value = readWork()
-  // 角色区自愈：账号若同时具备 ST/WA 多区角色，进入批发商区时保证 work 为 WA/WE 条目
-  if (auth.value) work.value = healWork('wa', auth.value, work.value)
+  if (auth.value) work.value = healWork('st', auth.value, work.value)
 })
 
 onShow(() => {
   auth.value = readAuth()
   work.value = readWork()
-  if (auth.value) work.value = healWork('wa', auth.value, work.value)
+  if (auth.value) work.value = healWork('st', auth.value, work.value)
   if (work.value) void refreshStats()
 })
 
 onPullDownRefresh(async () => {
   auth.value = readAuth()
   work.value = readWork()
-  if (auth.value) work.value = healWork('wa', auth.value, work.value)
+  if (auth.value) work.value = healWork('st', auth.value, work.value)
   await refreshStats()
   uni.stopPullDownRefresh()
 })
@@ -126,50 +136,56 @@ onPullDownRefresh(async () => {
 
 <template>
   <view class="page">
-    <view class="wa-flag">
-      <text class="wa-flag__t">批发商移动工作台</text>
-      <text class="wa-flag__sub">手机即可处理询价 · 客户 · 商品</text>
+    <view class="st-flag">
+      <text class="st-flag__t">结算移动工作台</text>
+      <text class="st-flag__sub">{{ month.replace('-', ' 年 ') }} 月 · 手机即可核对账单与登记回款</text>
     </view>
 
     <!-- 当前仓卡 -->
     <view class="card work-card" @click="showSwitch = entries.length > 1">
       <view class="work-card__main">
-        <text class="work-card__name">{{ currentStoreName || '未命名仓' }}</text>
+        <text class="work-card__name">{{ tenantName }}</text>
         <view class="work-card__meta">
-          <text class="chip" :class="work?.role === 'WA' ? 'chip--wa' : 'chip--we'">{{ work ? roleLabel(work.role) : '' }}</text>
+          <text class="chip chip--st">{{ roleLabel('ST') }}</text>
           <text v-if="entries.length > 1" class="work-card__switch">切换 ›</text>
         </view>
       </view>
     </view>
 
-    <!-- 待处理统计 -->
-    <view class="card stat" @click="go('/pages/wa/inquiries/index')">
-      <text class="stat__num">{{ statsLoading ? '…' : pendingCount }}</text>
-      <view class="stat__main">
-        <text class="stat__label">待确认询价单</text>
-        <text class="stat__sub">买家已提交，尽快确认并结算</text>
+    <!-- 本月汇总 -->
+    <view class="sum-card" @click="go('/pages/st/bills/index')">
+      <view class="sum-card__head">
+        <text class="sum-card__title">本月应收（{{ month }}）</text>
+        <text class="sum-card__link">全部账单 ›</text>
       </view>
-      <text class="stat__arrow">›</text>
+      <view class="sum-row">
+        <view class="sum-item">
+          <text class="sum-item__num">{{ statsLoading ? '…' : fmtMoney(sum.receivable) }}</text>
+          <text class="sum-item__label">应收</text>
+        </view>
+        <view class="sum-item">
+          <text class="sum-item__num sum-item__num--ok">{{ statsLoading ? '…' : fmtMoney(sum.received) }}</text>
+          <text class="sum-item__label">已收</text>
+        </view>
+        <view class="sum-item">
+          <text class="sum-item__num sum-item__num--warn">{{ statsLoading ? '…' : fmtMoney(sum.outstanding) }}</text>
+          <text class="sum-item__label">未收</text>
+        </view>
+      </view>
     </view>
 
     <!-- 功能入口 -->
     <view class="group">
-      <view class="cell" @click="go('/pages/wa/inquiries/index')">
-        <view class="cell__icon cell__icon--blue">询</view>
-        <text class="cell__label">询价处理</text>
-        <text v-if="pendingCount > 0" class="cell__badge">{{ pendingCount }} 单待处理</text>
+      <view class="cell" @click="go('/pages/st/bills/index')">
+        <view class="cell__icon cell__icon--blue">账</view>
+        <text class="cell__label">账单一览</text>
+        <text class="cell__hint">核对 · 下发 · 登记回款</text>
         <text class="cell__arrow">›</text>
       </view>
-      <view class="cell" @click="go('/pages/wa/customers/index')">
-        <view class="cell__icon cell__icon--green">客</view>
-        <text class="cell__label">客户跟进</text>
-        <text class="cell__hint">备注 · 提醒 · 回访</text>
-        <text class="cell__arrow">›</text>
-      </view>
-      <view class="cell" @click="go('/pages/wa/products/index')">
-        <view class="cell__icon cell__icon--amber">货</view>
-        <text class="cell__label">我的商品</text>
-        <text class="cell__hint">上架 / 下架管理</text>
+      <view class="cell" @click="go('/pages/st/disputes/index')">
+        <view class="cell__icon cell__icon--amber">申</view>
+        <text class="cell__label">申诉处理</text>
+        <text v-if="disputePending > 0" class="cell__badge">{{ disputePending }} 条待处理</text>
         <text class="cell__arrow">›</text>
       </view>
     </view>
@@ -183,8 +199,8 @@ onPullDownRefresh(async () => {
     <!-- 多仓切换 -->
     <view v-if="showSwitch" class="mask" @click="showSwitch = false">
       <view class="sheet" @click.stop>
-        <view class="sheet__title">选择工作仓</view>
-        <view class="sheet__desc">同一账号可入驻多个仓库，切换后将以所选仓库身份处理业务</view>
+        <view class="sheet__title">选择结算仓</view>
+        <view class="sheet__desc">同一账号可服务多个仓库，切换后将以所选仓库身份处理账单</view>
         <view
           v-for="e in entries"
           :key="`${e.role}-${e.tenantId}`"
@@ -194,7 +210,7 @@ onPullDownRefresh(async () => {
         >
           <view class="ws-row__main">
             <text class="ws-row__name">{{ e.storeName || '未命名仓' }}</text>
-            <text class="chip" :class="e.role === 'WA' ? 'chip--wa' : 'chip--we'">{{ roleLabel(e.role) }}</text>
+            <text class="chip chip--st">{{ roleLabel(e.role) }}</text>
           </view>
           <text class="ws-row__check">{{ work && e.tenantId === work.tenantId && e.role === work.role ? '✓' : '' }}</text>
         </view>
@@ -210,7 +226,7 @@ onPullDownRefresh(async () => {
   box-sizing: border-box;
 }
 
-.wa-flag {
+.st-flag {
   padding: 8rpx 8rpx 20rpx;
 
   &__t {
@@ -233,7 +249,6 @@ onPullDownRefresh(async () => {
   box-shadow: 0 2rpx 10rpx rgba(2, 6, 23, 0.04);
 }
 
-/* 工作仓 */
 .work-card {
   padding: 30rpx 28rpx;
 
@@ -266,51 +281,68 @@ onPullDownRefresh(async () => {
   padding: 2rpx 14rpx;
   border-radius: 6rpx;
 
-  &--wa {
-    background: $cc-info-bg;
-    color: $cc-accent;
-  }
-
-  &--we {
-    background: $cc-bg-3;
-    color: $cc-fg-2;
+  &--st {
+    background: #ede9fe;
+    color: #6d28d9;
   }
 }
 
-/* 统计 */
-.stat {
-  display: flex;
-  align-items: center;
+/* 本月汇总 */
+.sum-card {
   margin-top: 20rpx;
-  padding: 26rpx 28rpx;
+  padding: 28rpx;
+  border-radius: $cc-card-radius;
+  background: $cc-bg-1;
+  box-shadow: 0 2rpx 10rpx rgba(2, 6, 23, 0.04);
 
-  &__num {
-    font-size: 56rpx;
-    font-weight: 800;
-    color: $cc-danger;
-    width: 110rpx;
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24rpx;
   }
 
-  &__main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4rpx;
+  &__title {
+    font-size: 27rpx;
+    font-weight: 600;
+    color: $cc-fg-2;
+  }
+
+  &__link {
+    font-size: 23rpx;
+    color: $cc-accent;
+  }
+}
+
+.sum-row {
+  display: flex;
+}
+
+.sum-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+
+  &__num {
+    font-size: 30rpx;
+    font-weight: 700;
+    color: $cc-fg-1;
+    word-break: break-all;
+    text-align: center;
+
+    &--ok {
+      color: $cc-success;
+    }
+
+    &--warn {
+      color: $cc-warning;
+    }
   }
 
   &__label {
-    font-size: 28rpx;
-    font-weight: 600;
-    color: $cc-fg-1;
-  }
-
-  &__sub {
     font-size: 22rpx;
-    color: $cc-fg-4;
-  }
-
-  &__arrow {
-    font-size: 40rpx;
     color: $cc-fg-4;
   }
 }
@@ -345,10 +377,6 @@ onPullDownRefresh(async () => {
 
     &--blue {
       background: $cc-accent;
-    }
-
-    &--green {
-      background: $cc-success;
     }
 
     &--amber {
@@ -445,7 +473,7 @@ onPullDownRefresh(async () => {
   margin-bottom: 16rpx;
 
   &--on {
-    background: $cc-success-bg;
+    background: #ede9fe;
   }
 
   &__main {

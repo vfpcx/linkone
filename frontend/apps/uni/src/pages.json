@@ -24,7 +24,34 @@
     {
       "path": "pages/wa/login/index",
       "style": {
-        "navigationBarTitleText": "批发商登录"
+        "navigationBarTitleText": "工作台登录"
+      }
+    },
+    {
+      "path": "pages/st/index",
+      "style": {
+        "navigationBarTitleText": "结算工作台",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/st/bills/index",
+      "style": {
+        "navigationBarTitleText": "账单一览",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/st/bills/detail",
+      "style": {
+        "navigationBarTitleText": "账单详情"
+      }
+    },
+    {
+      "path": "pages/st/disputes/index",
+      "style": {
+        "navigationBarTitleText": "申诉处理",
+        "enablePullDownRefresh": true
       }
     },
     {
