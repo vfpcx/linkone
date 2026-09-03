@@ -21,6 +21,7 @@ import com.cangchu.document.mapper.OutboundRequestMapper;
 import com.cangchu.document.service.DocumentNumberService;
 import com.cangchu.document.service.InquiryService;
 import com.cangchu.document.vo.InquiryVo;
+import com.cangchu.document.vo.RtInquiryListVo;
 import com.cangchu.inventory.dto.OutboundContext;
 import com.cangchu.inventory.service.InventoryService;
 import com.cangchu.pricing.service.PricingService;
@@ -42,6 +43,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 询价服务实现（phase-1 C2：RT 提交 → WA 确认 → 自动转出库扣库存）。
@@ -412,6 +414,85 @@ public class InquiryServiceImpl implements InquiryService {
             out.add(toVo(r, loadItems(r.getId())));
         }
         return out;
+    }
+
+    // ==================== RT「我的意向单」（F2 · US-RT-04） ====================
+
+    /**
+     * RT「我的意向单」：该店（store→tenant 解析为唯一可信来源）+ 该手机号（hmac 盲查）的全部
+     * 询价单，createdAt 倒序。纯只读，不产生任何单据。
+     *
+     * <p>安全（05-secure-coding-guardrails）：RT 无登录态 → TenantContext 为 null → TenantLine 不注入，
+     * 故按 tenantId 显式过滤；wholesaler 名 / SKU 名经 tenant / product 域 Service 出口补全（G-S2）。
+     * PII：仅尾号归属提示，响应结构无明文手机号字段。
+     */
+    @Override
+    public RtInquiryListVo listForRt(Long storeId, String code, String rtPhone) {
+        if (rtPhone == null || rtPhone.isBlank()) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003, "RT手机号不能为空");
+        }
+        String phone = rtPhone.trim();
+        String hmac = piiCrypto.phoneHmac(phone);
+        // 解析 store→tenant（复用 B2 进店解析；RT 不取客户端 tenantId，防跨店泄漏）
+        StoreFrontVo store = storeFrontService.getStorePage(storeId, code);
+        Long tenantId = store.getTenantId();
+
+        List<InquiryRequest> reqs = inquiryRequestMapper.selectList(new LambdaQueryWrapper<InquiryRequest>()
+                .eq(InquiryRequest::getTenantId, tenantId)
+                .eq(InquiryRequest::getRtPhoneHmac, hmac)
+                .orderByDesc(InquiryRequest::getCreatedAt));
+        if (reqs.isEmpty()) {
+            return RtInquiryListVo.builder()
+                    .rtPhoneLast4(piiCrypto.last4(phone))
+                    .storeName(store.getStoreName())
+                    .inquiries(List.of())
+                    .build();
+        }
+
+        // 商户名 / SKU 名补全：经 tenant/product 域 Service 出口（G-S2），按 wholesaler 批量取数
+        Map<Long, String> waNameById = new HashMap<>();
+        Map<Long, Map<Long, SkuVo>> skuIndex = new HashMap<>();
+        List<RtInquiryListVo.Summary> out = new ArrayList<>(reqs.size());
+        for (InquiryRequest r : reqs) {
+            String waName = waNameById.computeIfAbsent(r.getWholesalerId(), wid -> {
+                com.cangchu.tenant.vo.WholesalerVo wv = wholesalerService.getById(wid);
+                return wv != null ? wv.getName() : null;
+            });
+            List<InquiryItem> items = loadItems(r.getId());
+            List<Long> skuIds = items.stream().map(InquiryItem::getSkuId).toList();
+            Map<Long, SkuVo> byId = skuIndex.computeIfAbsent(r.getWholesalerId(), wid ->
+                    skuService.listForRtBySkuIds(tenantId, wid, skuIds).stream()
+                            .collect(Collectors.toMap(SkuVo::getId, s -> s, (a, b) -> a)));
+
+            List<RtInquiryListVo.Item> itemsVo = items.stream()
+                    .map(it -> RtInquiryListVo.Item.builder()
+                            .skuId(it.getSkuId())
+                            .name(byId.containsKey(it.getSkuId()) ? byId.get(it.getSkuId()).getName() : null)
+                            .spec(byId.get(it.getSkuId()) != null ? byId.get(it.getSkuId()).getSpec() : null)
+                            .qty(it.getQty())
+                            .unitPriceSnapshot(it.getUnitPriceSnapshot())
+                            .moqPriceSnapshot(it.getMoqPriceSnapshot())
+                            .moqQtySnapshot(it.getMoqQtySnapshot())
+                            .dealPrice(it.getDealPrice())
+                            .build())
+                    .toList();
+            out.add(RtInquiryListVo.Summary.builder()
+                    .inquiryId(r.getId())
+                    .docNo(r.getDocNo())
+                    .status(r.getStatus())
+                    .wholesalerId(r.getWholesalerId())
+                    .wholesalerName(waName)
+                    .createdAt(r.getCreatedAt())
+                    .confirmedAt(r.getConfirmedAt())
+                    .voidedAt(r.getVoidedAt())
+                    .items(itemsVo)
+                    .build());
+        }
+        return RtInquiryListVo.builder()
+                .rtPhoneLast4(piiCrypto.last4(phone))
+                .storeName(store.getStoreName())
+                .inquiries(out)
+                .build();
     }
 
     // ==================== 跨域出口（P2 Wave2 R13） ====================

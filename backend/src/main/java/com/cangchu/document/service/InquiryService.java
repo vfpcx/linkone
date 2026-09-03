@@ -3,6 +3,7 @@ package com.cangchu.document.service;
 import com.cangchu.document.dto.ConfirmInquiryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
 import com.cangchu.document.vo.InquiryVo;
+import com.cangchu.document.vo.RtInquiryListVo;
 
 import java.util.List;
 
@@ -36,6 +37,16 @@ public interface InquiryService {
 
     /** 列出某租户下的询价单（WA 视角，按归属 wholesaler 过滤）。 */
     List<InquiryVo> listForWa(Long tenantId, Long waUserId);
+
+    /**
+     * RT「我的意向单」（F2 · US-RT-04，公开端点）：该店（storeId/code 二选一，store→tenant
+     * 解析为唯一可信来源）下该手机号（hmac 盲查）的全部询价单，createdAt 倒序。纯只读。
+     *
+     * <p>PII（15 §4）：响应仅尾号 4 位归属提示，不返回明文；wholesaler 名 / SKU 名经
+     * tenant / product 域 Service 出口补全（G-S2）。零新错误码（店铺不存在/不可进沿用
+     * {@code /rt/store} 既有口径）。
+     */
+    RtInquiryListVo listForRt(Long storeId, String code, String rtPhone);
 
     /**
      * R8 已确认意向单作废（P3 BE-W2，12 §3.2，WA 发起，单事务）：

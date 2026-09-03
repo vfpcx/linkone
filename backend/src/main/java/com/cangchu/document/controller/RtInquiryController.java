@@ -1,9 +1,11 @@
 package com.cangchu.document.controller;
 
 import com.cangchu.common.response.R;
+import com.cangchu.document.dto.MyInquiriesQueryDto;
 import com.cangchu.document.dto.SubmitInquiryDto;
 import com.cangchu.document.service.InquiryService;
 import com.cangchu.document.vo.InquiryVo;
+import com.cangchu.document.vo.RtInquiryListVo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,5 +30,14 @@ public class RtInquiryController {
     @PostMapping("/inquiry")
     public R<InquiryVo> submit(@Valid @RequestBody SubmitInquiryDto dto) {
         return R.ok(inquiryService.submitByRt(dto));
+    }
+
+    /**
+     * RT「我的意向单」（F2 · US-RT-04，公开端点）：该店下该手机号的全部询价单及状态。
+     * 手机号放 POST body（防明文落 GET 日志）；hmac 盲查，响应仅尾号 4 位归属提示。
+     */
+    @PostMapping("/my-inquiries")
+    public R<RtInquiryListVo> myInquiries(@Valid @RequestBody MyInquiriesQueryDto dto) {
+        return R.ok(inquiryService.listForRt(dto.getStoreId(), dto.getCode(), dto.getRtPhone()));
     }
 }
