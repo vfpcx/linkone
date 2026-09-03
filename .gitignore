@@ -15,5 +15,6 @@ dump.rdb
 .zed/
 .vscode/
 install.ps1
+run-install.ps1
 .e2e-tmp/
 backend/data/

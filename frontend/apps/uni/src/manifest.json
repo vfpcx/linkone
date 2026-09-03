@@ -1,0 +1,24 @@
+{
+  "name": "仓储云",
+  "appid": "",
+  "description": "仓储云移动端：批发商管理、库管收发货、结算员收银、买家扫码进店",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "vueVersion": "3",
+  "h5": {
+    "title": "仓储云",
+    "router": {
+      "mode": "hash"
+    }
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true
+  }
+}

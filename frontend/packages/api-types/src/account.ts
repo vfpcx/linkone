@@ -102,7 +102,7 @@ export interface LoginRoleEntry {
   tenantId: SnowflakeId | null
   wholesalerId: SnowflakeId | null
   priority: number           // 数字小优先级高（TA=10/ST=20/WK=30/WA=40/WE=50/RT=60）
-  /** 前端可选扩展：后端 MVP 未下发，切换器用 */
+  /** 仓库名（2026-09-01 起后端实际已下发：登录取角色侧 storeName），切换器/uni 工作仓展示用 */
   storeName?: string
   /** 前端可选扩展：后端 MVP 未下发 */
   pendingCount?: number

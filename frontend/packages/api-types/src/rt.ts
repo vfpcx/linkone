@@ -125,3 +125,52 @@ export interface MyPriceListRequest {
   /** RT 手机号 */
   rtPhone: string
 }
+
+// ============ F2 · RT「我的意向单」（US-RT-04，architecture/api-contract-storefront §3.4） ============
+
+/** 「我的意向单」行内明细（RtInquiryListVo.Item）：价格快照 + WA 成交价改写 */
+export interface RtMyInquiriesItem {
+  skuId: SnowflakeId
+  name: string | null
+  spec: string | null
+  qty: number
+  /** 提交时公开单价快照 */
+  unitPriceSnapshot: number
+  /** 提交时起批价快照 */
+  moqPriceSnapshot: number
+  /** 提交时起批量快照 */
+  moqQtySnapshot: number
+  /** 成交价（= 提交时单价快照；WA 确认时可改写；为 null 视为未成交定价） */
+  dealPrice: number | null
+}
+
+/** 「我的意向单」单行（RtInquiryListVo.Summary）：该店下该手机号的一条询价单 */
+export interface RtMyInquiriesSummary {
+  inquiryId: SnowflakeId
+  docNo: string
+  /** PENDING=已提交 / CONFIRMED=批发商已确认 / COMPLETED=已完成 / VOIDED=已作废 */
+  status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'VOIDED'
+  wholesalerId: SnowflakeId
+  wholesalerName: string | null
+  createdAt: string
+  confirmedAt: string | null
+  voidedAt: string | null
+  items: RtMyInquiriesItem[]
+}
+
+/** 「我的意向单」响应（RtInquiryListVo）：仅尾号归属提示 + 本店意向单（createdAt 倒序） */
+export interface RtMyInquiries {
+  /** 归属提示：手机号尾号 4 位 */
+  rtPhoneLast4: string
+  /** 店铺名（展示上下文） */
+  storeName: string
+  inquiries: RtMyInquiriesSummary[]
+}
+
+/** 「我的意向单」查询入参（MyInquiriesQueryDto）：手机号放 POST body，防明文落 GET 日志 */
+export interface MyInquiriesRequest {
+  /** 店铺码（= 租户简码） */
+  code: string
+  /** RT 手机号 */
+  rtPhone: string
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@cangchu/uni",
+  "version": "0.1.0",
+  "private": true,
+  "description": "仓储云移动端（uni-app Vue3 + TS）：批发商 WA/WE · 库管 WK · 结算员 ST · 买家 RT，H5 + 微信小程序同源码",
+  "scripts": {
+    "dev:h5": "uni",
+    "dev:mp-weixin": "uni -p mp-weixin",
+    "build:h5": "uni build",
+    "build:mp-weixin": "uni build -p mp-weixin",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@cangchu/api-types": "workspace:*",
+    "@dcloudio/uni-app": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-components": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-h5": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-i18n": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-mp-weixin": "3.0.0-alpha-5020520260829001",
+    "vue": "3.4.21"
+  },
+  "devDependencies": {
+    "@dcloudio/types": "3.4.31",
+    "@dcloudio/uni-automator": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-cli-shared": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-stacktracey": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5020520260829001",
+    "@vue/tsconfig": "^0.5.1",
+    "sass": "^1.77.2",
+    "typescript": "^5.4.5",
+    "vite": "5.2.8",
+    "vue-tsc": "^2.0.16"
+  }
+}

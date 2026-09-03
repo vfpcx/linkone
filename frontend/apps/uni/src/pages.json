@@ -1,0 +1,73 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "仓储云买家",
+        "enablePullDownRefresh": false
+      }
+    },
+    {
+      "path": "pages/rt/store/index",
+      "style": {
+        "navigationBarTitleText": "店铺",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/rt/inquiries/index",
+      "style": {
+        "navigationBarTitleText": "我的意向单",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wa/login/index",
+      "style": {
+        "navigationBarTitleText": "批发商登录"
+      }
+    },
+    {
+      "path": "pages/wa/index",
+      "style": {
+        "navigationBarTitleText": "批发商工作台",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wa/inquiries/index",
+      "style": {
+        "navigationBarTitleText": "询价单",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wa/customers/index",
+      "style": {
+        "navigationBarTitleText": "客户跟进",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wa/customers/detail",
+      "style": {
+        "navigationBarTitleText": "客户详情"
+      }
+    },
+    {
+      "path": "pages/wa/products/index",
+      "style": {
+        "navigationBarTitleText": "我的商品",
+        "enablePullDownRefresh": true
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "仓储云",
+    "navigationBarBackgroundColor": "#0F172A",
+    "backgroundColor": "#F8FAFC",
+    "backgroundColorTop": "#F8FAFC",
+    "backgroundColorBottom": "#F8FAFC"
+  }
+}

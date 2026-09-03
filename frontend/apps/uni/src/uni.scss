@@ -1,0 +1,42 @@
+/**
+ * 仓储云 · uni-app 全局 SCSS 变量
+ * 说明：uni-app 会自动把本文件注入所有 <style lang="scss">，
+ * 变量取值与 packages/design-tokens/src/tokens.css 对齐（改动需同步）。
+ */
+
+/* ===== 品牌色 ===== */
+$cc-brand-primary: #0f172a; /* 深蓝黑（Admin 品牌主色 / 导航栏） */
+$cc-accent: #0369a1; /* 操作蓝 */
+$cc-accent-hover: #0284c7;
+$cc-accent-on: #ffffff;
+
+/* ===== RT 专属（买家端 CTA 用生鲜绿） ===== */
+$cc-rt-accent: #059669;
+$cc-rt-accent-hover: #047857;
+$cc-rt-warm: #d97706;
+
+/* ===== 状态色 ===== */
+$cc-success: #059669;
+$cc-success-bg: #d1fae5;
+$cc-warning: #d97706;
+$cc-warning-bg: #fef3c7;
+$cc-danger: #dc2626;
+$cc-danger-bg: #fee2e2;
+$cc-info: #0369a1;
+$cc-info-bg: #dbeafe;
+
+/* ===== 文字 / 背景 / 边框 ===== */
+$cc-fg-1: #020617;
+$cc-fg-2: #334155;
+$cc-fg-3: #64748b;
+$cc-fg-4: #94a3b8;
+$cc-bg-1: #ffffff;
+$cc-bg-2: #f8fafc;
+$cc-bg-3: #f1f5f9;
+$cc-border-1: #e2e8f0;
+$cc-border-2: #cbd5e1;
+
+/* ===== 布局 ===== */
+$cc-page-padding: 24rpx; /* 页面左右留白（≈12px） */
+$cc-card-radius: 16rpx; /* 卡片圆角（≈8px） */
+$cc-touch-size: 88rpx; /* 最小触达区 44px */
