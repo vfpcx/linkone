@@ -2,6 +2,24 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-03 · D 波 X 期本地收尾（roadmap D · W8-L1/L4/L5，CodeBuddy 收口）
+
+> 不待环境的部署侧项全闭环；L2（V34 观察期）/L3（prod 冒烟）/L6（Redis ACL）仍待环境。
+
+- **W8-L1 还原演练脚本固化 + 全量演练 PASS**：备份 `backup_w8_gap_delete_20260901.sql`（37 表 27700 行 INSERT）可完整还原——
+  - `shared/ops/restore-drill-w8.py`（入库）：解析备份 → 源库 `CREATE TABLE LIKE` 建临时库 `restore_drill_w8_<ts>` → 关外键检查逐表参数化 `executemany` → 校验 a) 逐表 `COUNT(*)==N_file` b) **PII 8 表全列逐行值比对**（按主键序 zip，NULL/日期/Decimal 归一）；`--dry-run`/`--only`/`--keep`；只读源库、演练后默认删库
+  - `shared/ops/v33-reverse-rename.sql`（入库）：8 列 `*__bak` rename 回明文 + 恢复 3 旧索引/约束（MySQL 8），**适用窗口 = V33 后 V34 前**（16 §5.2）
+  - `shared/ops/README.md`（入库）；**全量演练结果**：37 表行数全 PASS、PII 8 表逐行比对全 PASS（Decimal 精度归一后 lng/lat 一致）、约 5s、临时库正确删除
+  - 踩坑（本次收口修链）：备份解析反引号被 PowerShell shell 吞 → 独立 .py 承载；还原 SQL 双重反引号 → `cols` 解析 `strip('\`')`；Decimal 精度 FAIL（tenant_applications lng/lat）→ 统一 `Decimal` 归一
+- **W8-L4 CVE 复扫 —— 发现并修复 1 项真实 CVE**（06 报告 §7）：
+  - Boot 3.5.16 为 3.5.x **终版**，BOM 固定 Tomcat **10.1.55**，受 **CVE-2026-55956（Moderate，≤10.1.55）/ CVE-2026-59083（Low，≤10.1.56）** 影响；tomcat.apache.org/security-10.html（2026-09-03 抓取）最新修复版 **10.1.59**（10.1.58 未过发布投票）
+  - 修复：`pom.xml` 加 `<tomcat.version>10.1.59</tomcat.version>`（Spring Boot 官方支持路径，patch 级差异）；`dependency:tree` 确认仅 tomcat-embed-{core,el,websocket} 10.1.55→10.1.59、其余 162 依赖零变化；基线归档 `dependency-tree-after-boot3516.txt` 同步（165 依赖）
+  - 核对无新增：P4-W5 新增 22 依赖（POI 5.4.1 / PDFBox 2.0.33 / OpenHTMLtoPDF 1.0.10 / commons-* 等）+ 存量关键件（Spring FW 6.2.19 / Jackson 2.21.4 / Logback 1.5.34 等）
+  - 门禁：OWASP dep-check / Trivy 本机未装、下载需批准 → 命令留 06 §7.4 正式环境执行
+- **W8-L5 graceful shutdown 硬化 + 手测手册**：`application.yml` 加 `server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s`（停止收新请求 → 在途限时完成 → 关停）；**Windows 停服手测手册** 写入 13 报告 §8.5.2（Ctrl+C 触发 shutdown hook 的期望日志 4 项 + 超时负路径 + `Stop-Process` 强杀不触发优雅停机须用 `sc stop` 的注意）；实测待本机重启后端后人工执行（当前 8080 后端启动于配置修改前）
+- **验证**：本波代码变更 = pom `tomcat.version` + `application.yml` shutdown（无业务代码改动）→ 回归策略：依赖树 diff 干净 + 后端全量（见提交消息）；「长命令被环境 skip」时以 dependency:tree 快验 + 文档化人工步骤兜底
+- **收口**：roadmap v3.3（D 已收官）+ 06 报告 §7（复扫记录）+ 13 报告 §8.5（操作手册，§8 W8-L1/L4/L5 状态回填）+ 本记录；提交分 backend（pom/yml）/ docs（06/13/dependency-tree + ops + roadmap + progress）
+
 ## 2026-09-02 · C2 货位功能收官（P5-D 小项池 C 波补完，CodeBuddy 收口）
 
 - **C2 货位功能（US-WK-05，product/17 §2 + DECISION D-C-1~1d）**：架构 `architecture/25-p5-c-c2` v1.0 定稿后实现（三件套：仓级开关 locationEnabled + 开启后出入库登记货位 + 批次移库）

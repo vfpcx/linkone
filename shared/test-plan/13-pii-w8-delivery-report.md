@@ -86,12 +86,53 @@ PII 关卡重构（16 §4.2）：
 
 | # | 项 | 说明 | 级别 |
 |---|---|---|---|
-| W8-L1 | §8.5 还原演练 | 备份已完成（`backup_w8_gap_delete_20260901.sql`，全库 INSERT 39 表 4.9MB）；演练属发布窗口执行（本地可先模拟：还原到临时库 → 抽样对比行数 + 关键列校验和） | 高（发布前） |
+| W8-L1 | §8.5 还原演练 | ✅ **已落地（2026-09-03 D 波）**：备份已完成（`backup_w8_gap_delete_20260901.sql`，全库 INSERT 37 表 27700 行）；脚本固化 `shared/ops/restore-drill-w8.py` + `shared/ops/v33-reverse-rename.sql`（V33 反向 rename，适用窗口 = V33 后 V34 前），全量演练通过：还原临时库 → 逐表行数对比 + PII 8 表全列逐行值比对，全 PASS | 高（发布前） |
 | W8-L2 | V34 观察期 | 无生产环境 → 观察对象不存在，**挂起**（W6 先例：用户拍板无生产环境不设观察期）；§8.5 其余闸门项均已在本地闭环 | 挂起 |
 | W8-L3 | prod 冒烟 | prod profile 实机冒烟（PII_DEK_V1 fail-fast + 三链路 + reveal 解密）未做 | 高（上线前） |
-| W8-L4 | CVE 复扫 | OWASP dep-check / Trivy 门禁未执行，以 06 报告 + Boot 3.5.16 归档依赖树（`dependency-tree-after-boot3516.txt`）为基线 | 高（上线前） |
-| W8-L5 | graceful shutdown | Windows 停服行为未实测 | 中（上线前） |
+| W8-L4 | CVE 复扫 | 🟡 **D 波复扫已执行并修复 1 项**（2026-09-03，详见 `06-dependency-cve-scan.md` §7）：Boot 3.5.16（3.5.x 终版）内置 Tomcat 10.1.55 受 CVE-2026-55956(中)/CVE-2026-59083(低) → `pom.xml` 加 `tomcat.version=10.1.59`；POI 5.4.1 / PDFBox 2.0.33 / OpenHTMLtoPDF 1.0.10 等新增 22 依赖核对无未修复 CVE；基线依赖树已同步（165 依赖）。**OWASP dep-check / Trivy 工具门禁待正式环境执行**（命令见 06 §7.4） | 高（上线前，工具门禁） |
+| W8-L5 | graceful shutdown | 🟡 **配置已落地（2026-09-03 D 波）**：`application.yml` 加 `server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s`；Windows 停服手测手册见 §8.5.2（本机需重启服务后人工停服观测，执行命令属人工环节） | 中（上线前） |
 | W8-L6 | Redis ACL | 6379 仍 0.0.0.0；部署配置需 bind 回环 + protected-mode + requirepass（对齐 P4-L5） | 高（上线前） |
+
+### 8.5 部署侧操作手册（2026-09-03 D 波固化，W8-L1 / W8-L5）
+
+#### 8.5.1 还原演练（W8-L1）——脚本固化与用法
+
+- 脚本：`shared/ops/restore-drill-w8.py`（头注释含完整说明）；回滚 DDL：`shared/ops/v33-reverse-rename.sql`（适用窗口 **V33 后 V34 前**）；索引：`shared/ops/README.md`
+- 原理：解析 `backup_w8_gap_delete_20260901.sql`（37 表 27700 行 INSERT，每表文件行数 N_file 为事实源）→ 源库 `CREATE TABLE LIKE` 建临时库 `restore_drill_w8_<ts>` → 关外键检查逐表参数化 `executemany` 还原 → 校验 a) 逐表 `COUNT(*)==N_file`（缺行检测）b) PII 8 表（users/tenants/tenant_applications/inquiry_requests/customer_prices/sms_codes/wholesaler_applications/blacklist）全列逐行值比对（按主键序 zip，NULL/日期/Decimal 归一）——即规划 §8.5「关键列校验和」的强校验落地
+- 只读源库（SHOW + CREATE TABLE LIKE 快照结构），对源库数据零写入；演练后默认 DROP 临时库
+- 用法（密码取 `backend/src/main/resources/application-local.yml`）：
+
+```powershell
+python shared/ops/restore-drill-w8.py --dry-run                 # 仅解析文件自检（不连库）
+python shared/ops/restore-drill-w8.py --password <pwd>          # 完整演练（默认演练后删库）
+python shared/ops/restore-drill-w8.py --password <pwd> --only users,blacklist   # 子集快验
+python shared/ops/restore-drill-w8.py --password <pwd> --keep   # 保留临时库供人工复核
+```
+
+- **2026-09-03 全量演练结果**：37 表行数全 PASS（N_file==COUNT）、PII 8 表逐行值比对全 PASS（含 Decimal 精度归一后 lng/lat 一致）、耗时约 5s；健康检查 = 无异常退出码 + 临时库正确删除
+
+#### 8.5.2 graceful shutdown（W8-L5）——Windows 停服手测手册
+
+- 配置（D 波已落地 `backend/src/main/resources/application.yml`）：`server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s` —— 触发 JVM shutdown hook 后停止接收新请求，在途请求限时完成再关停；30s 对导出类（PDF/Excel 小额生成）充裕
+- **前置**：当前本地 8080 后端启动于配置修改前，须**重启后端**使配置加载后再测（`mvn spring-boot:run`，profiles=dev,local）
+- 手测步骤（人工执行项，本机未重启前状态保持 🟡 待实测）：
+
+```powershell
+# 1) 重启后端加载新配置
+cd backend; mvn spring-boot:run
+# 2) 等服务就绪后（日志 "Started CangchuBackendApplication"）
+#    发起一个在途请求（可选，验证在途保护）：如导出类接口/普通查询，另开终端
+# 3) 正常停服：切回服务控制台按 Ctrl+C（等价 SIGTERM → JVM shutdown hook）
+```
+
+- 期望观察（4 项）：
+  1. 日志出现 `Commencing graceful shutdown. Waiting for active requests to complete`（INFO）→ 确认优雅停机路径被触发
+  2. 停服瞬间新请求不再被受理（端口停止 accept 新连接）
+  3. 无在途请求时短暂等待即退出；有在途请求时其执行完毕（≤30s）后进程才退出
+  4. 进程退出后 8080 端口释放（`Get-NetTCPConnection -LocalPort 8080` 无 LISTEN）；`curl` 连接拒绝
+- 超时负路径：若在途请求超过 30s，日志应出现 `Timeout during graceful shutdown` 后强制退出（本项目导出量级不会触发，属边界认知）
+- **注意**：Windows `Stop-Process`（TerminateProcess）属强杀、**不触发**优雅停机；正式部署若注册为 Windows 服务，停服须用 `sc stop <service>` / 服务管理器「停止」，二者走 SCM 控制台事件、可触发 shutdown hook
+- 手测通过后回填本表 W8-L5 状态为 ✅（2026-09-03 配置落地 → 手测日期）
 
 ## 9. 备份与安全索引
 

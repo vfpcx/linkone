@@ -16,8 +16,8 @@
 | **P2** | 入驻生态 + 定价能力 | ✅ 已完成 |
 | **P3** | 完整单据与履约异常 | ✅ 已完成 |
 | **P4** | 计费结算 | ✅ 已完成 |
-| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA+OPS) 真实接口 ✅** + **TA 一账号多仓收敛 ✅** + **B D56 商品档案 ✅** + **C 小项池 C1/C2/C3 ✅**；2026-09-02 拍板排期 **A ✅ → B ✅ D56 商品档案 → C ✅ 小项池 → D X期本地 → F 正式多端**；E/P5-B OSS+ASR 维持挂起）|
-| **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅；部署侧 W8-L1~L6 待环境，其中本地可做项 L1/L4/L5 已排期 D 波 2026-09-02）|
+| **P5** | 运营增强与正式多端 | 🟡 进行中（**P5-A 全绿收官** + **P5-C Dashboard(TA+OPS) 真实接口 ✅** + **TA 一账号多仓收敛 ✅** + **B D56 商品档案 ✅** + **C 小项池 C1/C2/C3 ✅** + **D X 期本地收尾 ✅**；2026-09-02 拍板排期 **A ✅ → B ✅ → C ✅ → D ✅ X 期本地收尾 → F 正式多端**；E/P5-B OSS+ASR 维持挂起）|
+| **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅；部署侧 W8-L1~L6：**D 波本地项 L1 ✅ 还原演练脚本固化 + L4 ✅ CVE 复扫修复（Tomcat 10.1.59）+ L5 🟡 配置落地（手测待重启）**，L2/L3/L6 仍待环境）|
 
 ---
 
@@ -68,7 +68,7 @@
   - **A · OPS 控制台真实接口 ✅ 2026-09-02 已收官**（P5-C 完成）：`/ops/dashboard` 占位页转真实接口——后端 `OpsDashboardServiceImpl`（tenant 域聚合 + requireOps 42002）+ document/notify 跨域出口（countPendingForOps / countComplaintsCreatedToday / countDrafts）+ `OpsDashboardScenarioTest` 7 例（基线差分）；前端 `views/ops/Dashboard.vue` + OPS 菜单 5 项统一；全量回归 493 全绿；口径 `product/15`、设计 `21-p5c`
   - **B · D56 商品档案体系 ✅ 2026-09-02 已收官**（P5-D 起步）：OPS 标品库（US-OPS-02，SpuCatalog.vue 搜索/新增两级品类联动/合并/下架）+ SKU 挂 SPU（TA 建 SKU 选 ACTIVE 标品回填 spuId + 列表展示所属标品）+ V38 `spus` 平台级表落地 + `skus` 标品快照 3 列（挂接/合并原子刷新）；口径 `product/16`（D-B-1~7 全采纳）、设计 `architecture/22`；backend 63917bc / frontend fb01030；全量回归 500 全绿
   - **C · 小项池 ✅ 2026-09-02 已收官**（P5-D 收尾，`product/17` v1.6，架构 `23-p5-c-c1` + `24-p5-c-c3` + `25-p5-c-c2`）：**C1 US-RT-05 专属价目复购**（POST /rt/my-pricelist + RtPriceListScenarioTest 12/12 + Store.vue「我的价目」抽屉 + 契约 `api-contract-storefront` §3.3）+ **C3 US-WE-04 客户跟进**（V39 `customer_followups`/`followup_reminders` + /api/v1/tenant/customers 5 端点 + FollowupReminderJob 每 5 分钟到点站内信 + CustomerFollowupScenarioTest CF-01~05 5/5 + 前端 Customers.vue + 9 个 wa 视图菜单「客户跟进」+ 铃铛标签 + customers.ts/api-types）+ **C2 US-WK-05 货位功能**（V40 4 加列 + `batch_location_logs` + 仓级开关 locationEnabled 走 PUT /tenant/me + 出入库登记货位必填 50822 + 批次移库/变更记录 + LocationScenarioTest LV-01~06 7 例 + 前端 Settings/Inbound/Outbound/Batches 货位全链）；三子项回归基线与全量：C1+C3 = **517 全绿**，C2 补完后全量 **524**（首跑 3 flake 均为环境/顺序问题并已修复：PiiWrite 41205 Redis `sms:daily` 跨运行累积清键恢复 + CustomerFollowup cf05 简码顺序耦合改 `TestUniq`）；roadmap v3.2 收官
-  - **D · X 期本地收尾**（不待环境）：W8-L4 CVE 复扫（OWASP dep-check/Trivy）+ W8-L5 graceful shutdown 实测 + W8-L1 还原演练脚本固化 `shared/ops/`
+  - **D · X 期本地收尾 ✅ 2026-09-03 已收官**：W8-L1 还原演练脚本固化 `shared/ops/`（restore-drill-w8.py + v33-reverse-rename.sql + README，全量演练 PASS：37 表 27700 行行数全对 + PII 8 表逐行值比对全 PASS）+ W8-L4 CVE 复扫（**发现并修复 1 项**：Boot 3.5.16 BOM Tomcat 10.1.55 受 CVE-2026-55956/59083 → `pom.xml` `tomcat.version=10.1.59`，依赖树归档同步，diff 仅三件套；OWASP dep-check/Trivy 工具门禁待正式环境）+ W8-L5 graceful shutdown 硬化（`server.shutdown: graceful` + `timeout-per-shutdown-phase: 30s` 落地，Windows 停服手测手册见 13 报告 §8.5.2，待本机重启人工实测）；docs 落 06 §7 / 13 §8.5
   - **F · 正式多端**（P5-C 余下）：ST 全功能 H5（US-ST-06 移交）+ RT 正式小程序/H5（uni-app 栈，D09）
   - **挂起不排**：E/P5-B（OSS/ASR 待外部选型+云账号）、capacity 快照 job（待环境）、US-WA-01b 容量告警（暂缓）
 
@@ -79,7 +79,8 @@
   - S2 明文收缩（V31-V34 删明文列，唯一不可逆段）**[完成 2026-09-01]**：V31 cipher/last4 补列 + V32 hmac 唯一索引 + V33 RENAME + V34 DROP + blacklist last4 摘要；删双写/开关 6 类 + 4 Service 直连 hmac；AES-GCM + 确定性 KAT；F1 前端 D1/D4 合入。**V31-V34 真实 MySQL 执行；§8.1 回填闸门真实库核对通过（缺口数据已整链清除，9/1，备份 backup_w8_gap_delete_20260901.sql；uk_phone_hmac 唯一索引完好、hmac 零重复）+ V34 观察期闸门待发布窗口**
   - 产品决策 D1-D4 全部定稿（wa/Inquiry 查全号放开、wa/Staff 全号显式例外 G-8.6）
 - 其余硬化项 ✅ 代码落地（`test-plan/09-hardening-w1-report.md`）：H2 Redis 密码+ACL（prod fail-fast，ACL username 留注释）/ H3 Sa-Token active-timeout（主配 1800s）/ H4 SQL stdout 关闭+日志 profile 化 / H5 Boot 3.2.5→3.5.16 CVE 根治
-- 上线检查单余项（**待环境**，`task_plan.md` 验收条目）：CVE 复扫、prod 冒烟、graceful shutdown、Redis 实际启用密码
+- **D 波 · X 期本地收尾 ✅（2026-09-03，不待环境项全闭环）**：W8-L1 还原演练脚本固化 `shared/ops/` 并全量演练 PASS（37 表 27700 行 + PII 8 表逐行值比对；V33 反向 rename 回滚 SQL 同入库，适用窗口 V33 后 V34 前）/ W8-L4 CVE 复扫修复真实 CVE（Boot 3.5.16 BOM Tomcat 10.1.55 → `tomcat.version=10.1.59`，CVE-2026-55956/59083；依赖树基线归档同步，其余核对项无未修复）/ W8-L5 graceful shutdown 硬化（`server.shutdown: graceful` + `timeout-per-shutdown-phase: 30s`，Windows 停服手测手册 13 报告 §8.5.2）；记录：roadmap v3.3 + 06 §7 + 13 §8.5 + progress
+- 上线检查单余项（**待环境**，`task_plan.md` 验收条目）：OWASP dep-check/Trivy 工具门禁（命令 06 §7.4，本机未装）、prod 冒烟、graceful shutdown 人工停服实测（手册 §8.5.2，本机重启后执行）、Redis 实际启用密码（W8-L6）
 - 对应缺陷清单 D-14（见 `test-plan/03-defect-findings.md`）
 
 ---
@@ -113,3 +114,4 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v3.0 | 2026-09-02 | **C 小项池口径定稿**：C1（US-RT-05 专属价目复购，否决历史询价单复制走 customer_prices 价目）/C3（US-WE-04 客户跟进）确认执行；C2 货位功能（US-WK-05：启用开关+出入库登记货位+批次移库）用户指示记录后续做 → Backlog（`product/17` v1.3，D-C-1~1d 记录在案）；C1 架构/实现启动 |
 | v3.1 | 2026-09-02 | **C 小项池 C1+C3 双波收官（P5-D 收尾）**：C1 专属价目复购（`23-p5-c-c1` 设计 + pricing/product 出口 + POST /rt/my-pricelist + RtPriceListScenarioTest 12/12 绿 + Store.vue 价目抽屉 + `api-contract-storefront` §3.3）；C3 客户跟进（`24-p5-c-c3` 设计 v1.1 + V39 customer_followups/followup_reminders + TenantLine 白名单 + ErrorCode 50840-42 + Notification TYPE_CUSTOMER_FOLLOWUP + CustomerFollowupServiceImpl 聚合/备注/提醒/清档 + FollowupReminderJob 5 分钟 CAS 防重 + CustomerFollowupScenarioTest CF-01~05 5/5 绿 + 前端 Customers.vue 列表/抽屉 + 9 个 wa 视图菜单「客户跟进」+ 路由 + 铃铛标签 + customers.ts/api-types，vue-tsc 0 错 + build 通过）；全量回归 **517 全绿**；C2 货位功能留 Backlog（`product/17` v1.5） |
 | v3.2 | 2026-09-02 | **C 波 C2 货位功能收官（C1/C2/C3 三子项全落地）**：`25-p5-c-c2` 设计 v1.0 → 实现——V40（tenant_settings.location_enabled 默认 0 + batches/inbound_requests/outbound_requests 3 处 location + batch_location_logs 新表）；tenant 域开关走通用 `PUT /tenant/me`（无冻结副作用，对照 batchEnabled 专用 toggle）；inventory 域批次 location 登记落值 + `updateBatchLocation`（幂等空转/清空/零记账）+ `listLocationLogs` + Controller 2 端点；document 域出入库登记 4 DTO +location 按当刻开关必填 50822；ErrorCode 50822/50823；前端 Settings/Inbound/Outbound/Batches 货位全链 + api-types 同步；LocationScenarioTest LV-01~06 7 例；全量回归 **524**（首跑 3 flake 均为环境/顺序问题并修复：PiiWrite 41205 = Redis sms:daily 当日多次运行累积清键恢复；CustomerFollowup cf05 = C3 遗留 seedTenant `id%1000` 简码顺序耦合 → 改 `TestUniq` 全局唯一，随波收口） |
+| v3.3 | 2026-09-03 | **D 波 X 期本地收尾收官（roadmap D，不待环境项全闭环）**：W8-L1 还原演练脚本固化 `shared/ops/`（restore-drill-w8.py + v33-reverse-rename.sql + README；全量演练 PASS：37 表 27700 行行数 + PII 8 表逐行值比对，Decimal 精度归一）+ W8-L4 CVE 复扫（**修复真实 CVE**：Boot 3.5.16 BOM Tomcat 10.1.55 受 CVE-2026-55956(中)/CVE-2026-59083(低) → `pom.xml` `tomcat.version=10.1.59`，官方安全页 10.1.59 为最新修复版；`dependency:tree` 确认仅 tomcat-embed 三件套 10.1.55→10.1.59、其余 162 依赖零变化，基线归档同步）+ W8-L5 graceful shutdown 硬化（`application.yml` `server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s`，Windows 停服手测手册 13 报告 §8.5.2，实测待本机重启）；POI/PDFBox/OpenHTMLtoPDF 等 22 新增依赖核对无未修复 CVE；OWASP dep-check/Trivy 工具门禁留正式环境（命令 06 §7.4）；docs：06 §7 / 13 §8.5 / progress 2026-09-03 |
