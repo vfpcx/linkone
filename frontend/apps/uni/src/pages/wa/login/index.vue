@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// 商户/结算工作台统一登录（F3 WA/WE · F4 ST 共用本页）：密码登录。
-// 员工密码由店主/仓库管理员在电脑端分配；本端服务批发商（WA/WE）与结算员（ST），
-// TA/OPS/WK 等其他角色请使用电脑端（WK 移动端待 F5）。
+// 商户/结算/库管工作台统一登录（F3 WA/WE · F4 ST · F5 WK 共用本页）：密码登录。
+// 员工密码由店主/仓库管理员在电脑端分配；本端服务批发商（WA/WE）、结算员（ST）与库管员（WK），
+// TA/OPS 等其他角色请使用电脑端。
 import { ref } from 'vue'
 import { accountApi } from '../../../api/account'
 import { PHONE_MAX_LEN, PHONE_RE } from '../../../config'
-import { clearAuth, hasStScope, hasWaScope, writeAuth } from '../../../utils/session'
+import { clearAuth, hasStScope, hasWaScope, hasWkScope, writeAuth } from '../../../utils/session'
 
 const phone = ref('')
 const password = ref('')
@@ -28,11 +28,16 @@ function doLogin(): void {
     .login({ phone: p, password: password.value })
     .then((res) => {
       writeAuth(res)
-      // 落地页按可用工作区角色分流：结算员 ST → 结算工作台；批发商 WA/WE → 批发商工作台。
+      // 落地页按可用工作区角色分流：结算 ST → 结算工作台；库管 WK → 库管工作台；批发商 WA/WE → 批发商工作台。
       // （账号同时具备多区角色时取 priority 小者——结算 ST 优先，跨区切换需重新登录，v1 约定）
       if (hasStScope()) {
         uni.showToast({ title: '登录成功', icon: 'success' })
         setTimeout(() => uni.reLaunch({ url: '/pages/st/index' }), 500)
+        return
+      }
+      if (hasWkScope()) {
+        uni.showToast({ title: '登录成功', icon: 'success' })
+        setTimeout(() => uni.reLaunch({ url: '/pages/wk/index' }), 500)
         return
       }
       if (hasWaScope()) {
@@ -61,7 +66,7 @@ function goBuyer(): void {
     <view class="brand">
       <view class="brand__logo">仓</view>
       <view class="brand__name">仓储云工作台</view>
-      <view class="brand__sub">批发商处理询价 · 结算员登记回款</view>
+      <view class="brand__sub">批发商处理询价 · 结算员登记回款 · 库管办理出入库</view>
     </view>
 
     <view class="card">
@@ -90,6 +95,9 @@ function goBuyer(): void {
       <button class="btn-primary login-btn" :loading="submitting" @click="doLogin">登录</button>
       <view class="tips">
         <text class="tips__t">员工账号由店主 / 仓库管理员在电脑端分配；忘记密码请联系所在仓库管理员</text>
+      </view>
+      <view class="tips" style="margin-top: 12rpx">
+        <text class="tips__t">库管 / 结算员员工请使用仓库管理员分配的员工账号登录；登录后按角色进入对应工作台</text>
       </view>
     </view>
 

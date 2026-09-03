@@ -1,16 +1,16 @@
 /**
- * 商户/结算移动端会话（F3 WA/WE · F4 ST）。
+ * 商户/结算/库管移动端会话（F3 WA/WE · F4 ST · F5 WK）。
  *
  * RT 匿名身份（本地手机号）与登录态并存互不干扰（见 storage.ts）；
  * 本文件只维护「登录会话 auth + 当前工作仓 work（角色条目）」。
  *
  * work = 用户从 roles 里选中的一条「带 tenantId 的工作角色」，
- * （WA/WE 一账号多仓 / ST 结算）用于组装 X-Tenant-Id，绑定 userId 防跨账号误用。
- * 各角色区（wa/st…）在 onLoad 自愈：若当前 work 非本区角色则重选本区默认。
+ * （WA/WE 一账号多仓 / ST 结算 / WK 库管）用于组装 X-Tenant-Id，绑定 userId 防跨账号误用。
+ * 各角色区（wa/st/wk…）在 onLoad 自愈：若当前 work 非本区角色则重选本区默认。
  */
 import type { LoginResponse, SnowflakeId } from '@cangchu/api-types'
 
-export type WorkRole = 'WA' | 'WE' | 'ST'
+export type WorkRole = 'WA' | 'WE' | 'ST' | 'WK'
 
 export interface WaWork {
   /** 绑定用户，防跨账号残留误用 */
@@ -86,8 +86,8 @@ export function clearWork(): void {
   uni.removeStorageSync(WORK_KEY)
 }
 
-/** 移动端已提供工作区的带仓角色（WA/WE=F3、ST=F4；WK 待 F5） */
-const WORK_ROLES = new Set(['WA', 'WE', 'ST'])
+/** 移动端已提供工作区的带仓角色（WA/WE=F3、ST=F4、WK=F5） */
+const WORK_ROLES = new Set(['WA', 'WE', 'ST', 'WK'])
 
 /** 该登录会话可用的批发商角色条目（WA/WE 且已入驻某仓），按 priority 升序 */
 export function workEntries(auth: Pick<LoginResponse, 'roles'>): LoginResponse['roles'] {
@@ -105,7 +105,15 @@ export function stEntries(auth: Pick<LoginResponse, 'roles'>): LoginResponse['ro
     .sort((a, b) => a.priority - b.priority)
 }
 
-/** 全工作角色条目（含 ST），按 priority 升序（跨区排序，账号多区角色时小的在前） */
+/** 该登录会话可用的库管角色条目（WK 且带仓），按 priority 升序 */
+export function wkEntries(auth: Pick<LoginResponse, 'roles'>): LoginResponse['roles'] {
+  return auth.roles
+    .filter((r) => r.role === 'WK' && r.tenantId)
+    .slice()
+    .sort((a, b) => a.priority - b.priority)
+}
+
+/** 全工作角色条目（含 ST/WK），按 priority 升序（跨区排序，账号多区角色时小的在前） */
 function allWorkEntries(auth: Pick<LoginResponse, 'roles'>): LoginResponse['roles'] {
   return auth.roles
     .filter((r) => WORK_ROLES.has(r.role) && r.tenantId)
@@ -137,12 +145,22 @@ export function hasStScope(): boolean {
   return !!auth && stEntries(auth).length > 0
 }
 
+/** 是否库管会话（已登录且带仓的 WK 条目） */
+export function hasWkScope(): boolean {
+  const auth = readAuth()
+  return !!auth && wkEntries(auth).length > 0
+}
+
 /**
- * 角色区自愈：保证当前 work 属于本区（WA/WE 区 or ST 区）。
+ * 角色区自愈：保证当前 work 属于本区（WA/WE 区 / ST 区 / WK 区）。
  * 供各工作台 onLoad 调用；返回自愈后的 work（null 表示无本区工作条目）。
  */
-export function healWork(zone: 'wa' | 'st', auth: Pick<LoginResponse, 'userId' | 'roles'>, current: WaWork | null): WaWork | null {
-  const list = zone === 'st' ? stEntries(auth) : workEntries(auth)
+export function healWork(
+  zone: 'wa' | 'st' | 'wk',
+  auth: Pick<LoginResponse, 'userId' | 'roles'>,
+  current: WaWork | null,
+): WaWork | null {
+  const list = zone === 'st' ? stEntries(auth) : zone === 'wk' ? wkEntries(auth) : workEntries(auth)
   if (!list.length) return null
   const inZone = current && current.userId === auth.userId && list.some((e) => e.tenantId === current!.tenantId && e.role === current!.role)
   if (inZone) return current

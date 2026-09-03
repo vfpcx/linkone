@@ -62,6 +62,33 @@
       }
     },
     {
+      "path": "pages/wk/index",
+      "style": {
+        "navigationBarTitleText": "库管工作台",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wk/inbound/index",
+      "style": {
+        "navigationBarTitleText": "入库作业",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wk/outbound/index",
+      "style": {
+        "navigationBarTitleText": "出库作业",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wk/outbound/create",
+      "style": {
+        "navigationBarTitleText": "代建出库"
+      }
+    },
+    {
       "path": "pages/wa/inquiries/index",
       "style": {
         "navigationBarTitleText": "询价单",

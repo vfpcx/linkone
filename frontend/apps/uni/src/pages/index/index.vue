@@ -67,7 +67,7 @@ function onSavePhone(): void {
   uni.showToast({ title: '手机号已保存', icon: 'none' })
 }
 
-/** 商户/结算工作台登录入口（WA/WE/ST 统一登录页；WK 待 F5） */
+/** 商户/结算/库管工作台登录入口（WA/WE/ST/WK 统一登录页） */
 function goBiz(): void {
   uni.reLaunch({ url: '/pages/wa/login/index' })
 }
@@ -149,7 +149,7 @@ function onScan(): void {
     </view>
 
     <view class="biz-entry" @click="goBiz">
-      <text class="biz-entry__t">我是批发商 / 结算员</text>
+      <text class="biz-entry__t">我是批发商 / 结算员 / 库管</text>
       <text class="biz-entry__arrow">›</text>
     </view>
     <view class="foot-note">
