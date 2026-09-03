@@ -4,7 +4,7 @@
 > 版本：v1 · 2026-09-01
 > 编写：架构师 Agent
 > 依赖：04-api-spec.md（通用约定）/ 05-error-codes.md（错误码）/ 18-p5-design.md（设计口径 §2.2/§4.3/§4.4/§5/§6）
-> 状态：**已对齐当前后端实现**（P5-A W4 合入，commit b2cb572；单一事实源 / Single Source of Truth）
+> 状态：**已对齐当前后端实现**（P5-A W4 合入，commit b2cb572 + F2 §3.4；单一事实源 / Single Source of Truth）
 > 归属说明：撮合配置接口（`/api/v1/tenant/storefront/featured`）物理归属 **tenant 域**（`StorefrontFeatureController`，`storefront_featured` 表唯一归属 tenant 域）；storefront 域**只读消费**（G-S2 Service 出口，禁跨域 mapper 直连）。本文档一并固化「配置端（TA 鉴权）」与「浏览端（RT 公开只读）」两侧契约。
 
 ---
@@ -186,6 +186,77 @@ Query 参数：
 
 **零新错误码**：`rtPhone` 为空 → 通用参数校验 40001；店铺不存在/不可进 → 沿用 `/rt/store` 既有错误码。
 
+### 3.4 RT「我的意向单」（F2 · US-RT-04 · document 域 RtInquiryController）
+
+> 公开只读端点（无需登录）；实现归属 **document 域**（`RtInquiryController.myInquiries` → `InquiryServiceImpl.listForRt`），store→tenant 解析复用 storefront 出口 `StoreFrontService.getStorePage`（与提交询价同款）；商户名 / SKU 名补全经 tenant 域 `WholesalerService.getById` / product 域 `SkuService.listForRtBySkuIds` 出口（G-S2，禁跨域 mapper 直连）。
+
+**`POST /api/v1/rt/my-inquiries`**
+
+请求（手机号放 POST body，**不放 GET query**——防明文手机号落访问日志，与 §3.3 同口径）：
+
+```json
+{ "storeId": null, "code": "rp123", "rtPhone": "13800006666" }
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `storeId` | string\|null | 店铺 id（与 `code` 至少传一个，店铺解析同 `/rt/store`） |
+| `code` | string\|null | 店铺码 = 租户简码 `tenantSimpleCode` |
+| `rtPhone` | string | RT 手机号，必填（`@NotBlank`）；服务内 `PiiCrypto.phoneHmac` 盲查 |
+
+响应 `R<RtInquiryListVo>`：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "rtPhoneLast4": "6666",
+    "storeName": "xx仓储直批",
+    "inquiries": [
+      {
+        "inquiryId": "1842...",
+        "docNo": "INQ20260903001",
+        "status": "CONFIRMED",
+        "wholesalerId": "1842...",
+        "wholesalerName": "xx批发",
+        "createdAt": "2026-09-03T10:00:00",
+        "confirmedAt": "2026-09-03T11:00:00",
+        "voidedAt": null,
+        "items": [
+          {
+            "skuId": "1842...",
+            "name": "雪花梨 5kg/箱",
+            "spec": "5kg/箱",
+            "qty": 5,
+            "unitPriceSnapshot": 25,
+            "moqPriceSnapshot": 23,
+            "moqQtySnapshot": 5,
+            "dealPrice": 21.5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+字段语义：
+
+| 字段 | 说明 |
+|---|---|
+| `rtPhoneLast4` | 手机号尾号 4 位（归属提示）；**响应永不返回明文手机号**（结构上无明文字段） |
+| `storeName` | 店铺名（由 storeId/code 解析的展示上下文） |
+| `inquiries[].inquiryId/docNo` | 询价单 id / 单号 |
+| `inquiries[].status` | `PENDING`=已提交 / `CONFIRMED`=批发商已确认 / `COMPLETED`=已完成 / `VOIDED`=已作废 |
+| `inquiries[].wholesalerId/wholesalerName` | 意向商户（**仅名称，不返回商户联系方式**——PII：RT 无登录态不可见另一人手机号，联系方式展示留待 RT 登录子波，见 99-open-questions D-RT-01） |
+| `inquiries[].items[]` | 明细行：`skuId`/`name`/`spec`/`qty` + 提交时价格快照 `unitPriceSnapshot`/`moqPriceSnapshot`/`moqQtySnapshot` + `dealPrice`（成交价，PENDING 时 = 提交时公开单价快照；WA 确认可改写） |
+| `confirmedAt`/`voidedAt` | 状态时间戳；未发生为 null |
+
+语义与过滤：本店（store→tenant 显式过滤，RT 无 TenantContext → TenantLine 不注入）+ 该 hmac 的全部询价单，`createdAt` 倒序；无记录返回 `inquiries: []`，HTTP 200（纯只读，不产生单据）。
+
+**零新错误码**：`rtPhone` 为空 → 通用参数校验 40001；店铺不存在/不可进 → 沿用 `/rt/store` 既有错误码。
+
 ---
 
 ## 4. 错误码（撮合配置相关，详见 05-error-codes.md）
@@ -210,3 +281,4 @@ Query 参数：
 |---|---|---|
 | v1 | 2026-09-01 | 首版：固化 P5-A W4 契约——撮合配置 GET/PUT（TA 鉴权、覆盖保存、50711-50714 写前校验、顺序语义）+ RT 进店浏览出参扩展（featuredSkuIds/pinnedWholesalerIds/featured/pinned 与前置排序）。 |
 | v1.1 | 2026-09-02 | 增 §3.3 RT「我的价目」（C1）：POST `/rt/my-pricelist` 只读查询 + RtPriceListVo 出参 + 零新错误码；提交沿用 `/rt/inquiry`。 |
+| v1.2 | 2026-09-03 | 增 §3.4 RT「我的意向单」（F2 · US-RT-04）：POST `/rt/my-inquiries` 只读查询（document 域 RtInquiryController）+ RtInquiryListVo 出参 + 零新错误码；商户联系方式展示因 PII 留 RT 登录子波（D-RT-01）。 |
