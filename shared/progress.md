@@ -2,6 +2,22 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-04 · F5-W2 WK 库管移动端·库存/批次/临期/盘点核对（F 波第四业务子波收官：库存查询/批次登记簿/临期预警/库存盘点，CodeBuddy）
+
+> W1 提交后按 roadmap 排期续做 W2。锚点：US-WK-03 盘点、US-WK-04 临期预警、US-WK-05 货位/移库 + 13 §3（批次）/§5.2（盘点 PD）；**零后端改动**（P3/P3b 既有 BatchController/TenantStocktakeController/InventoryController 全量 WK 可用）。
+> WK 与 WA 不同：**只读放宽**（listSkuByWholesaler/listWholesalers/listInventories 均可调），故本波所有名称在移动端本地映射即可，契约为省 join 不带名称（BatchVo 仅批次键；CountSheetVo 列表不带 items/名称，仅详情链路填充）。
+
+- **范围收敛决策**：W2 = 读查（库存/批次/临期）+ 盘点单执行链；**现场代建入库**（拍照附件、WK 建单走商户 72h 确认）当前无 WK 建单端点 → 记为「扩展」不扩后端；**盘点批次分支**（盘盈按批入库、差异托盘建议值录入）按 13 §5.2 注 7 随 P5/方案 A 顺延，移动端盘点按 SKU 总数盘（palletDelta 可选留空走默认建议）
+- **契约（逐项对照实现）**：`GET /tenant/batches`（wholesalerId+skuId 齐附 unpooledQty）/ `PUT /tenant/batches/{id}`（默认批次补录 production≤today 40205、expiry>production 40206、仅 source=DEFAULT 且非 CLEARED/CLOSED）/ `PUT /{id}/location` + `GET /{id}/location-logs`（C2 移库幂等）+ `GET /tenant/batches/expiring`（EXPIRING∪PENDING_CLEARANCE 升序）+ `POST /{id}/notify-wholesaler`（同批次 24h≤1 → 50367，前端按 manualNotifiedAt 本地倒计时展示）；盘点 `GET /tenant/count-sheets`(+`/in-transit-hint`、`/{id}`)/ `POST` / `PUT` / `DELETE` / `POST /{id}/submit`——50355 items 1~200 同单 SKU 不重复、50356 同商户在途至多一张、建/改时按当刻在库预填 systemQty、提交 CAS DRAFT→PENDING_APPROVAL 快照定格（通知 TA）、REJECTED 经 PUT 回 DRAFT 修正重提、盘亏 D-10 按审批时刻在库封顶生效（appliedDiff）；在途口径=PENDING_ACCEPT/PRINTED 出库 + ACCEPTED 退货；**api-types 的 Batch/BatchLocationLog/TenantBatchConfig(locationEnabled)/CountSheet/CountSheetItem/StocktakeInTransitHint 已存在直接复用**
+- **基建**：`api/wk.ts` 扩 `batch`（list/backfill/updateLocation/locationLogs）+ `expiry`（list/notify）+ `stocktake`（list/detail/inTransitHint/create/update/remove/submit）三组；`utils/warehouse` 增 BATCH_STATUS_LABELS(IN_STOCK/EXPIRING/PENDING_CLEARANCE/SOLD_OUT/CLEARED/CLOSED)/STOCKTAKE_STATUS_LABELS(DRAFT/PENDING_APPROVAL/APPROVED/REJECTED)/batchTone/stocktakeTone/expiryText/fmtDate；pages.json 4 页 + 工作台入口分组（作业 4 + 查看与管理 3）
+- **页面（pages/wk/ 新增 4）**：
+  - `inventory/index` 库存查询：商户 chips（默认首个）→ 按商户拉在库行（含 0，托盘）+ /tenant/skus 名称 join；头部合计（件/托盘/行数）+ 名称搜索
+  - `batches/index` 批次登记簿：全量批次 + 六态横向段筛选 + 批次号/品名搜索；行卡=品名/批次号/商户/效期+临期文案/推算剩余/货位或「待补录效期」徽标；点击弹层：批次 KV（三日期/剩余/累计/来源/货位）+ **移库**（货位开关开启时：输入新货位或清空 → PUT location + 位置变更记录列表）+ **默认批次补录**（生产/到效期 date-picker → PUT backfill）
+  - `expiry/index` 临期预警：GET expiring（升序）；顶部渐变汇总（批次/推算剩余合计/已过期）；行卡=SKU/批次号/商户/状态与剩余天数 tag（过期红）+ 到效期/推算剩余/来源 KV；[一键通知商户] 按钮——manualNotifiedAt 起 24h 冷却实时倒计时文案（disabled），成功本地记时并 toast 商户名
+  - `stocktake/index` 库存盘点：段（草稿/待审批/已通过/已驳回，带计数，全量一次拉取本地筛）；DRAFT 卡操作=继续盘点/删除/提交审批（均 confirm）；REJECTED=查看/修正后重提；PENDING/APPROVED=查看只读详情（含在途护栏提示条 + 明细表账实差异 + appliedDiff「/生效」展示 + 驳回理由 + 已通过说明）；新建/编辑编辑器：商户 chips → 在途护栏（hintbar 绿/黄两态）+ 账面与实盘 diff 实时预览 → SKU 行（账面预填、实盘 input、差异 ±着色、理由可空）→ [保存草稿]/[提交并上报]（先 create/update 再 submit，失败草稿已留存可回列表续提）；驳回重提沿用编辑（PUT 回 DRAFT 后到草稿段续提）
+- **验证**：vue-tsc 0 错（仅 1 处变量名笔误修复）；read_lints 0；build:h5 + build:mp-weixin 双端 DONE（仅 legacy-sass 警告）
+- **边界与说明**：盘点「提交即定格账面」并告知用户；在途护栏仅提示不阻止（与后端一致）；批次 remainingQty 为 02:00 FIFO 推算（非记账值）行卡与弹层均已标注；剩余扩展：现场代建入库（拍照附件/WA 72h 确认）与盘点批次分支（盘盈按批/托盘建议录入）待 P5
+
 ## 2026-09-03 · F5-W1 WK 库管移动端（F 波第四业务子波·出入库作业：工作台/入库作业/出库作业/代建出库，CodeBuddy）
 
 > 用户续「按你的进度安排继续往后走」F4→F5（上轮已完成 F3 收尾+F1-F4 全部提交）。需求锚点：US-WK-01/01b 入库（受理/登记/驳回）、US-WK-02/02b 出库（打印/登记/代建）、US-WK-06（D20 手机端 P0 操作口径）+ 货位 C2 联动；**后端零改动**（P3/P3b 既有 InboundController/TenantOutboundController 契约）。W1 = 出入库作业核心高频链；W2（库存查询/批次·移库/临期预警/盘点核对）下轮续。
@@ -58,7 +74,7 @@
 - **工程**：`frontend/apps/uni`（@cangchu/uni）——uni-app 编译器 5.25（vue3）/ vite 5.2.8（插件 peer 精确锁）/ vue 3.4.21（uni-h5 内部锁）/ @dcloudio 全链 `3.0.0-alpha-5020520260829001`（npm `vue3` tag 2026-08-29，7 包同版）；文件 = vite.config（端口 5175、`/api`+`/files` 代理对齐 admin）/ tsconfig（extends 根 base + @dcloudio/types）/ index.html / src{pages.json、manifest.json（h5 hash 路由 + mp-weixin urlCheck:false）、uni.scss（主题变量对齐 design-tokens：品牌深蓝/操作蓝/RT 生鲜绿）、App.vue、main.ts、pages/index 骨架页}
 - **验证**：vue-tsc 0 错；`build:h5` DONE（dist/build/h5）；`build:mp-weixin` DONE（dist/build/mp-weixin 可直接导入微信开发者工具）；仅无危害警告（appid 未配 + Dart Sass legacy-js-api）
 - **踩坑（本机环境）**：GitHub 443 直连不通 → degit/`create-uni -t vue3` 均不可用，改**手写工程骨架**（npm registry 可达，依赖约束逐包核实：vite-plugin-uni peer vite=5.2.8、uni-h5 内部锁 vue 3.4.21）；pnpm 增量链接触发 CodeBuddy safe-delete 批量保护（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，替换大 junction 逐个卡死）→ 以 `$env:CODEBUDDY_SAFE_DELETE_ENABLED='0'` 进程级放行完成 install（**后续 pnpm install 需同法**）；残留 `frontend/_tmp_*`（safe-delete 回收目录）待清理（删除操作需用户在场批准）；`@vueuse/core@14` peer vue^3.5 警告源自 uni-cli-shared→unplugin-auto-import@19 构建链（非运行时依赖、uni 未启用 unplugin 注入）暂容忍
-- **F 波子波进度**：F1 uni 工程 ✅ → F2 RT 买家正式端 ✅（详录见 F2 段落）→ **F3 WA+WE 批发商移动端 ✅（详录见 F3 段落）** → **F4 ST 结算员移动端 ✅（详录见 F4 段落）** → **F5-W1 WK 库管出入库作业 🚧 2026-09-03 落地（详录见顶部段落；工作台/入库作业/出库作业/代建出库，vue-tsc 0 错 + 双端 DONE）** → F5-W2 WK 库存查询/批次·移库/临期预警/盘点核对（下轮续）
+- **F 波子波进度**：F1 uni 工程 ✅ → F2 RT 买家正式端 ✅（详录见 F2 段落）→ **F3 WA+WE 批发商移动端 ✅（详录见 F3 段落）** → **F4 ST 结算员移动端 ✅（详录见 F4 段落）** → **F5-W1 WK 库管出入库作业 ✅ 2026-09-03（详录见 F5-W1 段落）** → **F5-W2 WK 库存·批次·临期·盘点核对 ✅ 2026-09-04（详录见顶部段落；四页 + 盘点单全链，vue-tsc 0 错 + lint 0 + 双端 DONE；F 波库管主体收官）**
 
 ## 2026-09-03 · F2 RT 买家正式端（F 波第一业务子波：US-RT-01~04 全链，CodeBuddy）
 
