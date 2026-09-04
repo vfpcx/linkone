@@ -59,6 +59,22 @@ function goCreateOut(): void {
   uni.navigateTo({ url: '/pages/wk/outbound/create' })
 }
 
+function goInventory(): void {
+  uni.navigateTo({ url: '/pages/wk/inventory/index' })
+}
+
+function goBatches(): void {
+  uni.navigateTo({ url: '/pages/wk/batches/index' })
+}
+
+function goExpiry(): void {
+  uni.navigateTo({ url: '/pages/wk/expiry/index' })
+}
+
+function goStocktake(): void {
+  uni.navigateTo({ url: '/pages/wk/stocktake/index' })
+}
+
 function openSwitch(): void {
   if (entries.value.length > 1) showSwitch.value = true
 }
@@ -176,20 +192,34 @@ onPullDownRefresh(async () => {
         <text class="entry__desc">打印 · 登记出库</text>
         <view v-if="statOutboundPending" class="entry__badge">{{ statOutboundPending }}</view>
       </view>
-      <view class="entry" @click="goCreateOut">
-        <view class="entry__icon entry__icon--wk">直</view>
-        <text class="entry__name">代建出库</text>
-        <text class="entry__desc">现场卖货直接出库</text>
+      <view class="entry" @click="goStocktake">
+        <view class="entry__icon entry__icon--count">盘</view>
+        <text class="entry__name">库存盘点</text>
+        <text class="entry__desc">实物盘数 · TA 审批</text>
       </view>
-      <view class="entry entry--dim">
-        <view class="entry__icon entry__icon--more">…</view>
-        <text class="entry__name">库存 / 盘点</text>
-        <text class="entry__desc">请在电脑端办理</text>
+    </view>
+
+    <view class="group-title">查看与管理</view>
+    <view class="grid">
+      <view class="entry entry--sm" @click="goInventory">
+        <view class="entry__icon entry__icon--info">库</view>
+        <text class="entry__name">库存查询</text>
+        <text class="entry__desc">按商户查在库</text>
+      </view>
+      <view class="entry entry--sm" @click="goBatches">
+        <view class="entry__icon entry__icon--batch">批</view>
+        <text class="entry__name">批次登记簿</text>
+        <text class="entry__desc">效期 · 移库</text>
+      </view>
+      <view class="entry entry--sm" @click="goExpiry">
+        <view class="entry__icon entry__icon--exp">期</view>
+        <text class="entry__name">临期预警</text>
+        <text class="entry__desc">一键通知商户</text>
       </view>
     </view>
 
     <view class="hint">
-      <text class="hint__t">作业提示：出入库登记需在商户申请单上进行；数量差异请如实登记并填写原因，系统将自动留痕。</text>
+      <text class="hint__t">作业提示：出入库登记需在商户申请单上进行；数量差异请如实登记并填写原因。盘点提交后由租户管理员审批，盘亏按审批时刻在库封顶生效。</text>
     </view>
 
     <view class="footer">
@@ -356,9 +386,48 @@ onPullDownRefresh(async () => {
       color: $cc-accent;
     }
 
-    &--more {
-      background: $cc-bg-3;
-      color: $cc-fg-3;
+    &--count {
+      background: $cc-warning-bg;
+      color: $cc-warning;
+    }
+
+    &--info {
+      background: $cc-success-bg;
+      color: $cc-success;
+    }
+
+    &--batch {
+      background: $cc-bg-2;
+      color: $cc-fg-2;
+    }
+
+    &--exp {
+      background: $cc-danger-bg;
+      color: $cc-danger;
+    }
+  }
+
+  &--sm {
+    width: calc(33.333% - 11rpx);
+    padding: 18rpx 16rpx;
+    gap: 2rpx;
+
+    .entry__icon {
+      width: 52rpx;
+      height: 52rpx;
+      line-height: 52rpx;
+      border-radius: 13rpx;
+      font-size: 22rpx;
+      margin-bottom: 8rpx;
+    }
+
+    .entry__name {
+      font-size: 24rpx;
+    }
+
+    .entry__desc {
+      font-size: 18rpx;
+      line-height: 1.4;
     }
   }
 
@@ -387,6 +456,13 @@ onPullDownRefresh(async () => {
     color: #fff;
     font-size: 20rpx;
   }
+}
+
+.group-title {
+  margin: 8rpx 2rpx 16rpx;
+  font-size: 25rpx;
+  font-weight: 700;
+  color: $cc-fg-3;
 }
 
 .hint {

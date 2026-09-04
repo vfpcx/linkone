@@ -59,3 +59,54 @@ export function statusTone(status: string | null | undefined, kind: 'in' | 'out'
   if (s === 'WITHDRAWN' || s === 'CANCELLED') return 'muted'
   return 'info'
 }
+
+// ==================== F5-W2 · 批次 / 盘点（13-p3b-design：batches 六态 / count_sheets 四态） ====================
+
+export const BATCH_STATUS_LABELS: Record<string, string> = {
+  IN_STOCK: '在库',
+  EXPIRING: '临期',
+  PENDING_CLEARANCE: '待清理',
+  SOLD_OUT: '已售罄',
+  CLEARED: '已清库',
+  CLOSED: '已冻结',
+}
+
+export const BATCH_SOURCE_LABELS: Record<string, string> = {
+  INBOUND: '入库登记',
+  DEFAULT: '默认批次',
+}
+
+export const STOCKTAKE_STATUS_LABELS: Record<string, string> = {
+  DRAFT: '草稿',
+  PENDING_APPROVAL: '待审批',
+  APPROVED: '已通过',
+  REJECTED: '已驳回',
+}
+
+export function batchTone(status: string | null | undefined): string {
+  const s = status ?? ''
+  if (s === 'EXPIRING' || s === 'PENDING_CLEARANCE') return 'warn'
+  if (s === 'IN_STOCK') return 'ok'
+  if (s === 'SOLD_OUT' || s === 'CLEARED' || s === 'CLOSED') return 'muted'
+  return 'info'
+}
+
+export function stocktakeTone(status: string | null | undefined): string {
+  const s = status ?? ''
+  if (s === 'DRAFT' || s === 'PENDING_APPROVAL') return 'warn'
+  if (s === 'APPROVED') return 'ok'
+  if (s === 'REJECTED') return 'err'
+  return 'info'
+}
+
+/** yyyy-MM-dd（LocalDate JSON 直出格式） */
+export const fmtDate = (s?: string | null): string => (s ? String(s).slice(0, 10) : '—')
+
+/** 剩余天数文案（null=无到效期） */
+export function expiryText(remainingDays: number | null | undefined, thresholdDays: number): string {
+  if (remainingDays == null) return '无到效期'
+  if (remainingDays < 0) return `已过期 ${Math.abs(remainingDays)} 天`
+  if (remainingDays === 0) return '今日到期'
+  if (remainingDays <= thresholdDays) return `${remainingDays} 天后临期`
+  return `${remainingDays} 天后到期`
+}

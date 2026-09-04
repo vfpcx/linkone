@@ -89,6 +89,34 @@
       }
     },
     {
+      "path": "pages/wk/inventory/index",
+      "style": {
+        "navigationBarTitleText": "库存查询",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wk/batches/index",
+      "style": {
+        "navigationBarTitleText": "批次登记簿",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wk/expiry/index",
+      "style": {
+        "navigationBarTitleText": "临期预警",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wk/stocktake/index",
+      "style": {
+        "navigationBarTitleText": "库存盘点",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/wa/inquiries/index",
       "style": {
         "navigationBarTitleText": "询价单",

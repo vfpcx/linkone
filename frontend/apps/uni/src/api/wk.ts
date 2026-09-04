@@ -12,6 +12,14 @@
  */
 import { request } from '../utils/request'
 import type {
+  Batch,
+  BatchBackfillRequest,
+  BatchList,
+  BatchLocationLog,
+  BatchLocationUpdateRequest,
+  CountSheet,
+  CountSheetCreateRequest,
+  CountSheetUpdateRequest,
   InboundForwardRegisterRequest,
   InboundRejectReason,
   InboundRejectRequest,
@@ -22,6 +30,7 @@ import type {
   OutboundRegisterRequest,
   Sku,
   SnowflakeId,
+  StocktakeInTransitHint,
   TenantBatchConfig,
   Wholesaler,
   WkOutboundCreateRequest,
@@ -82,9 +91,86 @@ const inboundApi = {
   },
 }
 
+const batchApi = {
+  /** 批次列表（wholesalerId+skuId 齐时附无批次在池量；status 可选过滤） */
+  list(params?: { wholesalerId?: SnowflakeId; skuId?: SnowflakeId; status?: string }): Promise<BatchList> {
+    return request<BatchList>({
+      url: '/tenant/batches',
+      params: {
+        wholesalerId: params?.wholesalerId ? String(params.wholesalerId) : undefined,
+        skuId: params?.skuId ? String(params.skuId) : undefined,
+        status: params?.status,
+      },
+    })
+  },
+  /** 默认批次补录生产/到效期（仅 source=DEFAULT 且未终态） */
+  backfill(id: SnowflakeId, dto: BatchBackfillRequest): Promise<Batch> {
+    return request<Batch>({ url: `/tenant/batches/${id}`, method: 'PUT', data: dto })
+  },
+  /** 批次移库（location null=清空；同值幂等空转） */
+  updateLocation(id: SnowflakeId, dto: BatchLocationUpdateRequest): Promise<Batch> {
+    return request<Batch>({ url: `/tenant/batches/${id}/location`, method: 'PUT', data: dto ?? {} })
+  },
+  /** 移库变更记录（分页，size ≤50） */
+  locationLogs(id: SnowflakeId, page = 1, size = 20): Promise<MpPage<BatchLocationLog>> {
+    return request<MpPage<BatchLocationLog>>({
+      url: `/tenant/batches/${id}/location-logs`,
+      params: { page, size },
+    })
+  },
+}
+
+const expiryApi = {
+  /** 临期预警（EXPIRING ∪ PENDING_CLEARANCE，剩余天数升序） */
+  list(): Promise<BatchList> {
+    return request<BatchList>({ url: '/tenant/batches/expiring' })
+  },
+  /** WK 一键通知商户（同批次 24h 限 1 → 50367） */
+  notify(id: SnowflakeId): Promise<void> {
+    return request<void>({ url: `/tenant/batches/${id}/notify-wholesaler`, method: 'POST' })
+  },
+}
+
+const stocktakeApi = {
+  /** 盘点单列表（status 可选：DRAFT/PENDING_APPROVAL/APPROVED/REJECTED） */
+  list(status?: string): Promise<CountSheet[]> {
+    return request<CountSheet[]>({ url: '/tenant/count-sheets', params: { status } })
+  },
+  /** 详情（含明细 + 在途提示条；名称已填充） */
+  detail(id: SnowflakeId): Promise<CountSheet> {
+    return request<CountSheet>({ url: `/tenant/count-sheets/${id}` })
+  },
+  /** 在途提示条（盘点页护栏） */
+  inTransitHint(wholesalerId: SnowflakeId): Promise<StocktakeInTransitHint> {
+    return request<StocktakeInTransitHint>({
+      url: '/tenant/count-sheets/in-transit-hint',
+      params: { wholesalerId: String(wholesalerId) },
+    })
+  },
+  /** 建草稿（同商户在途至多一张 → 50356；items 非空 ≤200 行 50355） */
+  create(dto: CountSheetCreateRequest): Promise<CountSheet> {
+    return request<CountSheet>({ url: '/tenant/count-sheets', method: 'POST', data: dto })
+  },
+  /** 编辑草稿 / 驳回重提（DRAFT 直改、REJECTED 回 DRAFT；items 全量替换） */
+  update(id: SnowflakeId, dto: CountSheetUpdateRequest): Promise<CountSheet> {
+    return request<CountSheet>({ url: `/tenant/count-sheets/${id}`, method: 'PUT', data: dto })
+  },
+  /** 删除草稿（仅 DRAFT） */
+  remove(id: SnowflakeId): Promise<void> {
+    return request<void>({ url: `/tenant/count-sheets/${id}`, method: 'DELETE' })
+  },
+  /** 提交（CAS DRAFT→PENDING_APPROVAL，systemQty 快照定格 → 通知 TA） */
+  submit(id: SnowflakeId): Promise<CountSheet> {
+    return request<CountSheet>({ url: `/tenant/count-sheets/${id}/submit`, method: 'POST' })
+  },
+}
+
 export const wkApi = {
   inbound: inboundApi,
   outbound: outboundApi,
+  batch: batchApi,
+  expiry: expiryApi,
+  stocktake: stocktakeApi,
 
   /** 本租户商户列表（选货/名称映射） */
   listWholesalers(): Promise<Wholesaler[]> {
