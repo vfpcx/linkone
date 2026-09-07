@@ -2,6 +2,16 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-07 · F7-1 现场代建入库（F5 扩展兑现 · WK 建单 + 拍照附件 + 商户 72h 确认链，CodeBuddy）
+
+> 前置：F 波收官（v4.2 / 536 绿）后用户「从 1 开始按顺序做」，第 1 项 = **现场代建入库**（F5-W2 顺延扩展）。
+
+- **现状盘点（定后端改动面）**：后端代建链完整（registerByWk 建单直达 PENDING_WA_CONFIRM + 72h deadline + addStock；WA 确认/异议/逾期自动确认 Job/TA 仲裁/冲销撤销 + Vo.attachments 透出），**唯一缺口 = registerByWk 不收拍照附件**（registerForwardByWk 已支持可复刻）；uni WK 无建单入口与拍照上传
+- **后端**：`InboundRegisterDto` +attachments（≤5，N2 白名单同 registerForward）；`registerByWk` 超 5 张 40001 + AttachmentUrls.encode 落列；`TenantBatchConfigVo.photoMode` 透传（TA 拍照开关 NONE/OPTIONAL/REQUIRED）→ WK 建单页按 REQUIRED 必拍（端侧把关，与 registerForward 现状一致，05-business-rules L304）
+- **uni WK**：request.ts +`uploadImage`（POST /api/v1/files multipart）；wk.ts +`inbound.register`；新建 `pages/wk/inbound/create.vue`（商户→货品→到货登记（批次三字段/过期二次确认/货位按开关联动）→现场拍照 ≤5（缩略图/预览/删除）→实收确认→提交）；入库作业页加「现场代建」首段（source=WK_CREATED 集中查看）+ 详情分支（登记件数 / 确认状态：72h 截止·窗口已过待自动确认 / 逾期自动确认 / 商户异议 TA 仲裁中 / 已撤销已冲销）+ 登记照片 previewImage 预览；`warehouse.ts` tone PENDING_WA_CONFIRM → warn
+- **验证**：后端全量回归 **537 全绿**（536 + INB-S1-02：带 2 张照片落列回显、超 5 张 40001 且不增库存）；uni vue-tsc 0 错 + build:h5 / build:mp-weixin 双端 DONE（仅 legacy-sass 警告）
+- **边界与后续**：photoMode REQUIRED 后端不硬拦（与 registerForwardByWk 现状一致，UI 把关）；admin ta/Inbound.vue proxy 表单接附件（电脑端场景）留后续小项；uni WA 端确认/异议队列（US-WA-09 移动化）留后续排期（admin 既有功能自动承接，照片经 Vo 透出）
+
 ## 2026-09-07 · F 波正式多端收官（F2–F6 五业务子波全链闭合 · P5 仅剩 E/P5-B 挂起，CodeBuddy）
 
 > 前置：F6 三笔提交（3fad8a6 backend / e17c587 frontend / 90fc4be docs）后工作区干净，用户「继续下一步」→ 依 roadmap 惯例做 **F 波收官**：全量回归验证 + 路线图/进度收口。F 波定义 = P5-C 余下「正式多端」（uni 承载 WA/WE·WK·ST·RT 全角色全功能，admin 承载 OPS/TA + ST 电脑全功能）。
