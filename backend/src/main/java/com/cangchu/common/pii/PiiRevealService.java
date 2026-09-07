@@ -1,5 +1,6 @@
 package com.cangchu.common.pii;
 
+import com.cangchu.account.service.AccountService;
 import com.cangchu.account.service.AuthService;
 import com.cangchu.common.exception.BizException;
 import com.cangchu.common.exception.ErrorCode;
@@ -18,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -42,8 +44,11 @@ public class PiiRevealService {
     public static final String BIZ_TENANT = "TENANT";
     public static final String BIZ_WA_APPLICATION = "WA_APPLICATION";
     public static final String BIZ_INQUIRY = "INQUIRY";
+    /** F6 RT 登录子波（US-RT-04 / D-RT-01）：RT 本人对「已确认/已完成」意向单查批发商（WA）联系方式 */
+    public static final String BIZ_RT_WHOLESALER = "RT_WHOLESALER";
 
     private final AuthService authService;
+    private final AccountService accountService;
     private final BlacklistMapper blacklistMapper;
     private final TenantMapper tenantMapper;
     private final WholesalerApplicationMapper wholesalerApplicationMapper;
@@ -55,7 +60,7 @@ public class PiiRevealService {
      * 查看完整手机号（权限校验 + 审计）。
      *
      * @param operatorUserId 登录用户（Sa-Token 推导，不取客户端）
-     * @param biz            业务类型（{@code BLACKLIST}/{@code TENANT}/{@code WA_APPLICATION}/{@code INQUIRY}）
+     * @param biz            业务类型（{@code BLACKLIST}/{@code TENANT}/{@code WA_APPLICATION}/{@code INQUIRY}/{@code RT_WHOLESALER}）
      * @param id             目标对象 id
      * @return 完整手机号明文
      */
@@ -69,6 +74,7 @@ public class PiiRevealService {
             case BIZ_TENANT -> phone = revealTenant(operatorUserId, id);
             case BIZ_WA_APPLICATION -> phone = revealWaApplication(operatorUserId, id);
             case BIZ_INQUIRY -> phone = revealInquiry(operatorUserId, id);
+            case BIZ_RT_WHOLESALER -> phone = revealRtWholesalerContact(operatorUserId, id);
             default -> throw new BizException(ErrorCode.PII_REVEAL_TYPE_INVALID);
         }
         // 审计日志：谁在何时看了哪类哪个对象的全号（不落明文，PII 红线）
@@ -162,6 +168,54 @@ public class PiiRevealService {
                 TenantContext.set(saved);
             }
         }
+    }
+
+    /**
+     * F6 RT 登录子波（US-RT-04 / D-RT-01）：RT 本人查看已确认/已完成意向单的批发商联系方式。
+     *
+     * <p>id = inquiry_requests.id（意向单）。四重校验：
+     * <ol>
+     *   <li>操作者须为 RT 角色（无租户维度，hasRole(userId,"RT")）；</li>
+     *   <li>归属：操作者登录手机号 hmac 须等于询价单 rt_phone_hmac（本人询价才可线下成交）；</li>
+     *   <li>业务闸门：仅 CONFIRMED/COMPLETED 展示（确认后展示，PENDING/VOIDED 一律拒绝，不泄漏状态）；</li>
+     *   <li>联系人解析：该批发商绑定的 ACTIVE WA 用户（user_roles 为唯一可信来源，
+     *       SELF_OPERATED 商户 owner 是 TA 操作人，不走 owner_user_id）。
+     *       多 WA 取首个有号者；无绑定/注销 → 50401。</li>
+     * </ol>
+     * 全号经 account 域唯一出口 {@link AccountService#getPhoneByUserId} 取回（不直连 UserMapper）。
+     */
+    private String revealRtWholesalerContact(Long operatorUserId, Long id) {
+        if (!authService.hasRole(operatorUserId, "RT")) {
+            throw forbidden();
+        }
+        InquiryRequest inq = selectInquiryIgnoreTenant(id);
+        if (inq == null) {
+            throw notFound();
+        }
+        // 归属：RT 登录手机号 = 意向单提交手机号（hmac 盲比，不落明文）
+        String operatorPhone = accountService.getPhoneByUserId(operatorUserId);
+        if (operatorPhone == null || !piiCrypto.phoneHmac(operatorPhone).equals(inq.getRtPhoneHmac())) {
+            throw forbidden();
+        }
+        // 业务闸门：确认/完成后方可查看批发商联系方式（US-RT-04 验收）
+        boolean settled = InquiryRequest.STATUS_CONFIRMED.equals(inq.getStatus())
+                || InquiryRequest.STATUS_COMPLETED.equals(inq.getStatus());
+        if (!settled) {
+            throw new BizException(ErrorCode.PII_REVEAL_FORBIDDEN, "询价单确认后才可查看批发商联系方式");
+        }
+        // 联系人 = 该批发商绑定的 ACTIVE WA（user_roles 唯一可信来源）
+        List<Long> waUserIds = authService.listActiveWaUserIdsOfWholesaler(inq.getWholesalerId());
+        String contactPhone = null;
+        for (Long waUserId : waUserIds) {
+            contactPhone = accountService.getPhoneByUserId(waUserId);
+            if (contactPhone != null) {
+                break;
+            }
+        }
+        if (contactPhone == null) {
+            throw new BizException(ErrorCode.PII_REVEAL_TARGET_NOT_FOUND, "该商户暂无可联系的联系人");
+        }
+        return contactPhone;
     }
 
     private static BizException forbidden() {
