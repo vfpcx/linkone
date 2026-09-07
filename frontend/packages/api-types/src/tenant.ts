@@ -492,6 +492,8 @@ export interface InboundRequest {
   waUserId?: SnowflakeId | null
   /** 备注（提交行备注 / 登记差异备注） */
   remark?: string | null
+  /** 登记货位（P5-D C2 V40：登记单列表与详情展示；未填为 null） */
+  location?: string | null
 }
 
 // ============ P3b T1 正向申请链（13-p3b-design.md §5.1，契约=后端 controller 实测） ============

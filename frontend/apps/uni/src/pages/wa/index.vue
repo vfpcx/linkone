@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import type { LoginResponse } from '@cangchu/api-types'
 import { inquiryApi } from '../../api/inquiry'
+import { waInboundApi } from '../../api/waInbound'
 import { accountApi } from '../../api/account'
 import {
   clearAuth,
@@ -21,6 +22,7 @@ import {
 const auth = ref<LoginResponse | null>(null)
 const work = ref<WaWork | null>(null)
 const pendingCount = ref(0)
+const inboundPending = ref(0)
 const statsLoading = ref(false)
 const showSwitch = ref(false)
 const loggingOut = ref(false)
@@ -353,6 +355,10 @@ onPullDownRefresh(async () => {
 
     &--amber {
       background: $cc-warning;
+    }
+
+    &--red {
+      background: $cc-danger;
     }
   }
 
