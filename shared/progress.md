@@ -2,6 +2,17 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-07 · F7-2 盘点批次分支（F5 扩展兑现 · 盘盈按批入库 + 差异托盘建议值，CodeBuddy）
+
+> 前置：按「从 1 开始按顺序做」清单第 2 项 = F5-W2 顺延扩展的**盘点批次分支**。
+
+- **需求来源**：13-p3b-design §5.2 注 7 / 08 §2.2 D24 / 99-open-questions（2026-05 用户选 A：盘盈按批入库）+ F5-W2 progress「差异托盘建议值录入」
+- **现状盘点（定改动面）**：后端盘点链 P3b 已支持 palletDelta 录入/默认比例建议，但盘盈 GAIN 一律并入 SKU 池（无批次期口径）；推算 recalcTenant 的 pool 过滤 `batch_id IS NULL`、direct 不含 GAIN → 带批 GAIN 天然不进 pool、批次行 initial_qty=diff 即可被 FIFO 吃进，**推算逻辑零改动**
+- **后端**：V41 追加 count_sheet_items 盘盈批次三列（存量行 NULL=池入旧行为）；Dto/Vo/实体三字段；applyGainBatchFields（仅盘盈行可带：批次号→效期必填（D24 保质期）、生产可空，效期 40205/40206）；assertGainBatchSwitchOn 双重护栏（submitByWk 前置 + applyApproved 兜底，50355——草稿→提交/审批间开关翻转防御）；BatchService.registerGainBatch（source=STOCKTAKE 批次行 + GAIN 流水回填 batch_id，撞 uk 50362 整体回滚含 CAS）
+- **uni WK**：盘点编辑器行内托盘差异输入（盘盈 +M 占用 / 盘亏释放可覆盖，留空=默认建议）；盘盈按批折叠区（批次号/生产/效期，批次开关开启时出现）；buildItems 带 palletDelta/gain 三字段并前置校验；loadBatchConfig 联动开关回显；详情回显盘盈批次与生效托盘（±）；批次来源标签 +STOCKTAKE「盘盈入库」
+- **验证**：后端全量 **543 绿**（537 + GB-01~06：按批落账/流水回填/临期 EXPIRING/出库 FIFO 吃进至 SOLD_OUT、未开批提交即拒 50355、撞号 50362 回滚、盘亏行与字段规则 50355、40205/40206）；uni vue-tsc 0 错 + build:h5 / build:mp-weixin 双端 DONE
+- **边界与后续**：盘亏指定扣减批次（D24 原意 B 面）在池化 FIFO 语义下不可行（出库本不落批次），随完整批次记账方案（方案 A 下钻）整体后续；admin 审批弹窗明细透出新字段未专门排版（后端 VO 已返回）；测试类 V41 首跑失败系 H2 不支持单 ALTER 多 ADD，已拆三条独立 ALTER（沿 V40 先例）并全量复跑通过
+
 ## 2026-09-07 · F7-1 现场代建入库（F5 扩展兑现 · WK 建单 + 拍照附件 + 商户 72h 确认链，CodeBuddy）
 
 > 前置：F 波收官（v4.2 / 536 绿）后用户「从 1 开始按顺序做」，第 1 项 = **现场代建入库**（F5-W2 顺延扩展）。
