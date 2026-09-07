@@ -1,10 +1,10 @@
 # storefront 相关接口契约（撮合配置 + RT 进店浏览 · 权威 · 以实现为准）
 
 > 项目：仓储云
-> 版本：v1 · 2026-09-01
+> 版本：v1.3 · 2026-09-04
 > 编写：架构师 Agent
 > 依赖：04-api-spec.md（通用约定）/ 05-error-codes.md（错误码）/ 18-p5-design.md（设计口径 §2.2/§4.3/§4.4/§5/§6）
-> 状态：**已对齐当前后端实现**（P5-A W4 合入，commit b2cb572 + F2 §3.4；单一事实源 / Single Source of Truth）
+> 状态：**已对齐当前后端实现**（P5-A W4 合入，commit b2cb572 + F2 §3.4 + F6 §3.5；单一事实源 / Single Source of Truth）
 > 归属说明：撮合配置接口（`/api/v1/tenant/storefront/featured`）物理归属 **tenant 域**（`StorefrontFeatureController`，`storefront_featured` 表唯一归属 tenant 域）；storefront 域**只读消费**（G-S2 Service 出口，禁跨域 mapper 直连）。本文档一并固化「配置端（TA 鉴权）」与「浏览端（RT 公开只读）」两侧契约。
 
 ---
@@ -249,13 +249,37 @@ Query 参数：
 | `storeName` | 店铺名（由 storeId/code 解析的展示上下文） |
 | `inquiries[].inquiryId/docNo` | 询价单 id / 单号 |
 | `inquiries[].status` | `PENDING`=已提交 / `CONFIRMED`=批发商已确认 / `COMPLETED`=已完成 / `VOIDED`=已作废 |
-| `inquiries[].wholesalerId/wholesalerName` | 意向商户（**仅名称，不返回商户联系方式**——PII：RT 无登录态不可见另一人手机号，联系方式展示留待 RT 登录子波，见 99-open-questions D-RT-01） |
+| `inquiries[].wholesalerId/wholesalerName` | 意向商户（名称/ID；**联系方式不入意向单出参**——RT 登录后经 §3.5 查全号，PII 审计集中落库，D-RT-01 已落地） |
 | `inquiries[].items[]` | 明细行：`skuId`/`name`/`spec`/`qty` + 提交时价格快照 `unitPriceSnapshot`/`moqPriceSnapshot`/`moqQtySnapshot` + `dealPrice`（成交价，PENDING 时 = 提交时公开单价快照；WA 确认可改写） |
 | `confirmedAt`/`voidedAt` | 状态时间戳；未发生为 null |
 
 语义与过滤：本店（store→tenant 显式过滤，RT 无 TenantContext → TenantLine 不注入）+ 该 hmac 的全部询价单，`createdAt` 倒序；无记录返回 `inquiries: []`，HTTP 200（纯只读，不产生单据）。
 
 **零新错误码**：`rtPhone` 为空 → 通用参数校验 40001；店铺不存在/不可进 → 沿用 `/rt/store` 既有错误码。
+
+---
+
+### 3.5 RT 查看批发商联系方式（F6 RT 登录子波 · US-RT-04 验收 · D-RT-01 落地）
+
+> GET `/api/v1/pii/phone-reveal?biz=RT_WHOLESALER&id={意向单 id}`——**需 RT 登录态**（Authorization 裸 token）。
+> 实现归属 **common 域** `PiiRevealService.revealRtWholesalerContact`（PII 横切模块，全号审计统一落库）；全号经 account 域唯一出口 `AccountService.getPhoneByUserId` 取回（禁跨域直连 UserMapper）。
+
+| 校验层 | 规则 | 不通过 |
+|---|---|---|
+| 角色 | 操作者须具 RT 角色（无租户维度） | 50402 `PII_REVEAL_FORBIDDEN` |
+| 归属 | 登录手机号 hmac 须等于询价单 `rt_phone_hmac`（本人询价） | 50402（不泄漏存在性） |
+| 业务闸门 | 仅 `CONFIRMED`/`COMPLETED`（确认后展示，线下成交） | 50402（文案：询价单确认后才可查看批发商联系方式） |
+| 联系人解析 | 该批发商绑定的 **ACTIVE WA 用户**（user_roles 为唯一可信来源；SELF_OPERATED 商户 owner 是 TA 操作人，不走 `owner_user_id`；多 WA 取首个有号者） | 50401 `PII_REVEAL_TARGET_NOT_FOUND`（无绑定/注销） |
+
+出参（R 信封 `data` 仅含全号，调用端不得持久化）：
+
+```json
+{
+  "phone": "13900001111"
+}
+```
+
+语义：`id` = `inquiry_requests.id`（意向单）；非本人/未确认一律不给号；对象不存在 → 50401。未登录 → 41001（HTTP 401）。**零新错误码**（50401/50402 复用既有）。
 
 ---
 
@@ -282,3 +306,4 @@ Query 参数：
 | v1 | 2026-09-01 | 首版：固化 P5-A W4 契约——撮合配置 GET/PUT（TA 鉴权、覆盖保存、50711-50714 写前校验、顺序语义）+ RT 进店浏览出参扩展（featuredSkuIds/pinnedWholesalerIds/featured/pinned 与前置排序）。 |
 | v1.1 | 2026-09-02 | 增 §3.3 RT「我的价目」（C1）：POST `/rt/my-pricelist` 只读查询 + RtPriceListVo 出参 + 零新错误码；提交沿用 `/rt/inquiry`。 |
 | v1.2 | 2026-09-03 | 增 §3.4 RT「我的意向单」（F2 · US-RT-04）：POST `/rt/my-inquiries` 只读查询（document 域 RtInquiryController）+ RtInquiryListVo 出参 + 零新错误码；商户联系方式展示因 PII 留 RT 登录子波（D-RT-01）。 |
+| v1.3 | 2026-09-04 | 增 §3.5 RT 查看批发商联系方式（F6 RT 登录子波 · D-RT-01 落地）：GET `/pii/phone-reveal?biz=RT_WHOLESALER&id={意向单}` 四重闸门（RT 角色 + hmac 归属 + CONFIRMED/COMPLETED + ACTIVE WA 反查）零新错误码；§3.4 意向单仍只回尾号（联系方式不入列表出参）。 |

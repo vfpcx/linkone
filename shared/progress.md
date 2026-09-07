@@ -2,6 +2,22 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-04 · F6 RT 买家登录子波（F 波第五业务子波 · US-RT-04 验收补全 · D-RT-01 落地，CodeBuddy）
+
+> 前置：F2 意向单契约标注 D-RT-01（「已确认后展示批发商联系方式」RT 无登录态 → PII 无安全出口），本子波落地载体 = **RT 免密登录**（D-49 通用账号能力 P0 / D-50 手机号+验证码免密，复用通用 sms-code + `POST /account/login/rt` 首登自动建号）+ **reveal 四重闸门**。用户「按顺序往后做」F5-W2 → F6。
+
+- **后端（PII 横切扩展，零新错误码）**：`PiiRevealService.revealRtWholesalerContact` + `PiiBiz.RT_WHOLESALER`（`GET /pii/phone-reveal?biz=RT_WHOLESALER&id={意向单 id}`，`id`=inquiry_requests.id）——四重闸门 = ①RT 角色（登录态无仓维度）；②登录手机号 hmac 须等于询价提交 `rt_phone_hmac`（本人询价，非本人一律 50402 不泄漏存在性）；③仅 `CONFIRMED`/`COMPLETED`（PENDING/VOIDED → 50402「询价单确认后才可查看批发商联系方式」）；④联系人解析 = 该批发商绑定的 **ACTIVE WA 用户**（`user_roles` 唯一可信来源，SELF_OPERATED 商户不走 `owner_user_id`；多 WA 取首个有号者；无绑定/注销 → 50401）；全号经 account 域既有唯一出口 **`AccountService.getPhoneByUserId`** 取回（禁跨域直连 UserMapper）；RT 角色校验在 service 内完成（`authService.hasRole`，RT 登录态无仓维度），`PiiRevealController` 维持通用透传不改，WA/WE/ST/WK 既有四 biz 不受影响
+- **后端验证**：`RtWholesalerContactRevealScenarioTest` **5/5 绿**（REV-07 CONFIRMED 放行全号正确 / 08 非本人拒绝 / 09 PENDING+VOIDED 拒绝 / 10 无绑定 WA 50401 / 11 多 WA 取首个有号者）+ 相邻回归 PiiReveal 6 + RtMyInquiries 7 + Account 18 = **31 例全绿**；短信验证码 scene 对照（`login/rt` + sms scene=RT_LOGIN 实测）
+- **uni 前端（RT 登录态闭环，vue-tsc 0 错）**：
+  - 会话/请求：`utils/session` 增 `hasRtScope`（roles 含无租户 RT 即买家登录态）；`utils/request` 41001 登出级分流——**RT 登录态回买家首页**（reLaunch `/pages/index/index`），其余仍回 WA 登录页（F3 语义不动）
+  - `api/account.ts` 增 sendRtSmsCode / rtLogin（login/rt） / logout 三组；api-types 复用既有 `RtSmsLoginRequest`/`LoginResponse` **零新增**
+  - `pages/rt/login` 买家登录页：品牌 hero + 免密验证码表单（11 位手机号校验 / 获取验证码 60s 倒计时 + 发送防抖 + 6 位码最短 4 位提交）/ 登录成功写 auth + savePhone（本地身份手机号 = 登录号）/ 已登录态卡（✓ 标识 + 掩码手机号 + 查看意向单 + 退出带二次确认）；入口页 `pages.json` 注册 rt-login，不占 TabBar
+  - `pages/index` RT 买家首页登录态卡：`已登录买家账号`（输入框与保存按钮锁定「已锁定」，会话绿底卡：账号掩码 + 意向单确认后可联系批发商）+ 未登录引导「去登录」+ 退出买家账号（保留本地身份手机号仅清会话）
+  - `pages/rt/inquiries` 意向单登录态：顶部登录 banner（绿底 tag「买家已登录」+ 手机号掩码）+ 登录后查询手机号**恒锁定为登录号**（onShow 强制重取 + 自动按登录号重查，防查询号≠账号号导致 reveal 403）+ CONFIRMED/COMPLETED 单新增「查看批发商电话」操作区（未登录点击 → 引导去登录；已登录 → reveal 弹层：全号大字 + 复制 / 拨打（H5 `tel:` · 微信 `makePhoneCall`，条件编译）+「仅供线下成交，勿转发」提示）
+- **验证**：vue-tsc 0 错；read_lints 0；build:h5 + build:mp-weixin 双端 DONE（仅 legacy-sass 警告）
+- **边界与说明**：意向单列表仍只回尾号（联系方式不入列表出参，全号走 §3.5 审计链路，调用端不持久化）；admin 内 RT 最小 H5 过渡态**保留并改「仅测试兼容」**——Playwright 4+ 测试 spec 依赖 `/rt/store` 作回归目标（E2E 全套 129 例含 RT 链路，即时删除将破坏无法当场回归的基线；uni 已成唯一用户入口），**物理删除转 Backlog**（待 E2E 基线迁 uni 后收）；短信场景（sendRtSmsCode 冷却/频率限制）沿用 P0 sms-code 通用实现
+- 文档：`api-contract-storefront` §3.5 + v1.3（D-RT-01 落地，§3.4 出参标注同步修正）；`00-roadmap` v4.1（F 行 F6 ✅ + 变更记录）
+
 ## 2026-09-04 · F5-W2 WK 库管移动端·库存/批次/临期/盘点核对（F 波第四业务子波收官：库存查询/批次登记簿/临期预警/库存盘点，CodeBuddy）
 
 > W1 提交后按 roadmap 排期续做 W2。锚点：US-WK-03 盘点、US-WK-04 临期预警、US-WK-05 货位/移库 + 13 §3（批次）/§5.2（盘点 PD）；**零后端改动**（P3/P3b 既有 BatchController/TenantStocktakeController/InventoryController 全量 WK 可用）。
