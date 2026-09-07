@@ -75,6 +75,7 @@ export const BATCH_STATUS_LABELS: Record<string, string> = {
 export const BATCH_SOURCE_LABELS: Record<string, string> = {
   INBOUND: '入库登记',
   DEFAULT: '默认批次',
+  STOCKTAKE: '盘盈入库',
 }
 
 export const STOCKTAKE_STATUS_LABELS: Record<string, string> = {

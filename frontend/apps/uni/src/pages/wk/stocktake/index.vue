@@ -1,16 +1,20 @@
 <script setup lang="ts">
-// WK 库存盘点（F5-W2 · US-WK-03）：盘点单全链（13 §5.2 / api-types CountSheet）。
+// WK 库存盘点（F5-W2 · US-WK-03 + P5 顺延 V41）：盘点单全链（13 §5.2 / api-types CountSheet）。
 // 建草稿 → 保存(create/update) → 提交(submit 定格 systemQty → TA 审批 → GAIN/LOSS 封顶生效)。
-// 移动端范围：按 SKU 总数盘（批次分支盘盈批次归属等随 P5/方案 A 顺延，仅差异行录托盘覆盖值可选）。
+// 差异托盘（V41）：盘盈 +M 托盘占用 / 盘亏释放覆盖可录（留空=盘亏按比例建议、盘盈 0），审批回写带符号值。
+// 盘盈按批（V41，13 §5.2 注 7 / 08 §2.2 D24）：批次开关开启时盘盈行可选登记批次三字段，
+// 审批通过以该批建登记簿（source=STOCKTAKE，GAIN 流水回填）并入 FIFO；未录批次 = 并入 SKU 池（无批次期口径）。
 import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import type {
   CountSheet,
   CountSheetItem,
+  CountSheetItemInput,
   InventoryItem,
   Sku,
   SnowflakeId,
   StocktakeInTransitHint,
+  TenantBatchConfig,
   Wholesaler,
 } from '@cangchu/api-types'
 import { wkApi } from '../../../api/wk'
@@ -30,6 +34,16 @@ interface EdRow {
   system: number
   actual: string
   remark: string
+  /** 差异托盘覆盖值输入（空=默认建议/盘盈 0；审批回写见详情行） */
+  palletDelta: string
+  /** 盘盈按批折叠区展开 */
+  gainOpen: boolean
+  /** 盘盈按批：批次号（给了 → 效期必填） */
+  gainBatchNo: string
+  /** 盘盈按批：生产日期（可空） */
+  gainProd: string
+  /** 盘盈按批：到效期 */
+  gainExpiry: string
 }
 
 const loading = ref(false)
@@ -49,6 +63,8 @@ const editWhName = ref('')
 const hint = ref<StocktakeInTransitHint | null>(null)
 const edRows = ref<EdRow[]>([])
 const submitting = ref(false)
+/** 批次功能开关（TA 设置；开=盘盈行可展开按批登记） */
+const batchEnabled = ref(false)
 
 const shown = computed(() => {
   if (!seg.value) return allSheets.value
@@ -91,6 +107,65 @@ function goLogin(): void {
 
 function labelOf(s: Sku): string {
   return s.spec ? `${s.name}（${s.spec}）` : s.name
+}
+
+function newEdRow(skuId: SnowflakeId, name: string, system: number): EdRow {
+  return {
+    skuId,
+    name,
+    system,
+    actual: String(system),
+    remark: '',
+    palletDelta: '',
+    gainOpen: false,
+    gainBatchNo: '',
+    gainProd: '',
+    gainExpiry: '',
+  }
+}
+
+async function loadBatchConfig(): Promise<TenantBatchConfig | null> {
+  const work = readWork()
+  if (!work) return null
+  try {
+    return await wkApi.batchConfig(work.tenantId)
+  } catch {
+    return null
+  }
+}
+
+/** 托盘输入占位（V41：盘盈 +M / 盘亏释放覆盖；留空=盘亏默认比例建议、盘盈 0） */
+function palletPh(r: EdRow): string {
+  const d = diffOf(r)
+  if (d > 0) return '托盘占用 +M'
+  if (d < 0) return '释放可覆盖（空=自动建议）'
+  return ''
+}
+
+/** 盘盈按批折叠区显隐（批次开关开启 + 当前行盘盈） */
+function gainArea(r: EdRow): boolean {
+  return batchEnabled.value && diffOf(r) > 0
+}
+
+function onGainProd(r: EdRow, e: { detail: { value: string } }): void {
+  r.gainProd = e.detail.value
+  if (r.gainExpiry && r.gainProd && r.gainExpiry <= r.gainProd) r.gainExpiry = ''
+}
+
+function onGainExpiry(r: EdRow, e: { detail: { value: string } }): void {
+  const v = e.detail.value
+  if (r.gainProd && v <= r.gainProd) {
+    uni.showToast({ title: '效期需晚于生产日期', icon: 'none' })
+    return
+  }
+  r.gainExpiry = v
+}
+
+function resetGain(r: EdRow): void {
+  r.gainOpen = false
+  r.gainBatchNo = ''
+  r.gainProd = ''
+  r.gainExpiry = ''
 }
 
 async function loadAll(): Promise<void> {
@@ -140,17 +215,24 @@ async function openEditor(s?: CountSheet): Promise<void> {
 async function loadEditorExisting(id: SnowflakeId): Promise<void> {
   loading.value = true
   try {
-    const d = await wkApi.stocktake.detail(id)
+    const [d, cfg] = await Promise.all([wkApi.stocktake.detail(id), loadBatchConfig()])
+    batchEnabled.value = cfg?.batchEnabled === 1
     view.value = d
     editWhName.value = d.wholesalerName ?? editWhName.value
     const items = d.items ?? []
-    edRows.value = items.map((it: CountSheetItem) => ({
-      skuId: it.skuId,
-      name: it.skuName ?? 'SKU ' + it.skuId,
-      system: it.systemQty,
-      actual: String(it.actualQty),
-      remark: it.remark ?? '',
-    }))
+    edRows.value = items.map((it: CountSheetItem) => {
+      const row = newEdRow(it.skuId, it.skuName ?? 'SKU ' + it.skuId, it.systemQty)
+      row.actual = String(it.actualQty)
+      row.remark = it.remark ?? ''
+      row.palletDelta = it.palletDelta != null ? String(it.palletDelta) : ''
+      if (it.gainBatchNo) {
+        row.gainOpen = true
+        row.gainBatchNo = it.gainBatchNo
+        row.gainProd = it.gainProductionDate ?? ''
+        row.gainExpiry = it.gainExpiryDate ?? ''
+      }
+      return row
+    })
     hint.value = d.inTransitHint
   } catch {
     /* request 已 toast */
@@ -166,22 +248,18 @@ async function pickWh(w: Wholesaler): Promise<void> {
   hint.value = null
   loading.value = true
   try {
-    const [h, inv, skus] = await Promise.all([
+    const [h, inv, skus, cfg] = await Promise.all([
       wkApi.stocktake.inTransitHint(w.id),
       wkApi.listInventories(w.id),
       wkApi.listSkuByWholesaler(w.id),
+      loadBatchConfig(),
     ])
+    batchEnabled.value = cfg?.batchEnabled === 1
     hint.value = h
     const skuMap = new Map(skus.map((s) => [String(s.id), s]))
     edRows.value = inv.map((it: InventoryItem) => {
       const sku = skuMap.get(String(it.skuId))
-      return {
-        skuId: it.skuId,
-        name: sku ? labelOf(sku) : 'SKU ' + it.skuId,
-        system: it.qty,
-        actual: String(it.qty),
-        remark: '',
-      }
+      return newEdRow(it.skuId, sku ? labelOf(sku) : 'SKU ' + it.skuId, it.qty)
     })
   } catch {
     /* request 已 toast */
@@ -205,16 +283,36 @@ function backfillEmptyActual(): void {
   })
 }
 
-function buildItems(): Array<{ skuId: SnowflakeId; actualQty: number; remark?: string }> {
+function buildItems(): CountSheetItemInput[] {
   backfillEmptyActual()
-  const items: Array<{ skuId: SnowflakeId; actualQty: number; remark?: string }> = []
+  const items: CountSheetItemInput[] = []
   for (const r of edRows.value) {
     const n = Number(r.actual)
     if (!Number.isFinite(n) || n < 0) {
       throw new Error(`「${r.name}」实盘件数不正确`)
     }
-    const item: { skuId: SnowflakeId; actualQty: number; remark?: string } = { skuId: r.skuId, actualQty: n }
+    const diff = n - r.system
+    const item: CountSheetItemInput = { skuId: r.skuId, actualQty: n }
     if (r.remark.trim()) item.remark = r.remark.trim()
+    if (r.palletDelta.trim() !== '') {
+      const p = Number(r.palletDelta)
+      if (!Number.isFinite(p) || p < 0) {
+        throw new Error(`「${r.name}」托盘值须 ≥ 0`)
+      }
+      item.palletDelta = Math.floor(p)
+    }
+    const bn = r.gainBatchNo.trim()
+    if (bn) {
+      if (diff <= 0) {
+        throw new Error(`「${r.name}」仅盘盈行可登记盘盈批次`)
+      }
+      if (!r.gainExpiry) {
+        throw new Error(`「${r.name}」盘盈按批须填写到效期`)
+      }
+      item.gainBatchNo = bn
+      item.gainProductionDate = r.gainProd || undefined
+      item.gainExpiryDate = r.gainExpiry
+    }
     items.push(item)
   }
   if (!items.length) throw new Error('至少需要一行盘点明细')
@@ -227,7 +325,7 @@ async function save(andSubmit: boolean): Promise<void> {
     uni.showToast({ title: '请先选择被盘商户', icon: 'none' })
     return
   }
-  let items: Array<{ skuId: SnowflakeId; actualQty: number; remark?: string }>
+  let items: CountSheetItemInput[]
   try {
     items = buildItems()
   } catch (err) {
@@ -441,6 +539,7 @@ onPullDownRefresh(async () => {
       <template v-if="editWh">
         <view class="sec">
           <view class="sec__label">2 · 账面与在途核对（盘全部 SKU 总数）</view>
+          <view class="sec__tip">差异行可录托盘差异（盘盈 +M 占用 / 盘亏释放可覆盖，留空=按比例自动建议）；批次功能开启仓，盘盈行可展开「按批入库」登记批次。</view>
           <view v-if="hint && (hint.outboundQtyTotal > 0 || hint.returnQtyTotal > 0)" class="hintbar">
             <text class="hintbar__t">盘点护栏：当前 {{ hint.outboundDocCount }} 张已确认未出库单合计 {{ hint.outboundQtyTotal }} 件、{{ hint.returnDocCount }} 张在途退货合计 {{ hint.returnQtyTotal }} 件（账面含、实物或未在仓）——实盘数允许小于账面，属正常现象。</text>
           </view>
@@ -473,6 +572,43 @@ onPullDownRefresh(async () => {
                   <text v-else>—</text>
                 </view>
               </view>
+
+              <!-- 差异托盘覆盖值（V41：留空=盘亏默认比例建议、盘盈 0；审批回写带符号） -->
+              <view v-if="Number.isFinite(diffOf(r)) && diffOf(r) !== 0" class="row__sub">
+                <text class="row__sub-label">托盘{{ diffOf(r) > 0 ? '占用' : '释放' }}</text>
+                <input v-model="r.palletDelta" class="row__sub-input" type="number" :placeholder="palletPh(r)" placeholder-class="ph" />
+              </view>
+
+              <!-- 盘盈按批折叠（V41 · 13 §5.2 注 7 / 08 §2.2 D24：批次开关开启且当前行盘盈时出现） -->
+              <view v-if="gainArea(r)" class="gain">
+                <view v-if="!r.gainOpen" class="gain__hint" @click="r.gainOpen = true">
+                  <text class="gain__hint-t">批次已开启 · 盘盈 {{ diffOf(r) }} 件可按批入库（可选，未登记=并入 SKU 池）</text>
+                  <text class="gain__hint-a">登记 ›</text>
+                </view>
+                <view v-else class="gain__panel">
+                  <view class="gain__row">
+                    <text class="gain__label">批次号</text>
+                    <input v-model="r.gainBatchNo" class="gain__input" type="text" placeholder="新批次号（必填）" placeholder-class="ph" maxlength="32" />
+                  </view>
+                  <view class="gain__row">
+                    <text class="gain__label">生产日期</text>
+                    <picker mode="date" :value="r.gainProd" @change="onGainProd(r, $event)">
+                      <view class="gain__picker" :class="{ ph: !r.gainProd }">{{ r.gainProd || '可空' }}</view>
+                    </picker>
+                  </view>
+                  <view class="gain__row">
+                    <text class="gain__label">效期至</text>
+                    <picker mode="date" :value="r.gainExpiry" @change="onGainExpiry(r, $event)">
+                      <view class="gain__picker" :class="{ ph: !r.gainExpiry }">{{ r.gainExpiry || '必填' }}</view>
+                    </picker>
+                  </view>
+                  <view class="gain__foot">
+                    <text class="gain__tip">审批通过后入该批次并计入批次可售库存</text>
+                    <text class="gain__cancel" @click="resetGain(r)">收起清除</text>
+                  </view>
+                </view>
+              </view>
+
               <input v-model="r.remark" class="row__remark" type="text" placeholder="差异理由（可空）" placeholder-class="ph" maxlength="100" />
             </view>
           </view>
@@ -507,6 +643,8 @@ onPullDownRefresh(async () => {
           <view v-for="it in view.items ?? []" :key="String(it.id)" class="items__row">
             <view class="col col--name">
               <text class="items__sku">{{ it.skuName ?? 'SKU ' + it.skuId }}</text>
+              <text v-if="it.gainBatchNo" class="items__rmk items__rmk--gain">盘盈按批 {{ it.gainBatchNo }}<template v-if="it.gainExpiryDate"> · 效期 {{ it.gainExpiryDate }}</template></text>
+              <text v-if="view.status === 'APPROVED' && it.palletDelta != null" class="items__rmk">托盘 {{ (it.palletDelta ?? 0) > 0 ? '+' : '' }}{{ it.palletDelta }}</text>
               <text v-if="it.remark" class="items__rmk">{{ it.remark }}</text>
             </view>
             <text class="col col--num">{{ it.systemQty }}</text>
@@ -714,6 +852,13 @@ onPullDownRefresh(async () => {
     color: $cc-fg-2;
     margin-bottom: 12rpx;
   }
+
+  &__tip {
+    font-size: 21rpx;
+    color: $cc-fg-4;
+    line-height: 1.6;
+    margin-bottom: 12rpx;
+  }
 }
 
 .chips {
@@ -855,6 +1000,124 @@ onPullDownRefresh(async () => {
     font-size: 22rpx;
     color: $cc-fg-2;
   }
+
+  &__sub {
+    display: flex;
+    align-items: center;
+    gap: 10rpx;
+    margin-top: 10rpx;
+  }
+
+  &__sub-label {
+    flex-shrink: 0;
+    font-size: 21rpx;
+    color: $cc-fg-4;
+  }
+
+  &__sub-input {
+    flex: 1;
+    height: 62rpx;
+    padding: 0 14rpx;
+    border-radius: 10rpx;
+    background: $cc-bg-2;
+    font-size: 23rpx;
+    color: $cc-fg-1;
+  }
+}
+
+.gain {
+  margin-top: 12rpx;
+
+  &__hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12rpx;
+    padding: 14rpx 16rpx;
+    border-radius: 10rpx;
+    background: $cc-info-bg;
+  }
+
+  &__hint-t {
+    flex: 1;
+    font-size: 22rpx;
+    color: $cc-accent;
+    line-height: 1.5;
+  }
+
+  &__hint-a {
+    flex-shrink: 0;
+    font-size: 22rpx;
+    font-weight: 700;
+    color: $cc-accent;
+  }
+
+  &__panel {
+    padding: 14rpx 16rpx;
+    border-radius: 10rpx;
+    background: $cc-bg-2;
+    display: flex;
+    flex-direction: column;
+    gap: 12rpx;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12rpx;
+  }
+
+  &__label {
+    flex-shrink: 0;
+    font-size: 23rpx;
+    color: $cc-fg-3;
+  }
+
+  &__input {
+    flex: 1;
+    height: 64rpx;
+    padding: 0 14rpx;
+    text-align: right;
+    border-radius: 10rpx;
+    background: $cc-bg-1;
+    font-size: 25rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+  }
+
+  &__picker {
+    min-width: 300rpx;
+    height: 64rpx;
+    line-height: 64rpx;
+    padding: 0 14rpx;
+    text-align: right;
+    border-radius: 10rpx;
+    background: $cc-bg-1;
+    font-size: 25rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+    box-sizing: border-box;
+  }
+
+  &__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12rpx;
+  }
+
+  &__tip {
+    flex: 1;
+    font-size: 20rpx;
+    color: $cc-fg-4;
+  }
+
+  &__cancel {
+    flex-shrink: 0;
+    font-size: 21rpx;
+    color: $cc-fg-3;
+  }
 }
 
 .mask {
@@ -967,6 +1230,10 @@ onPullDownRefresh(async () => {
     font-size: 20rpx;
     color: $cc-fg-4;
     line-height: 1.5;
+
+    &--gain {
+      color: $cc-accent;
+    }
   }
 }
 

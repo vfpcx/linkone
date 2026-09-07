@@ -316,6 +316,12 @@ export interface CountSheetItem {
   appliedDiff: number | null
   /** 托盘覆盖值/生效值（null=按默认建议值） */
   palletDelta: number | null
+  /** 盘盈按批登记：批次号（V41 盘盈行可带；审批通过后随明细留存） */
+  gainBatchNo: string | null
+  /** 盘盈按批登记：生产日期 yyyy-MM-dd（可选） */
+  gainProductionDate: string | null
+  /** 盘盈按批登记：到效期 yyyy-MM-dd（给批次号则必填） */
+  gainExpiryDate: string | null
   remark: string | null
   /** 当前在库（详情链路只读快照——审批弹窗封顶预览 min(|盘亏|, currentStock)） */
   currentStock: number | null
@@ -368,6 +374,15 @@ export interface CountSheetItemInput {
   actualQty: number
   /** 托盘覆盖值（省略=默认建议值；0 合法=托盘未腾空） */
   palletDelta?: number
+  /**
+   * 盘盈按批登记（V41，仅盘盈行可带）：给了批次号 → gainExpiryDate 必填，
+   * gainProductionDate 可选；三者全空 = 盘盈并入 SKU 池（无批次期旧行为）。
+   */
+  gainBatchNo?: string
+  /** 盘盈按批生产日期 yyyy-MM-dd（可选） */
+  gainProductionDate?: string
+  /** 盘盈按批到效期 yyyy-MM-dd（给批次号则必填） */
+  gainExpiryDate?: string
   /** 差异理由 ≤512 */
   remark?: string
 }
