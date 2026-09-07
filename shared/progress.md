@@ -2,6 +2,19 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-07 · F7-4 WA 我的入库申请移动化（F7-3 边界兑现 · source=WA_SUBMIT 正向申请链，CodeBuddy）
+
+> 前置：按「从 1 开始按顺序做」清单第 4 项（用户选 D：自主按 roadmap 剩余边界推进）——F7-3 progress 边界明示的「我的申请」移动化（WA_SUBMIT 正向链提交/撤回，admin wa/Inbound.vue 我的申请视图 + InboundSubmitDialog 为电脑端口径）。
+
+- **现状盘点（定改动面）**：后端 WholesalerInboundController 已完整提供 list（status/source 过滤）/ submit（D-5 多行拆 N 单共享 batchSubmitId）/ withdraw（仅 SUBMITTED + 理由必填 50350）——admin P3b 同端点跑通 → **后端零改动**；uni WA 只有 F7-3 代建确认链，无提交/我的申请入口 → 前端新增；另核实 F7-3 提交 f8cf7cd 仅落 import/ref/CSS 半成品，工作台「入库确认」cell 实际未达 UI → 本波一并补齐
+- **uni WA（5 处小改 + 2 新页）**：
+  - `api/waInbound.ts`：list 改对象式（+source 过滤，F7-3 页同步改调用）+ submit（POST 返回 List<InboundRequest>）+ withdraw（reason ≤100）
+  - `pages/wa/apply/index` 我的入库申请：横幅口径（提交/受理零库存零计费，登记并确认后才计费）+ 六态横滚 chips（全部/待受理/已受理/已入库/已驳回/已撤回，SUBMITTED 计数）+ 服务端分页 + 卡片（单号/同批 N 单 tag/状态/品名/申请件数，CONFIRMED 实登 + 差异标黄、批次/托盘/备注/驳回原因）+ 详情 sheet（申请与实登双值/批次三字段/提交与登记时间/驳回举证照片/登记照片）+ 操作（SUBMITTED 撤回理由 sheet ≤100 必填；REJECTED 复制重建带参跳新建；ACCEPTED/CONFIRMED/WITHDRAWN 状态说明）+ 底部悬浮「＋ 新建入库申请」+ 下拉刷新/触底加载
+  - `pages/wa/apply/create` 新建入库申请：≤50 行多行拆单（每商品一张同批提交）横幅 + 行卡（商品选择 sheet 本仓 SKU 含下架标识 → 更换；申请件数/预计托盘/行备注 ≤512/批次三字段按商户开关联动显隐必填）+ 过期红/30 天临期黄仅提示（过期二次确认在 WK 登记侧 50364）+ 同批 (skuId,batchNo) 重复 50362 行级预检 + 生产≤今天/效期晚于生产 date-picker 护栏 + 删行/加行（N/50）+ 提交前拆 N 张二次确认 + 复制重建预填（onLoad rebuild 参数回填 sku/件数/托盘/备注/批次三字段）
+  - `pages.json` 注册 2 页；工作台 wa/index.vue：真实落地「入库确认」（红/待确认角标 PENDING 总数）+「我的申请」（teal/待受理角标 SUBMITTED 总数）双 cell，refreshStats 三路并行（顺带修复 F7-3 半成品缺口）
+- **验证**：uni vue-tsc 0 错 + read_lints 0 + build:h5 / build:mp-weixin 双端 DONE（后端无改动，不需跑测试）
+- **边界与后续**：提交端批次号自填无批次货位/历史预检（保持 admin 现状）；提交后不预览打印（打印仍 admin/待正式打印页）；WE 成员提交/撤回由后端授权兜底（移动端不额外鉴权）；US-WA-01b 容量告警与 E/P5-B 继续挂起
+
 ## 2026-09-07 · F7-3 WA 入库确认移动化（F7-1 商户侧闭环 · uni WA 端 72h 确认/异议队列，CodeBuddy）
 
 > 前置：按「从 1 开始按顺序做」清单第 3 项 = F7-1（现场代建入库）的商户侧移动化——US-WA-09。
