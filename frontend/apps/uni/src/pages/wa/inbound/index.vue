@@ -98,11 +98,11 @@ async function load(reset: boolean): Promise<void> {
   }
   loading.value = true
   try {
-    const data = await waInboundApi.list(
-      tab.value === 'pending' ? 'PENDING_WA_CONFIRM' : undefined,
-      page.value,
-      20,
-    )
+    const data = await waInboundApi.list({
+      status: tab.value === 'pending' ? 'PENDING_WA_CONFIRM' : undefined,
+      page: page.value,
+      size: 20,
+    })
     const rec = data.records ?? []
     rows.value = page.value === 1 ? rec : [...rows.value, ...rec]
     finished.value = rec.length < 20 || rows.value.length >= Number(data.total || 0)

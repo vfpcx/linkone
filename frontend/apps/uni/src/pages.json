@@ -161,6 +161,19 @@
         "navigationBarTitleText": "入库确认",
         "enablePullDownRefresh": true
       }
+    },
+    {
+      "path": "pages/wa/apply/index",
+      "style": {
+        "navigationBarTitleText": "我的入库申请",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wa/apply/create",
+      "style": {
+        "navigationBarTitleText": "新建入库申请"
+      }
     }
   ],
   "globalStyle": {

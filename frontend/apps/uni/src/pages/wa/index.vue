@@ -23,6 +23,7 @@ const auth = ref<LoginResponse | null>(null)
 const work = ref<WaWork | null>(null)
 const pendingCount = ref(0)
 const inboundPending = ref(0)
+const myApplyPending = ref(0)
 const statsLoading = ref(false)
 const showSwitch = ref(false)
 const loggingOut = ref(false)
@@ -46,9 +47,26 @@ function goLogin(): void {
 async function refreshStats(): Promise<void> {
   if (!work.value) return
   statsLoading.value = true
+  const ignore = (): void => undefined
   try {
-    const list = await inquiryApi.list()
-    pendingCount.value = list.filter((i) => i.status === 'PENDING').length
+    const [inquiry, inbound, myApply] = await Promise.all([
+      inquiryApi.list().then((list) => {
+        pendingCount.value = list.filter((i) => i.status === 'PENDING').length
+      }, ignore),
+      waInboundApi
+        .list({ status: 'PENDING_WA_CONFIRM', page: 1, size: 1 })
+        .then((d) => {
+          inboundPending.value = Number(d.total) || 0
+        }, ignore),
+      waInboundApi
+        .list({ source: 'WA_SUBMIT', status: 'SUBMITTED', page: 1, size: 1 })
+        .then((d) => {
+          myApplyPending.value = Number(d.total) || 0
+        }, ignore),
+    ])
+    void inquiry
+    void inbound
+    void myApply
   } catch {
     // request 已 toast；统计失败不阻塞页面
   } finally {
@@ -172,6 +190,20 @@ onPullDownRefresh(async () => {
         <view class="cell__icon cell__icon--amber">货</view>
         <text class="cell__label">我的商品</text>
         <text class="cell__hint">上架 / 下架管理</text>
+        <text class="cell__arrow">›</text>
+      </view>
+      <view class="cell" @click="go('/pages/wa/inbound/index')">
+        <view class="cell__icon cell__icon--red">入</view>
+        <text class="cell__label">入库确认</text>
+        <text v-if="inboundPending > 0" class="cell__badge">{{ inboundPending }} 单待确认</text>
+        <text v-else class="cell__hint">代建入库 72h 内确认</text>
+        <text class="cell__arrow">›</text>
+      </view>
+      <view class="cell" @click="go('/pages/wa/apply/index')">
+        <view class="cell__icon cell__icon--teal">申</view>
+        <text class="cell__label">我的申请</text>
+        <text v-if="myApplyPending > 0" class="cell__badge">{{ myApplyPending }} 单待受理</text>
+        <text v-else class="cell__hint">提交 / 跟踪 / 撤回</text>
         <text class="cell__arrow">›</text>
       </view>
     </view>
@@ -359,6 +391,10 @@ onPullDownRefresh(async () => {
 
     &--red {
       background: $cc-danger;
+    }
+
+    &--teal {
+      background: #0d9488;
     }
   }
 
