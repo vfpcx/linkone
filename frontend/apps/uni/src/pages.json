@@ -82,6 +82,12 @@
       }
     },
     {
+      "path": "pages/wk/inbound/create",
+      "style": {
+        "navigationBarTitleText": "现场代建入库"
+      }
+    },
+    {
       "path": "pages/wk/outbound/index",
       "style": {
         "navigationBarTitleText": "出库作业",

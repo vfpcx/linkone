@@ -95,3 +95,52 @@ export function request<T>(options: RequestOptions): Promise<T> {
     })
   })
 }
+
+/**
+ * 上传图片附件（F7-1 · 复用后端 POST /api/v1/files，multipart 单文件字段 file）→ 返回 /files/... 相对 URL。
+ * 与 admin 的 fileApi 同契：≤5MB、jpg/png/webp（后端魔数权威 50340）；返回 url 供展示/挂单据（N2 白名单）。
+ */
+interface UploadResp {
+  code?: number | string
+  message?: string
+  data?: { url?: string }
+}
+
+export function uploadImage(filePath: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    uni.uploadFile({
+      url: `${API_BASE}/files`,
+      filePath,
+      name: 'file',
+      header: resolveHeader(),
+      timeout: 20000,
+      success: (res) => {
+        let body: UploadResp | null = null
+        if (typeof res.data === 'string' && res.data) {
+          try {
+            body = JSON.parse(res.data) as UploadResp
+          } catch {
+            body = null
+          }
+        } else {
+          body = res.data as UploadResp
+        }
+        const code = String(body?.code ?? '-1')
+        if (code === '0' || code === '200') {
+          const url = body?.data?.url
+          if (url) {
+            resolve(url)
+            return
+          }
+        }
+        const msg = body?.message || `上传失败（${code}）`
+        uni.showToast({ title: msg, icon: 'none' })
+        reject(new ApiError(code, msg))
+      },
+      fail: () => {
+        uni.showToast({ title: '网络异常，请稍后重试', icon: 'none' })
+        reject(new Error('upload failed'))
+      },
+    })
+  })
+}

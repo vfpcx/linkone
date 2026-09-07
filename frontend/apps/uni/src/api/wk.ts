@@ -21,6 +21,7 @@ import type {
   CountSheetCreateRequest,
   CountSheetUpdateRequest,
   InboundForwardRegisterRequest,
+  InboundRegisterRequest,
   InboundRejectReason,
   InboundRejectRequest,
   InboundRequest,
@@ -85,6 +86,10 @@ const inboundApi = {
   },
   registerForward(id: SnowflakeId, dto: InboundForwardRegisterRequest): Promise<InboundRequest> {
     return request<InboundRequest>({ url: `/tenant/inbound/${id}/register`, method: 'POST', data: dto })
+  },
+  /** 现场代建入库登记（F7-1：WK 替商户登记入库直达可售；照片 ≤5 先 POST /api/v1/files 传后挂；商户 72h 确认链） */
+  register(dto: InboundRegisterRequest): Promise<InboundRequest> {
+    return request<InboundRequest>({ url: '/tenant/inbound', method: 'POST', data: dto })
   },
   print(id: SnowflakeId): Promise<InboundRequest> {
     return request<InboundRequest>({ url: `/tenant/inbound/${id}/print`, method: 'POST' })

@@ -117,6 +117,8 @@ export interface TenantBatchConfig {
   expiryThresholdDays: number
   /** 货位功能开关（P5-D C2：1=开启后出入库登记货位必填 + 批次可移库；各端显隐统一读本字段） */
   locationEnabled: number
+  /** 入库拍照开关（P5-F7-1 起透传：NONE 关闭 / OPTIONAL 选填 / REQUIRED 必填；各端拍照区显隐/必拍判定读本字段） */
+  photoMode?: 'NONE' | 'OPTIONAL' | 'REQUIRED'
 }
 
 /** 默认批次补录（PUT /tenant/batches/{id}；仅 source=DEFAULT 且非 CLEARED/CLOSED） */

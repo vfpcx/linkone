@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// WK 入库作业（F5-W1 · 正向申请链执行）：WA 商户已提交的入库申请单受理/驳回/登记。
-// 状态机：SUBMITTED 待受理 → ACCEPTED 待登记 → CONFIRMED 已入库（登记才加库存）。
-// 段：待受理 / 待登记 / 已驳回 / 已完成；差异登记（实登≠申请）备注必填，过期批次二次确认。
-// 现场代建入库（WK 登记建单）与拍照举证留电脑端/W2，见进度文档边界说明。
+// WK 入库作业（F5-W1 · F7-1 扩现场代建）：两链合一页。
+//  - 正向申请链：WA 商户提交的入库申请受理/驳回/登记（SUBMITTED→ACCEPTED→CONFIRMED）。
+//  - 现场代建链：WK 替商户登记入库（现场到货直接入库，拍照按 TA 拍照开关执行）→
+//    PENDING_WA_CONFIRM 72h 商户确认/异议；异议 → TA 仲裁，判定成立冲销撤销 REVOKED。
+// 段：现场代建（集中看代建单） + 待受理 / 待登记 / 已驳回 / 已完成；差异登记备注必填、过期批次二次确认。
 import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import type { InboundRequest, InboundRejectReason, SnowflakeId } from '@cangchu/api-types'
@@ -19,6 +20,7 @@ function rejectLabel(r?: string | null): string {
 }
 
 const SEGMENTS = [
+  { value: 'WK_CREATED', label: '现场代建' },
   { value: 'SUBMITTED', label: '待受理' },
   { value: 'ACCEPTED', label: '待登记' },
   { value: 'REJECTED', label: '已驳回' },
@@ -55,10 +57,15 @@ const regExpiredOk = ref(false)
 
 const visible = computed(() => {
   const s = segment.value
-  return docs.value.filter((d) => d.source === 'WA_SUBMIT' && d.status === s)
+  return docs.value.filter((d) =>
+    s === 'WK_CREATED' ? d.source === 'WK_CREATED' : d.source === 'WA_SUBMIT' && d.status === s,
+  )
 })
 
-const segCount = (s: string) => docs.value.filter((d) => d.source === 'WA_SUBMIT' && d.status === s).length
+const segCount = (s: string) =>
+  docs.value.filter((d) =>
+    s === 'WK_CREATED' ? d.source === 'WK_CREATED' : d.source === 'WA_SUBMIT' && d.status === s,
+  ).length
 
 function merchantOf(wid?: SnowflakeId | null): string {
   return wid ? merchantName.get(String(wid)) ?? '' : ''
@@ -73,6 +80,30 @@ function skuLabel(wid?: SnowflakeId | null, sid?: SnowflakeId | null): string {
 
 function goLogin(): void {
   uni.reLaunch({ url: '/pages/wa/login/index' })
+}
+
+function goCreate(): void {
+  uni.navigateTo({ url: '/pages/wk/inbound/create' })
+}
+
+/** 现场代建链确认状态副文案（PENDING_WA_CONFIRM 72h → CONFIRMED/DISPUTED；DISPUTED → TA 仲裁） */
+function agentStatusText(d: InboundRequest): string {
+  if (d.status === 'PENDING_WA_CONFIRM') {
+    return isDeadlinePast(d) ? '窗口已过，待自动确认' : '待商户确认'
+  }
+  if (d.status === 'CONFIRMED') return d.autoAccepted === 1 ? '逾期自动确认' : '商户已确认'
+  if (d.status === 'DISPUTED') return '商户异议，TA 仲裁中'
+  if (d.status === 'REVOKED') return '已撤销（已冲销）'
+  return inStatusLabel(d.status)
+}
+
+function isDeadlinePast(d: InboundRequest): boolean {
+  if (!d.waConfirmDeadline) return false
+  return new Date(d.waConfirmDeadline).getTime() < Date.now()
+}
+
+function previewPhotos(urls: string[], i: number): void {
+  if (urls.length) uni.previewImage({ urls, current: urls[i] ?? urls[0] })
 }
 
 function guard(): boolean {
@@ -283,6 +314,12 @@ onPullDownRefresh(async () => {
 
 <template>
   <view class="page">
+    <!-- 现场代建入库入口（F7-1） -->
+    <view class="toolbar">
+      <text class="toolbar__tip">商户现场到货可代商户登记入库（提交即增库存），商户 72h 内确认或提异议</text>
+      <button class="btn-primary toolbar__btn" @click="goCreate">＋ 现场代建入库</button>
+    </view>
+
     <!-- 分段 -->
     <view class="tabs">
       <view
@@ -311,50 +348,84 @@ onPullDownRefresh(async () => {
           </view>
           <view class="card__line2">
             <text class="card__merchant">{{ merchantOf(d.wholesalerId) || '商户' }}</text>
-            <text class="card__qty">申请 {{ d.requestedQty ?? d.qty }} 件</text>
+            <text class="card__qty">{{ d.source === 'WK_CREATED' ? `登记 ${d.qty} 件` : `申请 ${d.requestedQty ?? d.qty} 件` }}</text>
           </view>
         </view>
         <view class="card__meta">
           <text class="card__time">{{ fmtDateTime(d.createdAt) }}</text>
-          <text class="card__act">{{ d.status === 'SUBMITTED' ? '去受理' : d.status === 'ACCEPTED' ? '去登记' : '查看' }} ›</text>
+          <text v-if="d.source === 'WK_CREATED'" class="card__act">{{ agentStatusText(d) }} ›</text>
+          <text v-else class="card__act">{{ d.status === 'SUBMITTED' ? '去受理' : d.status === 'ACCEPTED' ? '去登记' : '查看' }} ›</text>
         </view>
       </view>
     </view>
 
     <view v-else-if="!loading" class="empty">
-      <text class="empty__icon">收</text>
-      <text class="empty__t">暂无{{ SEGMENTS.find((s) => s.value === segment)?.label }}申请</text>
-      <text class="empty__s">商户提交的入库申请将在此待办受理与登记</text>
+      <text class="empty__icon">{{ segment === 'WK_CREATED' ? '建' : '收' }}</text>
+      <text class="empty__t">{{ segment === 'WK_CREATED' ? '暂无现场代建单' : `暂无${SEGMENTS.find((s) => s.value === segment)?.label}申请` }}</text>
+      <text class="empty__s">{{ segment === 'WK_CREATED' ? '现场登记的单据将在此展示，点击顶部「＋ 现场代建入库」新建' : '商户提交的入库申请将在此待办受理与登记' }}</text>
     </view>
 
     <!-- 详情/操作弹层 -->
     <view v-if="showSheet && target" class="mask" @click="closeSheet">
       <view class="sheet" @click.stop>
         <template v-if="panel === 'detail'">
-          <view class="sheet__title">入库申请单</view>
+          <view class="sheet__title">{{ target.source === 'WK_CREATED' ? '现场代建入库单' : '入库申请单' }}</view>
           <view class="kv">
             <view class="kv__row"><text class="kv__k">单号</text><text class="kv__v mono">{{ target.docNo }}</text></view>
             <view class="kv__row"><text class="kv__k">商户</text><text class="kv__v">{{ merchantOf(target.wholesalerId) || '—' }}</text></view>
             <view class="kv__row"><text class="kv__k">货品</text><text class="kv__v">{{ skuLabel(target.wholesalerId, target.skuId) || '—' }}</text></view>
-            <view class="kv__row"><text class="kv__k">申请件数</text><text class="kv__v">{{ target.requestedQty ?? target.qty }} 件</text></view>
-            <view class="kv__row"><text class="kv__k">申请托盘</text><text class="kv__v">{{ target.palletQty ?? 0 }} 托</text></view>
+            <view v-if="target.source !== 'WK_CREATED'" class="kv__row"><text class="kv__k">申请件数</text><text class="kv__v">{{ target.requestedQty ?? target.qty }} 件</text></view>
+            <view v-if="target.source !== 'WK_CREATED'" class="kv__row"><text class="kv__k">申请托盘</text><text class="kv__v">{{ target.palletQty ?? 0 }} 托</text></view>
+            <view v-if="target.source === 'WK_CREATED'" class="kv__row"><text class="kv__k">登记件数</text><text class="kv__v">{{ target.qty }} 件</text></view>
+            <view v-if="target.source === 'WK_CREATED'" class="kv__row"><text class="kv__k">登记托盘</text><text class="kv__v">{{ target.palletQty ?? 0 }} 托</text></view>
             <template v-if="batchEnabled">
               <view class="kv__row"><text class="kv__k">批次号</text><text class="kv__v mono">{{ target.batchNo ?? '—' }}</text></view>
               <view class="kv__row"><text class="kv__k">生产/效期</text><text class="kv__v">{{ target.productionDate ?? '—' }} / {{ target.expiryDate ?? '—' }}</text></view>
             </template>
-            <view class="kv__row"><text class="kv__k">提交时间</text><text class="kv__v">{{ fmtDateTime(target.createdAt) }}</text></view>
-            <view v-if="target.remark" class="kv__row"><text class="kv__k">申请备注</text><text class="kv__v">{{ target.remark }}</text></view>
+            <view class="kv__row"><text class="kv__k">{{ target.source === 'WK_CREATED' ? '登记时间' : '提交时间' }}</text><text class="kv__v">{{ fmtDateTime(target.createdAt) }}</text></view>
+            <view v-if="target.remark" class="kv__row"><text class="kv__k">备注</text><text class="kv__v">{{ target.remark }}</text></view>
+            <!-- 现场代建确认状态（F7-1 · 72h 商户确认/异议 → TA 仲裁） -->
+            <view v-if="target.source === 'WK_CREATED' && target.status === 'PENDING_WA_CONFIRM'" class="kv__row">
+              <text class="kv__k">商户确认</text>
+              <text class="kv__v">截止 {{ fmtDateTime(target.waConfirmDeadline) }}{{ isDeadlinePast(target) ? ' · 窗口已过，待系统自动确认' : '' }}</text>
+            </view>
+            <view v-if="target.source === 'WK_CREATED' && target.status === 'CONFIRMED'" class="kv__row">
+              <text class="kv__k">商户确认</text>
+              <text class="kv__v">{{ target.autoAccepted === 1 ? '逾期自动确认' : '商户已确认' }} · {{ fmtDateTime(target.waConfirmAt) }}</text>
+            </view>
+            <view v-if="target.source === 'WK_CREATED' && target.status === 'DISPUTED'" class="kv__row">
+              <text class="kv__k">异议</text>
+              <text class="kv__v">商户已提出异议，TA 仲裁处理中</text>
+            </view>
+            <view v-if="target.source === 'WK_CREATED' && target.status === 'REVOKED'" class="kv__row">
+              <text class="kv__k">异议</text>
+              <text class="kv__v">仲裁判定异议成立，单据已撤销（库存已冲销）</text>
+            </view>
             <view v-if="target.status === 'REJECTED'" class="kv__row">
               <text class="kv__k">驳回</text>
               <text class="kv__v">理由：{{ rejectLabel(target.rejectReason) }}；{{ target.rejectRemark ?? '' }}</text>
             </view>
             <view v-if="target.status === 'WITHDRAWN'" class="kv__row"><text class="kv__k">已撤回</text><text class="kv__v">{{ target.withdrawReason ?? '商户撤回' }}</text></view>
           </view>
-          <view v-if="target.status === 'SUBMITTED'" class="ops">
+          <!-- 登记照片（F7-1：现场拍照附件 ≤5 落库回显，点击放大预览） -->
+          <view v-if="target.attachments?.length" class="detail-photos">
+            <text class="detail-photos__label">登记照片（{{ target.attachments.length }}）</text>
+            <view class="detail-photos__grid">
+              <image
+                v-for="(u, i) in target.attachments"
+                :key="u"
+                class="detail-photos__img"
+                :src="u"
+                mode="aspectFill"
+                @click="previewPhotos(target.attachments ?? [], i)"
+              />
+            </view>
+          </view>
+          <view v-if="target.source !== 'WK_CREATED' && target.status === 'SUBMITTED'" class="ops">
             <button class="btn-ghost" @click="openReject(target)">驳回</button>
             <button class="btn-primary ops__main" :loading="submitting" @click="onAccept">受理</button>
           </view>
-          <button v-if="target.status === 'ACCEPTED'" class="btn-primary sheet__btn" @click="openRegister(target)">登记入库</button>
+          <button v-if="target.source !== 'WK_CREATED' && target.status === 'ACCEPTED'" class="btn-primary sheet__btn" @click="openRegister(target)">登记入库</button>
         </template>
 
         <template v-else-if="panel === 'reject'">
@@ -834,6 +905,60 @@ onPullDownRefresh(async () => {
 
   &::after {
     border: none;
+  }
+}
+
+/* 现场代建入库入口（F7-1） */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 18rpx;
+
+  &__tip {
+    flex: 1;
+    font-size: 20rpx;
+    color: $cc-fg-4;
+    line-height: 1.6;
+  }
+
+  &__btn {
+    flex-shrink: 0;
+    height: 76rpx;
+    line-height: 76rpx;
+    margin: 0;
+    padding: 0 24rpx;
+    font-size: 25rpx;
+    font-weight: 600;
+
+    &::after {
+      border: none;
+    }
+  }
+}
+
+/* 登记照片预览（F7-1） */
+.detail-photos {
+  margin-top: 18rpx;
+
+  &__label {
+    display: block;
+    font-size: 23rpx;
+    color: $cc-fg-4;
+    margin-bottom: 12rpx;
+  }
+
+  &__grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12rpx;
+  }
+
+  &__img {
+    width: 128rpx;
+    height: 128rpx;
+    border-radius: 10rpx;
+    background: $cc-bg-2;
   }
 }
 </style>

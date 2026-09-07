@@ -419,6 +419,8 @@ export interface InboundRegisterRequest {
   expiredConfirmed?: boolean
   /** 货位号 ≤64（P5-D C2：货位开关启用时代建登记必填 50822；有批次号时同步批次货位） */
   location?: string
+  /** 现场登记照片 URL ≤5（P5-F7-1 US-WK-01b：拍照按 TA 拍照开关执行；先 POST /api/v1/files 拿 url，N2 白名单） */
+  attachments?: string[]
 }
 
 /**
