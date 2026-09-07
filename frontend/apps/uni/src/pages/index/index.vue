@@ -1,9 +1,12 @@
 <script setup lang="ts">
-// RT 买家首页（F2 正式多端）：
+// RT 买家首页（F2 正式多端；F6 加登录态）：
 // 输入店铺码 / 扫店铺码进店，直达 pages/rt/store；手机号为本地身份（询价/价目/意向单复用）。
+// F6：RT 免密登录后（hasRtScope），本地手机号锁定为登录账号，意向单确认即可查批发商电话（D-RT-01）。
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { PHONE_MAX_LEN, PHONE_RE } from '../../config'
+import { accountApi } from '../../api/account'
+import { clearAuth, hasRtScope } from '../../utils/session'
 import { getRecentStores, getSavedPhone, savePhone, type RecentStore } from '../../utils/storage'
 
 const codeInput = ref('')
@@ -11,14 +14,20 @@ const phoneInput = ref('')
 const phoneOk = ref(false)
 const recentStores = ref<RecentStore[]>([])
 const entering = ref(false)
+const rtLogged = ref(false)
 
 onShow(() => {
   recentStores.value = getRecentStores()
+  rtLogged.value = hasRtScope()
   if (!phoneInput.value) {
     phoneInput.value = getSavedPhone()
     phoneOk.value = PHONE_RE.test(phoneInput.value)
   }
 })
+
+function maskPhone(p: string): string {
+  return p.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')
+}
 
 /** 提取店铺码：支持纯码，或含 ?code= 的分享链接（进店短链/分享页）。 */
 function extractCode(raw: string): string {
@@ -70,6 +79,33 @@ function onSavePhone(): void {
 /** 商户/结算/库管工作台登录入口（WA/WE/ST/WK 统一登录页） */
 function goBiz(): void {
   uni.reLaunch({ url: '/pages/wa/login/index' })
+}
+
+/** F6：买家账号登录页（免密验证码，首登自动注册） */
+function goRtLogin(): void {
+  uni.navigateTo({ url: '/pages/rt/login/index' })
+}
+
+/** F6：退出买家账号（保留本地身份手机号，仅清登录会话） */
+function onLogout(): void {
+  uni.showModal({
+    title: '退出买家账号',
+    content: '退出后仍可浏览店铺与意向单，但无法查看已确认商户的电话。',
+    confirmColor: '#cc3b3b',
+    success: async (r) => {
+      if (!r.confirm) return
+      try {
+        await accountApi.logout()
+      } catch {
+        // 忽略：token 可能已失效
+      }
+      clearAuth()
+      rtLogged.value = false
+      phoneInput.value = getSavedPhone()
+      phoneOk.value = PHONE_RE.test(phoneInput.value)
+      uni.showToast({ title: '已退出', icon: 'none' })
+    },
+  })
 }
 
 function onScan(): void {
@@ -128,11 +164,12 @@ function onScan(): void {
       </view>
     </view>
 
-    <!-- 本地身份卡 -->
+    <!-- 本地身份卡（F6：登录后锁定为本账号） -->
     <view class="card">
       <view class="card__title">
         我的手机号
-        <text v-if="phoneOk" class="phone-ok">已绑定 · 询价/价目/意向单通用</text>
+        <text v-if="phoneOk && !rtLogged" class="phone-ok">已绑定 · 询价/价目/意向单通用</text>
+        <text v-else-if="phoneOk && rtLogged" class="phone-ok">已登录买家账号</text>
         <text v-else class="phone-hint">用于接收询价结果与查看我的意向单</text>
       </view>
       <view class="phone-row">
@@ -143,8 +180,23 @@ function onScan(): void {
           :maxlength="PHONE_MAX_LEN"
           placeholder="输入手机号"
           placeholder-class="ph"
+          :disabled="rtLogged"
         />
-        <button class="btn-ghost" @click="onSavePhone">保存</button>
+        <button class="btn-ghost" :disabled="rtLogged" @click="onSavePhone">{{ rtLogged ? '已锁定' : '保存' }}</button>
+      </view>
+
+      <!-- 买家账号登录态（F6 · US-RT-04 / D-RT-01） -->
+      <view class="session" :class="{ 'session--rt': rtLogged }">
+        <view v-if="rtLogged" class="session__info">
+          <text class="session__tag">买家账号已登录</text>
+          <text class="session__sub">{{ maskPhone(phoneInput) }} · 意向单确认后可查看批发商电话线下成交</text>
+        </view>
+        <view v-else class="session__info">
+          <text class="session__tag">未登录买家账号</text>
+          <text class="session__sub">意向单被商户确认后，登录即可直接联系批发商</text>
+        </view>
+        <button v-if="rtLogged" class="session__btn session__btn--out" @click="onLogout">退出</button>
+        <button v-else class="session__btn" @click="goRtLogin">去登录</button>
       </view>
     </view>
 
@@ -337,6 +389,70 @@ function onScan(): void {
   font-size: 22rpx;
   font-weight: 400;
   color: $cc-fg-4;
+}
+
+/* 登录后锁输入框 */
+.code-input[disabled] {
+  background: $cc-bg-3;
+  color: $cc-fg-3;
+}
+
+/* ===== 买家登录态（F6） ===== */
+.session {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 20rpx;
+  border-radius: 12rpx;
+  background: $cc-bg-2;
+
+  &--rt {
+    background: $cc-success-bg;
+  }
+
+  &__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4rpx;
+  }
+
+  &__tag {
+    font-size: 24rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+  }
+
+  &__sub {
+    font-size: 22rpx;
+    line-height: 1.5;
+    color: $cc-fg-3;
+  }
+
+  &__btn {
+    height: 64rpx;
+    padding: 0 28rpx;
+    margin: 0;
+    line-height: 64rpx;
+    border-radius: 999rpx;
+    background: $cc-rt-accent;
+    color: #fff;
+    font-size: 24rpx;
+    font-weight: 600;
+
+    &::after {
+      border: none;
+    }
+
+    &--out {
+      background: $cc-bg-1;
+      border: 2rpx solid $cc-border-1;
+      color: $cc-fg-2;
+      font-weight: 400;
+    }
+  }
 }
 
 /* ===== 商户/结算入口 ===== */

@@ -1,5 +1,5 @@
 /**
- * 商户/结算/库管移动端会话（F3 WA/WE · F4 ST · F5 WK）。
+ * 移动端会话（F3 WA/WE · F4 ST · F5 WK · F6 RT 登录子波）。
  *
  * RT 匿名身份（本地手机号）与登录态并存互不干扰（见 storage.ts）；
  * 本文件只维护「登录会话 auth + 当前工作仓 work（角色条目）」。
@@ -7,6 +7,9 @@
  * work = 用户从 roles 里选中的一条「带 tenantId 的工作角色」，
  * （WA/WE 一账号多仓 / ST 结算 / WK 库管）用于组装 X-Tenant-Id，绑定 userId 防跨账号误用。
  * 各角色区（wa/st/wk…）在 onLoad 自愈：若当前 work 非本区角色则重选本区默认。
+ *
+ * F6：RT 登录（免密验证码，D-49/D-50）同样写入 auth（单一活跃会话），
+ * 但 RT 无租户角色 → 无 work；是否买家登录态以 roles 含「无租户 RT 角色」判定（hasRtScope）。
  */
 import type { LoginResponse, SnowflakeId } from '@cangchu/api-types'
 
@@ -149,6 +152,16 @@ export function hasStScope(): boolean {
 export function hasWkScope(): boolean {
   const auth = readAuth()
   return !!auth && wkEntries(auth).length > 0
+}
+
+/**
+ * 是否买家（RT）登录态：已登录且 roles 含「无租户的 RT 角色」。
+ * RT 角色唯一合法形态是无租户纯买家（priority=60 最低）；即便账号另有 WA/WE 仓角色，
+ * 只要登录响应里带 RT 条目即视为具备买家登录能力（F6：意向单确认后可查批发商电话）。
+ */
+export function hasRtScope(): boolean {
+  const auth = readAuth()
+  return !!auth && auth.roles.some((r) => r.role === 'RT' && !r.tenantId)
 }
 
 /**

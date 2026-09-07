@@ -22,6 +22,12 @@
       }
     },
     {
+      "path": "pages/rt/login/index",
+      "style": {
+        "navigationBarTitleText": "买家登录"
+      }
+    },
+    {
       "path": "pages/wa/login/index",
       "style": {
         "navigationBarTitleText": "工作台登录"

@@ -1,10 +1,10 @@
 /**
  * 统一请求封装（uni-app）。
  *
- * 双身份策略：
+ * 身份策略：
  *  - RT 匿名：无 token，走公开端点（/rt/*）；
- *  - WA/WE 登录态：自动注入 Authorization/satoken + X-Tenant-Id（当前工作仓），
- *    41xxx 登出级错误自动清会话并回登录页。
+ *  - WA/WE/ST/WK 登录态：自动注入 Authorization/satoken + X-Tenant-Id（当前工作仓）；
+ *  - F6 RT 登录态：token 注入同上，但无工作仓（无 X-Tenant-Id）；41xxx 登出级错误退回买家首页。
  *
  * 请求头与 admin 对齐：X-Client=uni-mobile；Authorization 裸 token（sa-token 无前缀）。
  */
@@ -75,10 +75,13 @@ export function request<T>(options: RequestOptions): Promise<T> {
         }
         const msg = body?.message || `请求失败（${code}）`
         if (LOGOUT_CODES.has(code)) {
+          // F6：RT 登录态失效退回买家首页（无仓角色），否则回工作台登录页
+          const auth = readAuth()
+          const wasRt = !!auth && auth.roles.some((r) => r.role === 'RT' && !r.tenantId)
           clearAuth()
           uni.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
           setTimeout(() => {
-            uni.reLaunch({ url: '/pages/wa/login/index' })
+            uni.reLaunch({ url: wasRt ? '/pages/index/index' : '/pages/wa/login/index' })
           }, 500)
         } else {
           uni.showToast({ title: msg, icon: 'none' })
