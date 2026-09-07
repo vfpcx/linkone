@@ -2,6 +2,16 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-07 · F7-3 WA 入库确认移动化（F7-1 商户侧闭环 · uni WA 端 72h 确认/异议队列，CodeBuddy）
+
+> 前置：按「从 1 开始按顺序做」清单第 3 项 = F7-1（现场代建入库）的商户侧移动化——US-WA-09。
+
+- **需求来源**：US-WA-09（09 §5.3c 线框：待确认入库 + 倒计时 + 代建人 + 商品×数量 + BATCH + 照片）；F7-1 progress 边界「uni WA 端确认/异议队列留后续排期」
+- **现状盘点（定改动面）**：后端 WholesalerInboundController 已完整提供 list（status=PENDING_WA_CONFIRM 按 72h 升序）/confirm/dispute/stock-preview——admin FE-W1/INB-01~03 同端点已跑通；uni WA 无入库入口 → **后端零改动**，前端新增
+- **uni WA**：api/waInbound.ts（request 风格，对齐 admin waInbound）；pages/wa/inbound/index：横幅口径 + 待确认/全部双页签（服务端分页 onReachBottom）+ 秒级倒计时（<12h 红警示）+ 卡片（SKU 名本地映射/件数/批次/托盘/登记照片）+ 详情 sheet（货位/批次/备注/登记时间/异议时间）+ 确认（二次确认，含超时已自动接受 50332 并发刷新）+ 异议 sheet（实时预估 在库/冲销/差额 三卡 + 预设四理由 + 补充 ≤512 + 拍照附件 ≤5 上传/删除 + 差额>0 二次确认 + 结果回显 YY-）；工作台加「入库确认」cell + 待确认角标（PENDING 总数）
+- **验证**：uni vue-tsc 0 错 + build:h5 / build:mp-weixin 双端 DONE（后端无改动，不需跑测试）
+- **边界与后续**：scope 仅代建确认链（confirm view）——「我的申请」（source=WA_SUBMIT 正向链提交/撤回，含批量拆单打印）仍留在 admin 电脑端（移动端提交多行表单体验待后续子波，按 batchSubmitId「同批 N 单」标识已在 admin）；WE 成员可查看不可操作由后端鉴权兜底；api-types InboundRequest 补 location 字段（V40 C2 后端早已返回，前端类型滞后）
+
 ## 2026-09-07 · F7-2 盘点批次分支（F5 扩展兑现 · 盘盈按批入库 + 差异托盘建议值，CodeBuddy）
 
 > 前置：按「从 1 开始按顺序做」清单第 2 项 = F5-W2 顺延扩展的**盘点批次分支**。
