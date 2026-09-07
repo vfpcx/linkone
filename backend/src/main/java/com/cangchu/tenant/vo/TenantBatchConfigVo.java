@@ -24,4 +24,7 @@ public class TenantBatchConfigVo {
 
     /** 货位功能开关（V40，C2 25-p5-c-c2 §3.1；默认 0=关闭；各端读开关显隐统一走本端点） */
     private Integer locationEnabled;
+
+    /** 入库拍照开关（P5-F7-1 起透传，供移动端建单页显隐/必拍判定）：TA 设置三档 NONE/OPTIONAL/REQUIRED，默认 NONE */
+    private String photoMode;
 }

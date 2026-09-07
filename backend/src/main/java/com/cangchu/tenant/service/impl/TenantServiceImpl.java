@@ -1014,6 +1014,7 @@ public class TenantServiceImpl implements TenantService {
                         ? settings.getExpiryThresholdDays() : 30)
                 .locationEnabled(settings != null && settings.getLocationEnabled() != null
                         ? settings.getLocationEnabled() : 0)
+                .photoMode(settings != null && settings.getPhotoMode() != null ? settings.getPhotoMode() : "NONE")
                 .build();
     }
 

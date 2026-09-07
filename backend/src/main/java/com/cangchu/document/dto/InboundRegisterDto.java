@@ -49,4 +49,9 @@ public class InboundRegisterDto {
     /** 货位号（货位开关启用时必填 ≤64；自由文本；落 inbound_requests.location，有批次号时同步 batches.location） */
     @jakarta.validation.constraints.Size(max = 64, message = "货位号最长 64 字")
     private String location;
+
+    // ==================== P5-F7-1 现场代建入库拍照附件（US-WK-01b：拍照按 TA 拍照开关执行，05-business-rules L304） ====================
+
+    /** 现场登记照片 URL ≤5（N2 白名单 /files/yyyyMM/uuid.jpg|png|webp；超限 40001，非本站地址 50340）；落库后商户确认/异议详情可见 */
+    private java.util.List<String> attachments;
 }

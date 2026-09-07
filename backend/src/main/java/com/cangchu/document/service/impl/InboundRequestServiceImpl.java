@@ -145,6 +145,13 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             throw new BizException(ErrorCode.LOCATION_REQUIRED);
         }
 
+        // P5-F7-1（US-WK-01b）：现场登记拍照附件 ≤5（N2 白名单同 registerForwardByWk 口径）；
+        // 拍照开关 REQUIRED 的必拍由调用方前端把关（与 registerForward 现状一致，05-business-rules L304）
+        if (dto.getAttachments() != null && dto.getAttachments().size() > 5) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_001);
+        }
+        String attachments = AttachmentUrls.encode(dto.getAttachments());
+
         // 生成单据号（DocumentNumberService，C2 复用）
         String docNo = documentNumberService.generate(DocType.INBOUND, resolveSimpleCode(tenantId));
 
@@ -171,6 +178,7 @@ public class InboundRequestServiceImpl implements InboundRequestService {
             req.setExpiryDate(dto.getExpiryDate());
         }
         req.setLocation(location); // C2：单据留痕（未填=null）
+        req.setAttachments(attachments); // P5-F7-1：现场登记照片（encode 落列，商户确认/异议详情可见）
         try {
             inboundRequestMapper.insert(req);
         } catch (DuplicateKeyException e) {

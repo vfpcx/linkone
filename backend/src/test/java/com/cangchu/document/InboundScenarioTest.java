@@ -24,6 +24,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -158,6 +163,38 @@ class InboundScenarioTest {
 
         // 列表能查到本租户入库单（2 条）
         assertThat(inboundRequestService.listByTenant(tenantId, wid)).hasSize(2);
+    }
+
+    /** 构造符合 N2 白名单形态的本站上传 URL（/files/yyyyMM/uuid.jpg）。 */
+    private String photoUrl() {
+        return String.format("/files/%s/%s.jpg",
+                LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMM")), UUID.randomUUID());
+    }
+
+    @Test
+    @DisplayName("INB-S1-02 WK 现场代建登记带照片 → 单据 attachments 落列并回显；超 5 张 40001 且不增库存")
+    void s1_registerByWkWithPhotos() {
+        long tenantId = 700_000_700_001L + (snowflakeIdUtil.nextId() & 0xFFFF);
+        long wid = seedWholesaler(tenantId);
+        long sku = seedSku(tenantId, wid);
+        long wk = seedWkUser(tenantId);
+        TenantContext.set(TenantContext.TenantInfo.of(tenantId, wk, "WK"));
+
+        String p1 = photoUrl();
+        String p2 = photoUrl();
+        InboundRegisterDto d = dto(wid, sku, 12, 1);
+        d.setAttachments(List.of(p1, p2));
+        InboundRequestVo vo = inboundRequestService.registerByWk(d, wk);
+        assertThat(vo.getStatus()).isEqualTo(InboundRequest.STATUS_PENDING_WA_CONFIRM);
+        assertThat(vo.getAttachments()).containsExactly(p1, p2);
+
+        // 超 5 张 → 40001（VALIDATION_BASIC_001，与 registerForwardByWk 同码）且不新增库存
+        InboundRegisterDto tooMany = dto(wid, sku, 5, 0);
+        tooMany.setAttachments(IntStream.range(0, 6).mapToObj(i -> photoUrl()).toList());
+        BizException ex = Assertions.assertThrows(BizException.class,
+                () -> inboundRequestService.registerByWk(tooMany, wk));
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_BASIC_001);
+        assertThat(inventoryService.queryInventory(wid, sku).get(0).getQty()).isEqualTo(12);
     }
 
     // ======================================================================
