@@ -28,8 +28,10 @@ import com.cangchu.document.vo.CountSheetItemVo;
 import com.cangchu.document.vo.CountSheetVo;
 import com.cangchu.document.vo.StocktakeInTransitHintVo;
 import com.cangchu.inventory.dto.GainStockContext;
+import com.cangchu.inventory.dto.InboundBatchContext;
 import com.cangchu.inventory.dto.LossStockContext;
 import com.cangchu.inventory.dto.LossStockResult;
+import com.cangchu.inventory.service.BatchService;
 import com.cangchu.inventory.service.InventoryService;
 import com.cangchu.inventory.vo.InventoryVo;
 import com.cangchu.notify.entity.Notification;
@@ -46,6 +48,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -86,6 +89,7 @@ public class CountSheetServiceImpl implements CountSheetService {
     private final WholesalerService wholesalerService;
     private final AuthService authService;
     private final DocumentNumberService documentNumberService;
+    private final BatchService batchService;
     private final InventoryService inventoryService;
     private final NotificationService notificationService;
     private final SnowflakeIdUtil snowflakeIdUtil;
@@ -223,6 +227,10 @@ public class CountSheetServiceImpl implements CountSheetService {
         List<CountSheetItem> items = itemsOf(sheetId);
         if (items.isEmpty()) {
             throw new BizException(ErrorCode.STOCKTAKE_ITEMS_INVALID);
+        }
+        // 盘盈按批（V41）护栏：提交时批次开关已关且带批次登记 → 拒绝（草稿→提交间开关翻转防御，审批另有兜底）
+        if (items.stream().anyMatch(i -> i.getGainBatchNo() != null)) {
+            assertGainBatchSwitchOn(sheet.getTenantId());
         }
         LocalDateTime now = LocalDateTime.now();
         boolean ok = DocStateMachine.casTransition(countSheetMapper, DocKind.STOCKTAKE,
@@ -365,6 +373,11 @@ public class CountSheetServiceImpl implements CountSheetService {
         List<CountSheetItem> items = itemsOf(sheet.getId()).stream()
                 .sorted(Comparator.comparing(CountSheetItem::getSkuId))
                 .toList();
+        // 盘盈按批（P5 顺延 V41）护栏：带批次登记的盘盈须批次开关开启——草稿→审批期间开关可能被关，
+        // 开关未开启时盘盈按批不可用（异常整体回滚含 CAS，TA 可驳回让 WK 改）
+        if (items.stream().anyMatch(i -> i.getGainBatchNo() != null)) {
+            assertGainBatchSwitchOn(sheet.getTenantId());
+        }
         int gainTotal = 0;
         int lossTotal = 0;
         List<String> shortfallNotes = new ArrayList<>();
@@ -387,6 +400,20 @@ public class CountSheetServiceImpl implements CountSheetService {
                 appliedDiff = diff;
                 effectivePallet = palletGain;
                 gainTotal += diff;
+                // 盘盈按批登记簿（13 §5.2 注 7 / 08 §2.2 D24）：gainStock 后置钩子——建 STOCKTAKE 批次行
+                // （initial_qty=diff）+ 回填该行 GAIN 流水 batch_id；撞号 50362 整体回滚
+                if (item.getGainBatchNo() != null) {
+                    batchService.registerGainBatch(InboundBatchContext.builder()
+                            .tenantId(sheet.getTenantId())
+                            .wholesalerId(sheet.getWholesalerId())
+                            .skuId(item.getSkuId())
+                            .batchNo(item.getGainBatchNo())
+                            .productionDate(item.getGainProductionDate())
+                            .expiryDate(item.getGainExpiryDate())
+                            .qty(diff)
+                            .refDocNo(sheet.getDocNo())
+                            .build());
+                }
             } else if (diff < 0) {
                 LossStockResult result = inventoryService.lossStock(LossStockContext.builder()
                         .wholesalerId(sheet.getWholesalerId())
@@ -485,6 +512,7 @@ public class CountSheetServiceImpl implements CountSheetService {
                 throw new BizException(ErrorCode.SKU_NOT_FOUND);
             }
             int onhand = currentOnhand(wholesalerId, dto.getSkuId());
+            int diff = dto.getActualQty() - onhand;
             CountSheetItem item = new CountSheetItem();
             item.setId(snowflakeIdUtil.nextId());
             item.setSheetId(sheetId);
@@ -492,12 +520,57 @@ public class CountSheetServiceImpl implements CountSheetService {
             item.setSkuId(dto.getSkuId());
             item.setSystemQty(onhand);
             item.setActualQty(dto.getActualQty());
-            item.setDiff(dto.getActualQty() - onhand);
+            item.setDiff(diff);
             item.setPalletDelta(dto.getPalletDelta());
+            applyGainBatchFields(item, dto, diff);
             item.setRemark(trimToNull(dto.getRemark(), 512));
             items.add(item);
         }
         return items;
+    }
+
+    /**
+     * 盘盈按批登记字段落地（P5 顺延 V41；13 §5.2 注 7 / 08 §2.2 D24 / 99-open-questions 选 A）：
+     * 仅盘盈行（diff&gt;0）可带；三字段任一带 → 全量校验；给了批次号 → 到效期必填（D24 保质期），
+     * 生产日期可选（现场不知可不录）；效期规则与批次登记一致（40205/40206）。
+     * 开关未开启不作为建/编错误——草稿期可先录，审批时按开关终审（applyApproved 护栏）。
+     */
+    private void applyGainBatchFields(CountSheetItem item, CountSheetItemDto dto, int diff) {
+        String batchNo = trimToNull(dto.getGainBatchNo(), 64);
+        LocalDate prod = dto.getGainProductionDate();
+        LocalDate expiry = dto.getGainExpiryDate();
+        boolean given = batchNo != null || prod != null || expiry != null;
+        if (!given) {
+            return;
+        }
+        if (diff <= 0) {
+            throw new BizException(ErrorCode.STOCKTAKE_ITEMS_INVALID, "仅盘盈行可登记盘盈批次");
+        }
+        if (batchNo == null) {
+            throw new BizException(ErrorCode.STOCKTAKE_ITEMS_INVALID, "登记盘盈批次须填写批次号");
+        }
+        if (expiry == null) {
+            throw new BizException(ErrorCode.STOCKTAKE_ITEMS_INVALID, "登记盘盈批次须填写到效期（保质期必填）");
+        }
+        LocalDate today = LocalDate.now();
+        if (prod != null && prod.isAfter(today)) {
+            throw new BizException(ErrorCode.VALIDATION_BUSINESS_005);
+        }
+        if (prod != null && !expiry.isAfter(prod)) {
+            throw new BizException(ErrorCode.VALIDATION_BUSINESS_006);
+        }
+        item.setGainBatchNo(batchNo);
+        item.setGainProductionDate(prod);
+        item.setGainExpiryDate(expiry);
+    }
+
+    /** 盘盈按批须批次开关开启（V41；submitByWk/applyApproved 共用，错误信息引导移除批次登记或驳回） */
+    private void assertGainBatchSwitchOn(Long tenantId) {
+        var cfg = tenantService.getBatchConfig(tenantId);
+        if (cfg.getBatchEnabled() == null || cfg.getBatchEnabled() != 1) {
+            throw new BizException(ErrorCode.STOCKTAKE_ITEMS_INVALID,
+                    "批次功能未开启，盘盈按批入库不可用");
+        }
     }
 
     /** 在途提示条聚合（13 §2.2 护栏）：出库 PENDING_ACCEPT/PRINTED + 退货 ACCEPTED，按 SKU 分桶。 */
@@ -613,6 +686,9 @@ public class CountSheetServiceImpl implements CountSheetService {
                 .diff(item.getDiff())
                 .appliedDiff(item.getAppliedDiff())
                 .palletDelta(item.getPalletDelta())
+                .gainBatchNo(item.getGainBatchNo())
+                .gainProductionDate(item.getGainProductionDate())
+                .gainExpiryDate(item.getGainExpiryDate())
                 .remark(item.getRemark())
                 .currentStock(currentStock)
                 .suggestedPalletRelease(suggested)

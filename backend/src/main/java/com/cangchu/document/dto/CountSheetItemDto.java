@@ -12,5 +12,12 @@ public class CountSheetItemDto {
     private Long skuId;
     private Integer actualQty;
     private Integer palletDelta;
+    /**
+     * 盘盈按批登记（仅盘盈行可带）：批次号 ≤64；给了批次号 → expiryDate 必填。
+     * 生产日期可选（现场不知可不录）；productionDate/expiryDate 为 ISO yyyy-MM-dd。
+     */
+    private String gainBatchNo;
+    private java.time.LocalDate gainProductionDate;
+    private java.time.LocalDate gainExpiryDate;
     private String remark;
 }

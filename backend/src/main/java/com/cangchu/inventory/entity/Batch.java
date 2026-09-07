@@ -37,6 +37,8 @@ public class Batch {
     public static final String SOURCE_INBOUND = "INBOUND";
     /** 来源：开关启用生成的默认批次（吸收启用时刻存量在库） */
     public static final String SOURCE_DEFAULT = "DEFAULT";
+    /** 来源：盘点盘盈按批入库（P5 顺延，V41；source=STOCKTAKE，initial_qty=审批 diff） */
+    public static final String SOURCE_STOCKTAKE = "STOCKTAKE";
 
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)

@@ -273,6 +273,55 @@ public class BatchServiceImpl implements BatchService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Batch registerGainBatch(InboundBatchContext ctx) {
+        if (ctx.getTenantId() == null || ctx.getWholesalerId() == null || ctx.getSkuId() == null
+                || ctx.getBatchNo() == null || ctx.getBatchNo().isBlank()
+                || ctx.getQty() == null || ctx.getQty() <= 0) {
+            throw new BizException(ErrorCode.VALIDATION_BASIC_003);
+        }
+        // 初始状态同入库登记：到效期−今日 ≤ 阈值 → EXPIRING（临期盘盈立即进入临期列表）
+        TenantBatchConfigVo cfg = tenantService.getBatchConfig(ctx.getTenantId());
+        int threshold = cfg.getExpiryThresholdDays() != null ? cfg.getExpiryThresholdDays() : 30;
+        LocalDate today = LocalDate.now();
+        String status = Batch.STATUS_IN_STOCK;
+        if (ctx.getExpiryDate() != null && !ctx.getExpiryDate().isAfter(today.plusDays(threshold))) {
+            status = Batch.STATUS_EXPIRING;
+        }
+        Batch b = new Batch();
+        b.setId(snowflakeIdUtil.nextId());
+        b.setTenantId(ctx.getTenantId());
+        b.setWholesalerId(ctx.getWholesalerId());
+        b.setSkuId(ctx.getSkuId());
+        b.setBatchNo(ctx.getBatchNo().trim());
+        b.setProductionDate(ctx.getProductionDate());
+        b.setExpiryDate(ctx.getExpiryDate());
+        b.setInitialQty(ctx.getQty());
+        b.setRemainingQty(ctx.getQty());
+        b.setStatus(status);
+        b.setSource(Batch.SOURCE_STOCKTAKE);
+        b.setCreatedAt(LocalDateTime.now());
+        b.setUpdatedAt(LocalDateTime.now());
+        try {
+            batchMapper.insert(b);
+        } catch (DuplicateKeyException e) {
+            // uk_bat_ws_sku_no 权威兜底（盘点单对 (w,sku) 一行 GAIN）——单据事务整体回滚
+            throw new BizException(ErrorCode.BATCH_NO_DUPLICATE);
+        }
+        // 回填该盘盈行 GAIN 流水 batch_id（后置 UPDATE，gainStock 零改动；一单同 (w,sku) 一行 GAIN）
+        stockMovementMapper.update(null, new LambdaUpdateWrapper<StockMovement>()
+                .eq(StockMovement::getWholesalerId, ctx.getWholesalerId())
+                .eq(StockMovement::getSkuId, ctx.getSkuId())
+                .eq(StockMovement::getType, StockMovement.TYPE_GAIN)
+                .eq(StockMovement::getRefDocNo, ctx.getRefDocNo())
+                .isNull(StockMovement::getBatchId)
+                .set(StockMovement::getBatchId, b.getId()));
+        log.info("[P5][PD] 盘盈批次登记 doc={} wholesaler={} sku={} batchNo={} qty={} status={}",
+                ctx.getRefDocNo(), ctx.getWholesalerId(), ctx.getSkuId(), b.getBatchNo(), ctx.getQty(), status);
+        return b;
+    }
+
+    @Override
     public void tagCorrectionMovement(Long movementId, Long wholesalerId, Long skuId, String batchNo) {
         if (movementId == null || batchNo == null || batchNo.isBlank()) {
             return;

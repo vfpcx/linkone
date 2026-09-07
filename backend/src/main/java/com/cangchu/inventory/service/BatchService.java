@@ -42,6 +42,14 @@ public interface BatchService {
     Batch registerInboundBatch(InboundBatchContext ctx);
 
     /**
+     * 盘点盘盈按批入库后置钩子（P5 顺延，V41；盘点审批事务内、gainStock 之后调用）：
+     * 追加登记簿行（source=STOCKTAKE、initial_qty=审批 diff，uk 冲突 50362 整体回滚）
+     * + 回填该盘盈行 GAIN 流水 batch_id——FIFO 推算按 initial_qty 吃进，
+     * 池入 GAIN 不再混入「无批次在池量」。调用方须先校验批次开关开启（未开启按池入旧行为）。
+     */
+    Batch registerGainBatch(InboundBatchContext ctx);
+
+    /**
      * R3 纠错流水批次标识回填（方案 C：CORRECTION_IN/OUT 落 batch_id 供 FIFO 直扣）。
      * 原入库单无批次或批次行不存在时静默跳过（不阻断纠错主链）。
      */

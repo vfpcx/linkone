@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -50,6 +51,21 @@ public class CountSheetItem {
      * 审批通过后=回写生效带符号值（盘盈 +M / 盘亏 −实际释放，RTN pallet_release 回写先例）。
      */
     private Integer palletDelta;
+
+    /**
+     * 盘盈按批登记（P5 顺延，V41；13 §5.2 注 7 / 08 §2.2 D24）：
+     * 仅盘盈行（diff>0）可带；gave 批次号 → 到效期必填（D24 保质期），生产日期可选。
+     * 审批通过时经 BatchService.registerGainBatch 建批次登记簿行（source=STOCKTAKE、
+     * initial_qty=审批 diff）并回填该行 GAIN 流水 batch_id——FIFO 推算按 initial_qty 吃进，
+     * 池入 GAIN 不再混入「无批次在池量」（13-p3b-design §3.2 六步）。
+     */
+    private String gainBatchNo;
+
+    /** 盘盈按批登记：生产日期（≤今天 40205；可选） */
+    private LocalDate gainProductionDate;
+
+    /** 盘盈按批登记：到效期（>生产日期 40206；给批次号则必填） */
+    private LocalDate gainExpiryDate;
 
     /** 差异理由；盘亏封顶差额自动追加（「盘亏 X 件，审批时在库仅 Y 件…」） */
     private String remark;

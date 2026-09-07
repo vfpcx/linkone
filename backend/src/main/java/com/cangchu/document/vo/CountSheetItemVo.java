@@ -35,6 +35,15 @@ public class CountSheetItemVo {
 
     private Integer palletDelta;
 
+    /** 盘盈按批登记：批次号（未按批=null；审批通过后随明细留存） */
+    private String gainBatchNo;
+
+    /** 盘盈按批登记：生产日期（可选） */
+    private java.time.LocalDate gainProductionDate;
+
+    /** 盘盈按批登记：到效期（给批次号则必有） */
+    private java.time.LocalDate gainExpiryDate;
+
     private String remark;
 
     /** 当前在库（详情链路只读快照——审批弹窗封顶预览：min(|盘亏|, currentStock)） */
