@@ -2,6 +2,15 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-07 · F 波正式多端收官（F2–F6 五业务子波全链闭合 · P5 仅剩 E/P5-B 挂起，CodeBuddy）
+
+> 前置：F6 三笔提交（3fad8a6 backend / e17c587 frontend / 90fc4be docs）后工作区干净，用户「继续下一步」→ 依 roadmap 惯例做 **F 波收官**：全量回归验证 + 路线图/进度收口。F 波定义 = P5-C 余下「正式多端」（uni 承载 WA/WE·WK·ST·RT 全角色全功能，admin 承载 OPS/TA + ST 电脑全功能）。
+
+- **子波闭环与提交**：F1 apps/uni 工程落地 → F2 RT 买家正式端（7b3c375 backend / 656ccb7 frontend / 03a7b02 docs）→ F3 WA+WE 批发商（656ccb7 合入）→ F4 ST 结算员（425f787 / 1154a04）→ F5 WK 库管 W1 出入库作业（1389fa1 + d00f662）+ W2 库存/批次/临期/盘点（e3a5994 + ec5e08e，零后端改动）→ F6 RT 登录子波（3fad8a6 / e17c587 / 90fc4be）；累计 backend 2 笔 + frontend 6 笔 + docs 6 笔
+- **收官验证**：后端全量回归 **536 全绿**（0 失败 / 0 错误 / 0 跳过，04:10min；524 → +12 = F2 RtMyInquiriesScenarioTest 7 + F6 RtWholesalerContactRevealScenarioTest REV-07~11 5）；各子波均 vue-tsc 0 错 + read_lints 0 + build:h5 / build:mp-weixin 双端 DONE（仅 legacy-sass 警告）
+- **文档收口**：00-roadmap v4.2（F 行改 ✅ 已收官 + 进度总览 P5 更新「收官在即，仅 E/P5-B 挂起」+ 变更记录）；F 波期间契约文档 api-contract-storefront 递增至 v1.3（F2 §3.4 RtMyInquiries / F6 §3.5 RT_WHOLESALER）；产品决策 D-49/D-50（RT 手机号+验证码免密）随 F6 落地，99-open-questions 既有行照应
+- **边界与后续**：admin 内 RT 最小 H5 过渡态维持「仅测试兼容」（物理删除转 Backlog，待 E2E 基线迁 uni 后收）；F5 扩展（现场代建入库·拍照附件 / WA 72h 确认、盘点批次分支·盘盈按批/托盘建议值）与 E/P5-B（OSS/ASR）待后续排期；X 期部署侧余项（prod 冒烟 / OWASP dep-check·Trivy / graceful shutdown 人工停服实测 / Redis ACL）待环境
+
 ## 2026-09-04 · F6 RT 买家登录子波（F 波第五业务子波 · US-RT-04 验收补全 · D-RT-01 落地，CodeBuddy）
 
 > 前置：F2 意向单契约标注 D-RT-01（「已确认后展示批发商联系方式」RT 无登录态 → PII 无安全出口），本子波落地载体 = **RT 免密登录**（D-49 通用账号能力 P0 / D-50 手机号+验证码免密，复用通用 sms-code + `POST /account/login/rt` 首登自动建号）+ **reveal 四重闸门**。用户「按顺序往后做」F5-W2 → F6。
