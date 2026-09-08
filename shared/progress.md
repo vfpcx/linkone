@@ -2,6 +2,20 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-08 · F7-6 E2E 基线迁 uni（admin RT 过渡态退役前置 · 双工程 Playwright + B-RT-03 步进钳制，CodeBuddy）
+
+> 前置：用户「E2E基线迁和生产硬化余项吧」→ 依候选次序第 1 项 = F7-5 progress 边界「admin RT 过渡态物理删除须先迁 E2E 基线（删即破坏 Playwright 回归）」；第 2 项 = X 期生产硬化可落地部分（本波命令化，见下）。
+
+- **现状盘点（定迁移面）**：admin 内 RT 最小 H5 过渡态页（`/rt/store` UI，5173）自 F2 起改「仅测试兼容」，uni 已成唯一用户入口；4 个 Playwright spec 仍依赖其 UI 作回归目标——`sell-flow`（SELL-S1-01/S2-01/S2-01b 下单 UI）、`sell-flow-2`（B-RT-02 卖光空态 / B-RT-03 步进钳制佐证 / B-RT-07 空店）、`p5a-storefront-featured`（FE-02 RT 店铺 UI 展示段）、`p5a-w5-visual`（RT 店铺 1280/375 截图）→ 迁移方向 = **「UI 可观测旅程」迁 RT 正式端 uni H5（5175，hash 路由）**，admin 保留纯 API 契约断言
+- **双工程 Playwright**（`frontend/apps/admin/playwright.config.ts`）：projects 拆 `chromium`（admin 5173，`testIgnore /rt-h5/`，Desktop Chrome）+ `uni-rt`（`testMatch e2e/rt-h5/`，baseURL=uni 5175 hash 路由，viewport 390×844）；新增 `e2e/rt-h5/`（rt-helpers + 4 spec）：`rt-buy`（UNI-RT-S1-01/S2-01/S2-01b）承接 sell-flow 下单 UI、`rt-journeys`（UNI-RT-B02/B03/B07）承接边界旅程、`rt-featured`（UNI-RT-FE02 API 契约 + FE02-UI 置顶/主推/tab 渲染）承接撮合展示、`rt-visual`（UNI-RT-VIS-01 375 截图）承接视觉
+- **admin 各 spec 瘦身**：sell-flow.spec.ts 删除 openStoreWithSku 等 RT UI helper，SELL-S1-02/S6 改经 `apiSubmitInquiry` 造 docNo（保留 WA 确认 UI）；sell-flow-2.spec.ts 只留 API 契约（B-RT-03 超量→确认 50251、B-WA-04 50284/50286、B-EMP-02 41303），删 UI helper；p5a-storefront-featured FE-02 只留 API 契约段、FE-06 去掉 RT 店铺页尾断言；p5a-w5-visual 删 RT 店铺两个截图测试补注释指向 rt-h5/
+- **造数零复制**：rt-h5 用例直接复用 `helpers/sell.ts`/`helpers/onboarding.ts`（seedSellChain / seedEmptyStore / seedActiveTenant / registerWaWithTarget / confirmPendingInbound 等），UI 动作全在 uni H5 页面完成
+- **uni H5 DOM 编译差异校准**（rt-helpers 头注释固化）：`<input class>` → 外层 uni-input + 内层原生 input，`toHaveValue` 必须 `.step-input input` / `.phone-input input`（直断言外层会失败）；`.sheet` 弹层（手机号收集 `.sheet:has(.phone-input)` + `.btn-primary`；成功 `.sheet__ok` + `.sheet__desc` 解析 XJ- 单号）；进店等待 `.store-head__name`
+- **B-RT-03 步进钳制语义落地 uni 正式端**（`uni/src/pages/rt/store/index.vue`）：`inc()` 达库存上限即 return + `onQtyInput` 手输超库存钳到 stockQty + 到顶按钮加 `.step--off`（pointer-events:none）——过渡态退役后正式端不丢该护栏
+- **验证**：chromium project **122 全绿**（7.8m）+ uni-rt project **9 全绿**（26.7s）
+- **环境踩坑（本地，不入仓库）**：① seed TA 注册 90001「系统繁忙」根因 = **Memurai（Redis 兼容，进程 59996）僵死**、Redisson 写连接被关闭 → 杀进程重启 memurai.exe + 重启后端 dev（pkill java → mvn spring-boot:run）后注册 code=0；② vite dev server 崩溃 = CodeBuddy node-safe-delete-shim 拦 `.vite/deps_temp*` bulk 删除（554 > 500）致 dev 进程退出（ERR_CONNECTION_REFUSED）→ 清 `CODBUDDY_SAFE_DELETE_*` / `CODBUDDY_NODE_BIN` 环境变量重启 admin/uni dev 恢复
+- **边界与后续**：admin RT 过渡态物理删除**已具备条件**（E2E 基线不再依赖其 UI，仅剩个别 API 断言直接打后端）——物理删除本身仍属不可逆清理，转 Backlog 待拍板执行；**生产硬化余项**（OWASP dep-check/Trivy 工具门禁、prod 冒烟、graceful shutdown 人工停服实测、Redis 实际启用密码 W8-L6）均待正式环境，本波将命令固化为 `shared/ops/`（cve-scan.ps1 + go-live-checklist.md）
+
 ## 2026-09-08 · F7-5 admin 入库拍照补全（F7-1 电脑端收口 · proxy 表单接照片 + photoMode REQUIRED 必拍，CodeBuddy）
 
 > 前置：用户「继续 F7 波小项」→ 依候选次序第 1 项 = F7-1 progress 边界「admin ta/Inbound.vue proxy 表单接附件（电脑端场景）留后续小项」。
