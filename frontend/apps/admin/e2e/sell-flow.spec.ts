@@ -3,41 +3,30 @@ import {
   seedSellChain,
   fetchRtStore,
   stockOfSku,
+  apiSubmitInquiry,
   apiConfirmInquiry,
   apiListInquiries,
   findInquiryByDocNo,
-  uniqPhone,
   completeOutboundChain,
   type SellSeed,
 } from './helpers/sell'
 
 /**
- * 仓储云 admin · phase-1 卖货整链 E2E（SELL-S1/S2/S6）
+ * 仓储云 admin · 卖货整链 E2E（SELL-S1-S2 已在 uni H5 承接买家侧 UI，本文件保留 admin 侧卖家/幂等契约）
  *
- * 金字塔定位：E2E 做 S1 整链(UI 可观测) + 抽样 S2/S6；S4/S5/S7 已在后端 ScenarioTest 覆盖，不重复。
+ * 迁移说明（E2E 基线迁 uni）：买家（RT）进店/下单 UI 已由 admin 内 RT 最小 H5 过渡态
+ * 迁至 RT 正式端 uni H5（e2e/rt-h5/rt-buy.spec.ts，SELL-S1-01/S2-01/S2-01b）；
+ * 本文件只保留「卖家侧」可观测主线与契约用例：
+ *  - SELL-S1-02 卖家确认转出库：RT 下单改 API 造数（UI 已不在 admin 侧），WA 确认 UI 保留
+ *  - SELL-S6-01 重复确认幂等：纯 API 契约（无 UI）
  *
- * 造数：全程 API 旁路（helpers/sell.ts）——TA 建仓→店铺码→WA 账号→自营商户→上架 SKU→
- *       WK 凭码注册→WK 入库(库存 N)。UI 只跑「买家下单 / 卖家确认」这段可观测主线。
- *
- * 前置：前端 5173 + 后端 8080 均在运行；mock 短信码 888888（dev）。
+ * 造数：全程 API 旁路（helpers/sell.ts）。WA 确认页由注入 auth（primaryRole=WA）+ 直达 /wa/inquiry 驱动。
  *
  * 契约要点（见 helpers/sell.ts 顶注 + 交付说明）：
- *  - RT 进店 code = tenantSimpleCode；在售 SKU 需 listed=true 且库存 qty>0（入库后才可见）。
- *  - 询价单号前缀 XJ-（DocType.INQUIRY）；确认幂等冲突码 50285（INQUIRY_STATUS_INVALID）。
+ *  - 询价单号前缀 XJ-；确认幂等冲突码 50285。
+ *  - 确认后询价停 CONFIRMED、出库单 PENDING_ACCEPT；WK 打印+登记出库后联动 COMPLETED。
  *  - WA 会话：复用 WA 注册自动登录 token（二次 password 登录的 token 会被 sa-token 拒绝，41001）。
- *  - resolveRouter('WA') 后端返回 /ta/dashboard，但前端 defaultRouterFor('WA')=/wa/inquiry；
- *    故 WA 确认页由「注入 auth（primaryRole=WA）+ 直达 /wa/inquiry」驱动。
  */
-
-/** RT 进店：等店铺加载出在售 SKU（浏览态渲染） */
-async function openStoreWithSku(page: Page, seed: SellSeed): Promise<void> {
-  await page.goto(`/rt/store?code=${seed.storeCode}`)
-  await page.waitForLoadState('networkidle')
-  await expect(page.locator('.rt-header__title')).toContainText(/./, { timeout: 15_000 })
-  // 至少一个在售 SKU（入库后 listed && qty>0）
-  await expect(page.locator('.rt-sku').first()).toBeVisible({ timeout: 15_000 })
-  await expect(page.locator('.rt-sku__stock').first()).toContainText(String(seed.stock))
-}
 
 /**
  * 注入 WA 登录态到前端 auth（pinia-persist localStorage）并直达 /wa/inquiry。
@@ -65,48 +54,28 @@ async function enterWaInquiry(page: Page, seed: SellSeed): Promise<void> {
   await expect(page.locator('.page-head__title')).toContainText('询价确认', { timeout: 15_000 })
 }
 
-// ============================== S1 整链（UI 主线） ==============================
+// ============================== S1 整链（卖家侧 UI 主线） ==============================
 test.describe('sell S1 happy', () => {
-  test('SELL-S1-01 整链happy·RT 下单拿单号', async ({ page }) => {
-    const seed = await seedSellChain()
-    await openStoreWithSku(page, seed)
-
-    // 步进器 +3
-    const plus = page.locator('.rt-stepper__btn').last()
-    await plus.click()
-    await plus.click()
-    await plus.click()
-    await expect(page.locator('.rt-stepper__input')).toHaveValue('3')
-
-    // 填手机号 → 提交
-    await page.locator('.rt-phone').fill(uniqPhone())
-    await page.locator('.rt-footer__submit').click()
-
-    // 成功态：单号含 XJ-
-    const no = page.locator('.rt-success__no')
-    await expect(no).toBeVisible({ timeout: 15_000 })
-    await expect(no).toContainText('XJ-')
-  })
-
   test('SELL-S1-02 卖家确认转出库·库存扣减', async ({ page }) => {
     const seed = await seedSellChain()
     const qty = 3
 
-    // --- RT 下单（UI）拿 docNo ---
-    await openStoreWithSku(page, seed)
-    const plus = page.locator('.rt-stepper__btn').last()
-    for (let i = 0; i < qty; i++) await plus.click()
-    await page.locator('.rt-phone').fill(uniqPhone())
-    await page.locator('.rt-footer__submit').click()
-    const noText = await page.locator('.rt-success__no').innerText({ timeout: 15_000 })
-    const docNo = noText.replace(/[^A-Za-z0-9-]/g, '').match(/XJ-[A-Za-z0-9-]+/)?.[0]
-    expect(docNo, `未从成功态解析出 XJ- 单号，原文=${noText}`).toBeTruthy()
+    // --- RT 下单（API 造数，买家 UI 已在 uni H5 承接）拿 docNo ---
+    const sub = await apiSubmitInquiry({
+      code: seed.storeCode,
+      wholesalerId: seed.wholesalerId,
+      skuId: seed.skuId,
+      qty,
+    })
+    expect(sub.code, `RT 下单失败 msg=${sub.message}`).toBe(0)
+    const docNo = sub.data.docNo
+    expect(docNo).toMatch(/^XJ-/)
 
     // --- WA 确认（UI 优先，API 兜底）---
     await enterWaInquiry(page, seed)
 
     // 定位到该单所在行（按 docNo 文案）
-    const row = page.locator('.el-table__row', { hasText: docNo! })
+    const row = page.locator('.el-table__row', { hasText: docNo })
     await expect(row).toBeVisible({ timeout: 15_000 })
 
     let confirmedViaUi = false
@@ -134,7 +103,7 @@ test.describe('sell S1 happy', () => {
 
     if (!confirmedViaUi) {
       // 兜底：经 API 确认（题面允许），保证断言可执行
-      const target = await findInquiryByDocNo(seed.waLogin.token, docNo!)
+      const target = await findInquiryByDocNo(seed.waLogin.token, docNo)
       const res = await apiConfirmInquiry(target.id, seed.waLogin.token)
       expect(res.code, `API 兜底确认失败 msg=${res.message}`).toBe(0)
     }
@@ -168,59 +137,24 @@ test.describe('sell S1 happy', () => {
   })
 })
 
-// ============================== S2 非法输入（UI 拦截） ==============================
-test.describe('sell S2 invalid', () => {
-  test('SELL-S2-01 非法输入·手机号格式错被前端拦截', async ({ page }) => {
-    const seed = await seedSellChain()
-    await openStoreWithSku(page, seed)
-
-    // 先记录当前询价数（应保持不变）
-    const before = await apiListInquiries(seed.waLogin.token)
-
-    // 选量 2 + 填非法手机号 12345
-    const plus = page.locator('.rt-stepper__btn').last()
-    await plus.click()
-    await plus.click()
-    await page.locator('.rt-phone').fill('12345')
-    await page.locator('.rt-footer__submit').click()
-
-    // 前端 PHONE_RE 拦截 → ElMessage.warning「请输入正确的 11 位手机号」，不进入成功态
-    await expect(page.getByText('请输入正确的 11 位手机号').first()).toBeVisible({ timeout: 8_000 })
-    await expect(page.locator('.rt-success__no')).toHaveCount(0)
-
-    // 不产生询价：WA 列表数量不变
-    await page.waitForTimeout(500)
-    const after = await apiListInquiries(seed.waLogin.token)
-    expect(after.length).toBe(before.length)
-  })
-
-  test('SELL-S2-01b 非法输入·未选数量提交按钮禁用', async ({ page }) => {
-    const seed = await seedSellChain()
-    await openStoreWithSku(page, seed)
-
-    // 未选任何数量 → 提交按钮 disabled（selectedCount===0），无法产生询价
-    await page.locator('.rt-phone').fill(uniqPhone())
-    await expect(page.locator('.rt-footer__submit')).toBeDisabled()
-  })
-})
-
 // ============================== S6 重复确认幂等 ==============================
 test.describe('sell S6 idempotency', () => {
-  test('SELL-S6-01 重复确认·第二次被拒且库存只扣一次', async ({ page }) => {
+  test('SELL-S6-01 重复确认·第二次被拒且库存只扣一次', async () => {
     const seed = await seedSellChain()
     const qty = 5
 
-    // RT 下单（UI）
-    await openStoreWithSku(page, seed)
-    const plus = page.locator('.rt-stepper__btn').last()
-    for (let i = 0; i < qty; i++) await plus.click()
-    await page.locator('.rt-phone').fill(uniqPhone())
-    await page.locator('.rt-footer__submit').click()
-    const noText = await page.locator('.rt-success__no').innerText({ timeout: 15_000 })
-    const docNo = noText.replace(/[^A-Za-z0-9-]/g, '').match(/XJ-[A-Za-z0-9-]+/)?.[0]
-    expect(docNo).toBeTruthy()
+    // RT 下单（API 造数，买家 UI 已在 uni H5 承接）
+    const sub = await apiSubmitInquiry({
+      code: seed.storeCode,
+      wholesalerId: seed.wholesalerId,
+      skuId: seed.skuId,
+      qty,
+    })
+    expect(sub.code).toBe(0)
+    const docNo = sub.data.docNo
+    expect(docNo).toMatch(/^XJ-/)
 
-    const target = await findInquiryByDocNo(seed.waLogin.token, docNo!)
+    const target = await findInquiryByDocNo(seed.waLogin.token, docNo)
 
     // 第一次确认 → 成功（P3 契约：确认即扣库存，询价停 CONFIRMED 等 WK 登记出库）
     const c1 = await apiConfirmInquiry(target.id, seed.waLogin.token)

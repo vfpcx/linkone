@@ -122,7 +122,6 @@ test.describe.serial('P5-A W5 视觉矩阵 · P5-A 新页', () => {
   let w1Id = ''
   let sku1Id = ''
   let sku1Name = ''
-  let storeCode = ''
   // 公告分工：1 号供登录弹窗 @1280、2 号供消息中心未读态、3 号供 OPS 列表「已下架」、4 号供弹窗 @375
   let annId2 = ''
   let annId3 = ''
@@ -170,7 +169,6 @@ test.describe.serial('P5-A W5 视觉矩阵 · P5-A 新页', () => {
     void s2
     void s3
 
-    storeCode = s1.storeCode
     sku1Id = s1.skuId
 
     // 撮合配置：主推 sku1 + 置顶 wa1（覆盖写幂等）
@@ -272,28 +270,10 @@ test.describe.serial('P5-A W5 视觉矩阵 · P5-A 新页', () => {
     await shot(page, 'p5a-w5-ta-settings-featured-1280')
   })
 
-  test('RT 店铺页 @1280（主推/置顶标识 + 前置排序态）', async ({ page }) => {
-    // 公开路由进店（无需登录）；置顶商户前置 + 商户内主推商品前置
-    await page.setViewportSize({ width: 1280, height: 800 })
-    await page.goto(`/rt/store?code=${storeCode}`)
-    await expect(page.locator('.rt-header__title')).toBeVisible()
-    const ws = page.locator('.rt-wholesaler')
-    await expect(ws).toHaveCount(2)
-    await expect(ws.first()).toHaveClass(/rt-wholesaler--pinned/)
-    await expect(ws.first().locator('.rt-tag--pinned')).toContainText('置顶')
-    await expect(ws.first().locator('.rt-sku').first().locator('.rt-tag--featured')).toContainText('主推')
-    await shot(page, 'p5a-w5-rt-store-featured-1280')
-  })
+  // （RT 店铺页 @1280 截图已随 admin RT 最小 H5 过渡态退役迁移：RT 正式端 uni H5 版见
+  //   e2e/rt-h5/rt-featured.spec.ts UNI-RT-FE02-UI 与 rt-visual.spec.ts 的 375 快照）
 
   // ---- 降档验证 @375×667（至少两页） ----
-
-  test('RT 店铺页 @375（移动优先降档）', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 })
-    await page.goto(`/rt/store?code=${storeCode}`)
-    await expect(page.locator('.rt-header__title')).toBeVisible()
-    await expect(page.locator('.rt-wholesaler').first().locator('.rt-tag--pinned')).toContainText('置顶')
-    await shot(page, 'p5a-w5-rt-store-featured-375')
-  })
 
   test('登录公告弹窗 @375（窄屏降档：弹窗溢出/截断检查）', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 })

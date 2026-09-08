@@ -126,7 +126,6 @@ test.describe.serial('P5-A 店铺撮合（主推/置顶）', () => {
   let sku2Name = ''
   let sku3Name = ''
   let wa1Name = ''
-  let wa2Name = ''
   let storeCode = ''
 
   /** 审批 WA 入驻并回查 wholesalerId（audit 响应可能不含该字段，以列表回查为准） */
@@ -160,7 +159,6 @@ test.describe.serial('P5-A 店铺撮合（主推/置顶）', () => {
 
     // WA2（普通对比商户）：1 条在售 SKU
     wa2 = await registerWaWithTarget(seed.tenantId)
-    wa2Name = wa2.wholesalerName
     w2Id = await approveWa(wa2)
     const s3 = await seedStockForWholesaler(ta.token, w2Id, 4)
     await confirmPendingInbound(wa2.login.token)
@@ -231,8 +229,9 @@ test.describe.serial('P5-A 店铺撮合（主推/置顶）', () => {
     expect(cfg.pinWaIds).toEqual([w1Id])
   })
 
-  test('FE-02 RT 店铺页展示主推/置顶标识 + 前置排序（API+UI）', async ({ page }) => {
-    // API 契约断言
+  test('FE-02 RT 聚合 API 契约（主推/置顶/排序）', async () => {
+    // API 契约断言。UI 渲染（置顶商户前置/主推徽标/tab 切换）已随 RT 过渡态退役迁移到
+    // RT 正式端 uni H5：e2e/rt-h5/rt-featured.spec.ts UNI-RT-FE02-UI。
     const store = ok(await apiGet<StoreFrontRow>('/rt/store', undefined, { code: storeCode }), 'RT 进店页')
     expect(store.featuredSkuIds).toEqual([sku1Id])
     expect(store.pinnedWholesalerIds).toEqual([w1Id])
@@ -246,28 +245,6 @@ test.describe.serial('P5-A 店铺撮合（主推/置顶）', () => {
     expect(store.wholesalers[0].skus[0].featured).toBe(true)
     expect(store.wholesalers[0].skus[1].skuId).toBe(sku2Id)
     expect(store.wholesalers[0].skus[1].featured).toBe(false)
-
-    // UI：公开路由进店
-    await page.goto(`/rt/store?code=${storeCode}`)
-    await expect(page.locator('.rt-header__title')).toBeVisible()
-    const ws = page.locator('.rt-wholesaler')
-    await expect(ws).toHaveCount(2)
-
-    const first = ws.first()
-    await expect(first).toHaveClass(/rt-wholesaler--pinned/)
-    await expect(first.locator('.rt-wholesaler__name')).toContainText(wa1Name)
-    await expect(first.locator('.rt-tag--pinned')).toContainText('置顶')
-    const firstSkus = first.locator('.rt-sku')
-    await expect(firstSkus.first().locator('.rt-sku__name')).toContainText(sku1Name)
-    await expect(firstSkus.first().locator('.rt-tag--featured')).toContainText('主推')
-    await expect(firstSkus.nth(1).locator('.rt-sku__name')).toContainText(sku2Name)
-    await expect(firstSkus.nth(1).locator('.rt-tag--featured')).toHaveCount(0)
-
-    const second = ws.nth(1)
-    await expect(second).not.toHaveClass(/rt-wholesaler--pinned/)
-    await expect(second.locator('.rt-wholesaler__name')).toContainText(wa2Name)
-    await expect(second.locator('.rt-tag--pinned')).toHaveCount(0)
-    await page.screenshot({ path: path.join(SCREEN_DIR, 'p5a-rt-store-featured.png'), fullPage: true })
   })
 
   // ============ 边界 / 异常 ============
@@ -336,7 +313,7 @@ test.describe.serial('P5-A 店铺撮合（主推/置顶）', () => {
     const cfg2 = ok(await apiGet<FeaturedCfg>('/tenant/storefront/featured', ta.token), '配置2')
     expect(cfg2.mainSkuIds).toEqual([sku1Id, sku2Id])
 
-    // 顺序更新：换序 [sku2, sku1] → 回显按新序；RT 店铺页首个 SKU 变为 sku2
+    // 顺序更新：换序 [sku2, sku1] → 回显按新序（RT 店铺页的前置渲染由 rt-h5 UNI-RT-FE02 承接）
     ok(
       await apiPut<never>(
         '/tenant/storefront/featured',
@@ -356,11 +333,6 @@ test.describe.serial('P5-A 店铺撮合（主推/置顶）', () => {
     await expect(mainBlock.locator('.featured-item').first()).toContainText(sku2Name)
     await expect(mainBlock.locator('.featured-item').nth(1)).toContainText(sku1Name)
     await expect(waBlock.locator('.featured-item', { hasText: wa1Name })).toBeVisible()
-
-    // RT 店铺页首个 SKU 变为 sku2（主推前置）
-    await page.goto(`/rt/store?code=${storeCode}`)
-    const ws = page.locator('.rt-wholesaler')
-    await expect(ws.first().locator('.rt-sku').first().locator('.rt-sku__name')).toContainText(sku2Name)
   })
 
   test('FE-07 非 TA 角色（WA）访问撮合配置 → 42101', async () => {

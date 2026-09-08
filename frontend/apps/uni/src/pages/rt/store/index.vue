@@ -51,6 +51,8 @@ function setQty(skuId: string, v: number): void {
 }
 
 function inc(sku: RtStoreSku): void {
+  // B-RT-03 缺货下单护栏：步进上限 = 当前库存，UI 无法选超量（后端下单不校验库存，超量会在 WA 确认时才被拒 50251）
+  if (qty(sku.skuId) >= sku.stockQty) return
   setQty(sku.skuId, qty(sku.skuId) + 1)
 }
 
@@ -61,7 +63,7 @@ function dec(sku: RtStoreSku): void {
 function onQtyInput(sku: RtStoreSku, e: any): void {
   const n = Math.floor(Number(e?.detail?.value ?? ''))
   if (Number.isNaN(n)) return
-  setQty(sku.skuId, n)
+  setQty(sku.skuId, Math.min(n, sku.stockQty))
 }
 
 function goBack(): void {
@@ -293,7 +295,13 @@ onPullDownRefresh(async () => {
                 :value="String(qty(sku.skuId) || '')"
                 @input="onQtyInput(sku, $event)"
               />
-              <view class="step step--plus" @click="inc(sku)">＋</view>
+              <view
+                class="step step--plus"
+                :class="{ 'step--off': qty(sku.skuId) >= sku.stockQty }"
+                @click="inc(sku)"
+              >
+                ＋
+              </view>
             </view>
           </view>
         </view>
@@ -656,6 +664,11 @@ onPullDownRefresh(async () => {
 
   &--disabled {
     opacity: 0.35;
+  }
+
+  &--off {
+    opacity: 0.35;
+    pointer-events: none;
   }
 }
 
