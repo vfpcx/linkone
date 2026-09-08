@@ -2,6 +2,15 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-08 · F7-5 admin 入库拍照补全（F7-1 电脑端收口 · proxy 表单接照片 + photoMode REQUIRED 必拍，CodeBuddy）
+
+> 前置：用户「继续 F7 波小项」→ 依候选次序第 1 项 = F7-1 progress 边界「admin ta/Inbound.vue proxy 表单接附件（电脑端场景）留后续小项」。
+
+- **现状盘点（定改动面）**：admin ta/Inbound.vue 是 WK/TA 电脑端入库工作台——R2 驳回弹窗（reject 附件 ≤5）与正向链登记弹窗（registerForward attachments）早已收照片，唯独**现场代建（proxy / POST /tenant/inbound = registerByWk）表单无附件区**；后端 F7-1 已给 registerByWk 支持 attachments ≤5 + batch-config 透传 photoMode（NONE/OPTIONAL/REQUIRED）→ **后端零改动**
+- **admin**：proxy 表单 + 现场照片区（photoMode NONE 关闭档隐藏 / OPTIONAL 选填 / REQUIRED 必拍端侧把关；复用 AttachmentUpload → POST /files 取回 URL）+ buildRegisterPayload 非空落 attachments + 提交成功复位（顺带补 resetForm 遗漏清 location 的既有小缺口）；photoMode REQUIRED 同语义**收口到正向链登记弹窗**（regValid 拦截 + 附件项必填 label + 必拍提示条 data-test register-photo-required-alert）
+- **验证**：admin vue-tsc 0 错 + read_lints 0 + vite build DONE（仅 legacy-sass 警告；后端无改动不需跑测试）
+- **边界与后续**：uni WK 移动端 create 页已在 F7-1 实现同 REQUIRED 把关，两端拍照开关行为一致；余下候选边界相互绑定或不明——admin RT 过渡态物理删除须先迁 E2E 基线（删即破坏 Playwright 回归，不随手删）、打印页边界不明确（核对单打印已在 admin forward 链）、US-WA-01b 容量告警与 E/P5-B 继续挂起
+
 ## 2026-09-07 · F7-4 WA 我的入库申请移动化（F7-3 边界兑现 · source=WA_SUBMIT 正向申请链，CodeBuddy）
 
 > 前置：按「从 1 开始按顺序做」清单第 4 项（用户选 D：自主按 roadmap 剩余边界推进）——F7-3 progress 边界明示的「我的申请」移动化（WA_SUBMIT 正向链提交/撤回，admin wa/Inbound.vue 我的申请视图 + InboundSubmitDialog 为电脑端口径）。
