@@ -286,6 +286,8 @@ const form = reactive({
   expiryDate: '' as string,
   // P5-D C2 货位（locationEnabled=1 时登记必填 50822；自由文本 ≤64）
   location: '' as string,
+  // P5-F7-1 现场照片（拍照开关 REQUIRED 时必传 ≤5；AttachmentUpload → POST /files 取回 URL）
+  attachments: [] as string[],
 })
 
 const rules: FormRules = {
@@ -329,6 +331,8 @@ const resetForm = () => {
   form.batchNo = ''
   form.productionDate = ''
   form.expiryDate = ''
+  form.location = ''
+  form.attachments = []
   formRef.value?.clearValidate()
 }
 
@@ -346,6 +350,8 @@ const myTenantId = computed(() => {
 const batchEnabled = ref<boolean | null>(null)
 /** 货位功能开关（C2 25-p5-c-c2 §4.1：null=拉取失败保守显示；false 关闭档隐藏零字段） */
 const locationEnabled = ref<boolean | null>(null)
+/** 入库拍照开关（P5-F7-1 batch-config 透传：NONE 关闭 / OPTIONAL 选填 / REQUIRED 必拍；null=拉取失败保守显示选填） */
+const photoMode = ref<'NONE' | 'OPTIONAL' | 'REQUIRED' | null>(null)
 
 const fetchBatchConfig = async () => {
   if (!myTenantId.value) return
@@ -353,6 +359,7 @@ const fetchBatchConfig = async () => {
     const cfg = await batchApi.config(myTenantId.value)
     batchEnabled.value = cfg.batchEnabled === 1
     locationEnabled.value = cfg.locationEnabled === 1
+    photoMode.value = cfg.photoMode ?? null
   } catch {
     // 42001/网络异常：保持 null（保守显示批次字段）
   }
@@ -427,6 +434,11 @@ const onSubmit = async () => {
   if (!valid) return
   if (batchFieldError.value) {
     ElMessage.warning(batchFieldError.value)
+    return
+  }
+  // P5-F7-1 拍照开关 REQUIRED：现场照片必传（端侧把关，与 WK 移动端 create 一致）
+  if (photoMode.value === 'REQUIRED' && !form.attachments.length) {
+    ElMessage.warning('店铺已开启必拍开关：现场照片必传（≤5 张）')
     return
   }
 
@@ -689,6 +701,8 @@ const regValid = computed(() => {
   if (a === undefined || a === null || !Number.isInteger(Number(a)) || Number(a) <= 0) return false
   if (regDiffExceeded.value) return false
   if (regDiff.value !== 0 && !registerForm.remark.trim()) return false
+  // P5-F7-1 拍照开关 REQUIRED：现场登记照片必传（与 proxy 表单 / WK 移动端 create 一致）
+  if (photoMode.value === 'REQUIRED' && !registerForm.attachments.length) return false
   return true
 })
 
@@ -1226,6 +1240,15 @@ onMounted(() => {
                 />
               </el-form-item>
             </div>
+            <!-- P5-F7-1 现场照片（拍照开关 REQUIRED 必拍；NONE 关闭档隐藏；与 WK 移动端 create 一致） -->
+            <div v-if="photoMode !== 'NONE'" class="inbound-photo" data-test="proxy-attachments">
+              <el-form-item
+                :label="photoMode === 'REQUIRED' ? '现场照片 *（店铺必拍开关已开启）' : '现场照片（选填 ≤5 张）'"
+                class="inbound-photo__item"
+              >
+                <AttachmentUpload v-model="form.attachments" :max="5" />
+              </el-form-item>
+            </div>
             <p v-if="batchFieldError" class="batch-error" data-test="proxy-batch-error">
               {{ batchFieldError }}
             </p>
@@ -1477,7 +1500,18 @@ onMounted(() => {
             />
           </el-form-item>
 
-          <el-form-item label="照片附件（选填 ≤5 张）">
+          <el-alert
+            v-if="photoMode === 'REQUIRED' && !registerForm.attachments.length"
+            type="warning"
+            :closable="false"
+            class="reg-alert"
+            data-test="register-photo-required-alert"
+            title="店铺已开启必拍开关：请上传现场登记照片（≤5 张）后方可登记"
+          />
+          <el-form-item
+            :label="photoMode === 'REQUIRED' ? '照片附件 *（必拍开关已开启）' : '照片附件（选填 ≤5 张）'"
+            data-test="register-attachments"
+          >
             <AttachmentUpload v-model="registerForm.attachments" :max="5" />
           </el-form-item>
         </el-form>
@@ -1780,6 +1814,13 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: var(--space-4);
   align-items: flex-end;
+}
+.inbound-photo {
+  margin-top: var(--space-3);
+  max-width: 520px;
+}
+.inbound-photo__item {
+  margin-bottom: 0;
 }
 .inbound-form__item {
   flex: 1 1 200px;
