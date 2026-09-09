@@ -90,7 +90,7 @@ PII 关卡重构（16 §4.2）：
 | W8-L2 | V34 观察期 | 无生产环境 → 观察对象不存在，**挂起**（W6 先例：用户拍板无生产环境不设观察期）；§8.5 其余闸门项均已在本地闭环 | 挂起 |
 | W8-L3 | prod 冒烟 | prod profile 实机冒烟（PII_DEK_V1 fail-fast + 三链路 + reveal 解密）未做 | 高（上线前） |
 | W8-L4 | CVE 复扫 | 🟡 **D 波复扫已执行并修复 1 项**（2026-09-03，详见 `06-dependency-cve-scan.md` §7）：Boot 3.5.16（3.5.x 终版）内置 Tomcat 10.1.55 受 CVE-2026-55956(中)/CVE-2026-59083(低) → `pom.xml` 加 `tomcat.version=10.1.59`；POI 5.4.1 / PDFBox 2.0.33 / OpenHTMLtoPDF 1.0.10 等新增 22 依赖核对无未修复 CVE；基线依赖树已同步（165 依赖）。**OWASP dep-check / Trivy 工具门禁待正式环境执行**（命令见 06 §7.4） | 高（上线前，工具门禁） |
-| W8-L5 | graceful shutdown | 🟡 **配置已落地（2026-09-03 D 波）**：`application.yml` 加 `server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s`；Windows 停服手测手册见 §8.5.2（本机需重启服务后人工停服观测，执行命令属人工环节） | 中（上线前） |
+| W8-L5 | graceful shutdown | ✅ **手测通过（2026-09-09）**：配置已落地（2026-09-03 D 波，`application.yml` `server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s`）；本地独立实例（profiles dev,local @8088，主 dev 10:08 后同配置运行）实测：`POST /actuator/shutdown`（等效 context.close → 优雅停服链路）→ 日志 `Commencing graceful shutdown. Waiting for active requests to complete` → `Pausing ProtocolHandler` → 无在途 `Graceful shutdown complete` → 进程退出 + 8088 释放（4 项期望全过）；Windows 停服手测手册见 §8.5.2 | 中（上线前，✅ 已闭环） |
 | W8-L6 | Redis ACL | 6379 仍 0.0.0.0；部署配置需 bind 回环 + protected-mode + requirepass（对齐 P4-L5） | 高（上线前） |
 
 ### 8.5 部署侧操作手册（2026-09-03 D 波固化，W8-L1 / W8-L5）

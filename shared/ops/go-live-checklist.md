@@ -53,7 +53,7 @@ mvn spring-boot:run
 
 - 期望 4 项：日志 `Commencing graceful shutdown. Waiting for active requests to complete` → 新请求停止受理 → 无在途即退/有在途 ≤30s 完成后退 → 8080 释放（`Get-NetTCPConnection -LocalPort 8080` 无 LISTEN，curl 拒绝连接）。
 - 超时负路径（边界认知）：在途 >30s 日志应现 `Timeout during graceful shutdown` 后强制退出（本项目导出量级不触发）。
-- 状态：⬜（通过后回填 13 §8.5 表 W8-L5 → ✅）
+- 状态：✅ 2026-09-09 本地实测通过（独立 8088 实例：`POST /actuator/shutdown` 触发，日志出 `Commencing graceful shutdown. Waiting for active requests to complete` → `Pausing ProtocolHandler` → `Graceful shutdown complete` → 进程退出、8088 释放；13 §8.5 表 W8-L5 已回填）
 
 ## 4. Redis 实际启用密码 + ACL（W8-L6）
 

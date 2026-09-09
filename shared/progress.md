@@ -2,6 +2,20 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-09 · W8-L5 graceful shutdown 人工停服实测通过（X 期上线检查单本地闭环，CodeBuddy）
+
+> 前置：F7-7 收官后 roadmap 本地可执行项仅剩 X 期 W8-L5 graceful shutdown 手测（清单 `shared/ops/go-live-checklist.md` §3 + 手册 13 §8.5.2），用户「继续下一步吧」。
+
+- **前置确认**：`application.yml` `server.shutdown: graceful` + `spring.lifecycle.timeout-per-shutdown-phase: 30s` 已落地（09-03 D 波）；当前主 dev 8080（PID 78160，09-08 10:12 启动）晚于配置落地 → 已以 graceful 配置运行
+- **实测设计**：Windows 无 SIGTERM 原语；`Stop-Process`/`taskkill /f` 属强杀不触发 shutdown hook；`jcmd` 实测报 `Unknown diagnostic command`（VM.exit 非 Java 21 标准诊断命令）→ 用 Spring 官方等效触发 = actuator shutdown endpoint（`context.close()` → 同一优雅停服链路：先停 WebServer 等接入请求再销毁 Bean），经 `-Dspring-boot.run.arguments` 注入启动参数，零入库改动
+- **执行**：起独立验证实例（profiles dev,local @8088，stdout/stderr 重定向 `backend/target/` 不入库；首启 59732 与二次并发启动撞 8088 端口后清理，最终验证实例 51496）→ `curl.exe -X POST /actuator/shutdown` 返回 `{"message":"Shutting down, bye..."}` → 观测 4 项全过：
+  1. 日志 `Commencing graceful shutdown. Waiting for active requests to complete`（10:11:26.283，GracefulShutdown INFO）✅
+  2. 随即 `Pausing ProtocolHandler [http-nio-8088]` = 停止受理新请求 ✅
+  3. 无在途 → `Graceful shutdown complete`（10:11:26.288）后进程退出 ✅（在途 ≤30s 保护属 Spring 内置、导出量级不触发，按手册既定边界认知记录）
+  4. 进程 exited + 8088 free（`Get-NetTCPConnection` 无 LISTEN）✅
+- **环境踩坑（本地，不入仓库）**：① `jcmd <pid> VM.exit 0` 报 Unknown diagnostic command → 改 actuator shutdown 等效触发；② PowerShell `curl` 是 Invoke-WebRequest 别名（无 -s/-X/-m）→ 显式 `curl.exe`；③ Remove-Item 被 safe-delete shim 拦致首条复合命令半截执行——实例实际已启动、二次启动因 8088 被占 BUILD FAILURE（识别后清理重启）
+- **回填**：`go-live-checklist.md` §3 → ✅（2026-09-09）+ `13-pii-w8-delivery-report.md` §8.5 表 W8-L5 → ✅ + `00-roadmap`（X 行 L5 ✅ / 上线检查单余项摘 graceful shutdown / 变更记录 v4.10）；**X 期剩 L2（观察期无生产观测对象挂起）/ L3（prod 冒烟）/ L6（Redis ACL）待正式环境**
+
 ## 2026-09-09 · F7-7 admin RT 过渡态物理删除（Backlog 兑现 · 买家 UI 唯一入口 = uni 正式端，CodeBuddy）
 
 > 前置：F7-6 progress 边界「admin RT 过渡态物理删除已具备条件，转 Backlog 待拍板」→ 用户拍板执行（「开始执行吧」）。

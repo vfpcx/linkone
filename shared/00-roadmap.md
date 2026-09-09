@@ -17,7 +17,7 @@
 | **P3** | 完整单据与履约异常 | ✅ 已完成 |
 | **P4** | 计费结算 | ✅ 已完成 |
 | **P5** | 运营增强与正式多端 | 🟡 收官在即（**F 波正式多端 ✅ 收官 2026-09-07**：F2 RT 买家 / F3 WA+WE / F4 ST / F5 WK（W1 出入库 + W2 库存·批次·临期·盘点）/ F6 RT 登录 五业务子波全链闭合，后端全量 **536 绿**；仅 E/P5-B OSS+ASR 挂起待云账号与选型）；回看：**P5-A 全绿收官** + **P5-C Dashboard(TA+OPS) 真实接口 ✅** + **TA 一账号多仓收敛 ✅** + **B D56 商品档案 ✅** + **C 小项池 C1/C2/C3 ✅** + **D X 期本地收尾 ✅**；2026-09-02 拍板排期 **A ✅ → B ✅ → C ✅ → D ✅ X 期本地收尾 → F 正式多端**；E/P5-B OSS+ASR 维持挂起）|
-| **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅；部署侧 W8-L1~L6：**D 波本地项 L1 ✅ 还原演练脚本固化 + L4 ✅ CVE 复扫修复（Tomcat 10.1.59）+ L5 🟡 配置落地（手测待重启）**，L2/L3/L6 仍待环境）|
+| **X** | 生产硬化（贯穿，上线前必过）| 🟡 收尾（PII 三段式全 ✅；部署侧 W8-L1~L6：**L1 ✅ 还原演练脚本固化 + L4 ✅ CVE 复扫修复（Tomcat 10.1.59）+ L5 ✅ graceful shutdown 实测通过（2026-09-09 本地闭环）**，剩 L2/L3/L6 待环境）|
 
 ---
 
@@ -87,7 +87,7 @@
   - 产品决策 D1-D4 全部定稿（wa/Inquiry 查全号放开、wa/Staff 全号显式例外 G-8.6）
 - 其余硬化项 ✅ 代码落地（`test-plan/09-hardening-w1-report.md`）：H2 Redis 密码+ACL（prod fail-fast，ACL username 留注释）/ H3 Sa-Token active-timeout（主配 1800s）/ H4 SQL stdout 关闭+日志 profile 化 / H5 Boot 3.2.5→3.5.16 CVE 根治
 - **D 波 · X 期本地收尾 ✅（2026-09-03，不待环境项全闭环）**：W8-L1 还原演练脚本固化 `shared/ops/` 并全量演练 PASS（37 表 27700 行 + PII 8 表逐行值比对；V33 反向 rename 回滚 SQL 同入库，适用窗口 V33 后 V34 前）/ W8-L4 CVE 复扫修复真实 CVE（Boot 3.5.16 BOM Tomcat 10.1.55 → `tomcat.version=10.1.59`，CVE-2026-55956/59083；依赖树基线归档同步，其余核对项无未修复）/ W8-L5 graceful shutdown 硬化（`server.shutdown: graceful` + `timeout-per-shutdown-phase: 30s`，Windows 停服手测手册 13 报告 §8.5.2）；记录：roadmap v3.3 + 06 §7 + 13 §8.5 + progress
-- 上线检查单余项（**命令已命令化 `shared/ops/`，待正式环境执行**，`task_plan.md` 验收条目）：OWASP dep-check/Trivy/osv-scanner 工具门禁（`shared/ops/cve-scan.ps1`，命令源 06 §7.4）、prod 冒烟、graceful shutdown 人工停服实测（`shared/ops/go-live-checklist.md` §停服实测，手册 13 §8.5.2）、Redis 实际启用密码 + ACL（W8-L6，配置点见 `go-live-checklist.md`）——2026-09-08 F7-6 将全部命令固化为可执行脚本/核对单，正式环境逐项执行回填
+- 上线检查单余项（**命令已命令化 `shared/ops/`，待正式环境执行**，`task_plan.md` 验收条目）：OWASP dep-check/Trivy/osv-scanner 工具门禁（`shared/ops/cve-scan.ps1`，命令源 06 §7.4）、prod 冒烟、Redis 实际启用密码 + ACL（W8-L6，配置点见 `go-live-checklist.md`）——2026-09-08 F7-6 将全部命令固化为可执行脚本/核对单，正式环境逐项执行回填；graceful shutdown 人工停服实测（`go-live-checklist.md` §3）已由本地实测闭环（2026-09-09 ✅，证据见 13 §8.5 W8-L5）
 - 对应缺陷清单 D-14（见 `test-plan/03-defect-findings.md`）
 
 ---
@@ -138,3 +138,4 @@ P0 账号/租户/安全 ──> P1 卖货闭环 ──> P2 入驻+定价 ──>
 | v4.7 | 2026-09-08 | **F7-5 admin 入库拍照补全（F7-1 电脑端收口）**：ta/Inbound.vue 现场代建 proxy 表单接照片（photoMode NONE/OPTIONAL/REQUIRED 联动，REQUIRED 必拍端侧把关）+ 正向链登记弹窗 REQUIRED 收口；后端零改动；admin typecheck/lint 0 错 + build DONE；详见 progress 2026-09-08 F7-5 |
 | v4.8 | 2026-09-08 | **F7-6 E2E 基线迁 uni（admin RT 过渡态退役前置）**：Playwright 双工程（chromium admin 5173 + uni-rt RT 正式端 uni H5 5175 hash 路由 390×844）；买家 UI 旅程迁 `e2e/rt-h5/`（rt-buy/rt-journeys/rt-featured/rt-visual 9 例），admin 4 spec 瘦身纯 API 契约；rt-h5 复用 helpers 造数零复制；uni store 页落地 B-RT-03 步进钳制（上限=库存 + step--off）；验证 chromium **122 全绿** + uni-rt **9 全绿**；admin RT 过渡态物理删除转 Backlog（已具备条件待拍板）；**X 期生产硬化余项命令化** `shared/ops/`（cve-scan.ps1 + go-live-checklist.md，dep-check/Trivy/osv/prod 冒烟/停服实测/Redis ACL 命令固化待正式环境执行）；详见 progress 2026-09-08 F7-6 |
 | v4.9 | 2026-09-09 | **F7-7 admin RT 过渡态物理删除（Backlog 兑现 · RT 收口）**：删 admin `views/rt/Store.vue`（进店浏览/提交询价/我的价目 UI）+ `api/rt.ts`（rtApi 仅供过渡态页消费）+ router 两条 /rt 公开路由（注释改指向 uni H5 正式端）；买家 UI 唯一入口 = RT 正式端 uni H5 `/#/pages/rt/store/index?code=`；后端零改动（/rt/** 契约与 E2E 保留；store-qr qrUrl 占位域名不指 admin）；e2e/README 双工程表 + playwright.config 注释收口；admin vue-tsc 0 错 + read_lints 0 + build DONE + chromium **122 全绿**（B-WA-04 种子 90001 系 Redis 瞬断 flake 重跑绿）；详见 progress 2026-09-09 F7-7 |
+| v4.10 | 2026-09-09 | **X 期 W8-L5 graceful shutdown 人工停服实测通过（本地闭环）**：独立 8088 验证实例（profiles dev,local + shutdown endpoint，日志入 backend/target 不入库）`POST /actuator/shutdown` 触发优雅停服 → 日志 `Commencing graceful shutdown. Waiting for active requests to complete` → `Pausing ProtocolHandler` → 无在途 `Graceful shutdown complete` → 进程退出 + 8088 释放（4 项期望全过，等效 Ctrl+C/SIGTERM→shutdown hook 路径）；主 dev 实例 09-08 重启于配置落地后同配置运行；Windows `jcmd` 无 VM.exit、Stop-Process/taskkill /f 属强杀不触发 hook，故用 actuator shutdown 等效触发（context.close 同链路）；回填 `go-live-checklist.md` §3 ✅ + 13 §8.5 W8-L5 ✅ + roadmap X 行；X 期剩 L2/L3/L6 待正式环境；详见 progress 2026-09-09 W8-L5 |
