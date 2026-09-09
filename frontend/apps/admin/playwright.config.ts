@@ -12,7 +12,7 @@ import { defineConfig, devices } from '@playwright/test'
  * 工程：
  *  - chromium：admin 端 UI（OPS/TA/WA/WK 电脑端，5173），含 e2e/*.spec.ts（rt-h5/ 除外）
  *  - uni-rt：RT 买家正式端 H5（uni，5175，hash 路由），只跑 e2e/rt-h5/*.spec.ts
- *    ——admin 内 RT 最小 H5 过渡态退役后，买家 UI 基线即由本工程承接（进店/下单/卖光/空店/撮合展示）。
+ *    ——admin 内 RT 最小 H5 过渡态已随 F7-7 物理删除，买家 UI 基线即由本工程承接（进店/下单/卖光/空店/撮合展示）。
  *
  * 详见 e2e/README.md。
  */

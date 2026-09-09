@@ -23,20 +23,8 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true, title: '找回密码' },
   },
 
-  // RT 扫码进店 H5（phase-1 B2/C2 · 移动优先 · 公开无需登录）
-  // 进店码走 query：/rt/store?code=<租户简码>；兼容 path：/rt/:code
-  {
-    path: '/rt/store',
-    name: 'rt-store',
-    component: () => import('@/views/rt/Store.vue'),
-    meta: { public: true, title: '进店浏览' },
-  },
-  {
-    path: '/rt/:code',
-    name: 'rt-store-code',
-    component: () => import('@/views/rt/Store.vue'),
-    meta: { public: true, title: '进店浏览' },
-  },
+  // RT 扫码进店已迁 RT 正式端 uni H5（admin RT 最小 H5 过渡态 F7-7 物理删除）
+  // 进店 URL 见 uni src/pages.json：/#/pages/rt/store/index?code=<店铺码>
 
   // TA 工作台
   {

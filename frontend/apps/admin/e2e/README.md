@@ -5,14 +5,14 @@ phase-1 卖货整链（SELL/B-x）、P2 入驻生态 4 链路（ONB-E2E-01~04）
 P4 计费、P5-A 公告/撮合与视觉验收截图。
 迁移自历史临时脚本 `.e2e-tmp/smoke.py` + `.e2e-tmp/extra.py`，逐条对齐选择器与断言。
 
-## 双工程结构（F7-6 起，admin RT 过渡态退役前置）
+## 双工程结构（F7-6 起；F7-7 已物理删除 admin RT 过渡态）
 
 一个 `playwright.config.ts` 同时跑两个 project，职责划分：
 
 | project | baseURL | 覆盖 | 内容 |
 | --- | --- | --- | --- |
 | `chromium` | `http://localhost:5173`（admin dev）| `e2e/*.spec.ts`（`rt-h5/` 除外）| admin 端 UI（OPS/TA/WA/WK/ST 电脑端）+ **纯 API 契约断言**（RT 进店页/库存/撮合契约留在 admin 侧）|
-| `uni-rt` | `http://localhost:5175`（uni dev，**hash 路由**）| `e2e/rt-h5/*.spec.ts` | RT 买家正式端（uni H5）UI 基线——admin 内 RT 最小 H5 过渡态退役后，买家 UI（进店/下单/卖光空态/空店/撮合展示/截图）由本工程承接 |
+| `uni-rt` | `http://localhost:5175`（uni dev，**hash 路由**）| `e2e/rt-h5/*.spec.ts` | RT 买家正式端（uni H5）UI 基线——F7-7 起 admin 内 RT 最小 H5 过渡态已物理删除，买家 UI（进店/下单/卖光空态/空店/撮合展示/截图）唯一由本工程承接 |
 
 > 迁移口径：**「UI 可观测旅程」从 admin 迁到 uni-rt**；admin 只保留 API 契约断言
 > （`fetchRtStore` + `stockOfSku` / 撮合聚合契约）。避免双端重复造数——
