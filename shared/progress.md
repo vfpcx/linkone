@@ -2,6 +2,16 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-09 · F7-7 admin RT 过渡态物理删除（Backlog 兑现 · 买家 UI 唯一入口 = uni 正式端，CodeBuddy）
+
+> 前置：F7-6 progress 边界「admin RT 过渡态物理删除已具备条件，转 Backlog 待拍板」→ 用户拍板执行（「开始执行吧」）。
+
+- **删除面盘点（纯前端收敛）**：admin 内 RT 最小 H5 过渡态 = `views/rt/Store.vue`（进店浏览/提交询价/「我的价目」UI）+ `api/rt.ts`（rtApi.getStore/submitInquiry/getMyPriceList 仅供该页消费）+ router 两条公开路由（`/rt/store`、`/rt/:code`）；全 src 检索 rtApi/Store.vue 引用仅此三处，mocks/stores/api index 零引用；TA Settings 店铺码纯文案展示、views/ta 无跳转过渡态入口；admin e2e spec/helpers 的 `/rt/store` 均为直打后端公开端点（API 契约，保留）；后端 `store-qr` 的 qrUrl = 占位域名 `https://cangchu.com/store/<code>`（TODO 注释，不指 admin）→ 扫码链路零影响 → **后端零改动**
+- **执行**：删 `views/rt/Store.vue` + `api/rt.ts`（views/rt/ 目录随之空）+ router 两路由；路由位注释改为「RT 扫码进店已迁 RT 正式端 uni H5（`/#/pages/rt/store/index?code=`，见 uni src/pages.json）」
+- **文档措辞收口**：e2e/README「双工程结构」标题与 uni-rt 行改「F7-7 起已物理删除，买家 UI 唯一由本工程承接」；playwright.config.ts 头注释同步；rt-h5 各 spec/迁移来源注释属历史描述保留
+- **验证**：admin vue-tsc 0 错 + read_lints 0 + vite build DONE（32.7s）+ chromium **122 全绿**（121 直绿 + B-WA-04 种子 `90001 系统繁忙` 1 flake——同 F7-6 Memurai/Redis 写连接瞬断症状，--grep 单跑绿，非本次改动引入）；uni-rt 无改动
+- **边界与后续**：买家 UI 唯一入口 = RT 正式端 uni H5；E2E 双工程基线保持；admin 与 uni 共享 api-types 的 RT 类型不动；F7 波 RT 收口完毕，剩余 Backlog 清空（E/P5-B、capacity 快照 job、US-WA-01b 继续挂起）
+
 ## 2026-09-08 · F7-6 E2E 基线迁 uni（admin RT 过渡态退役前置 · 双工程 Playwright + B-RT-03 步进钳制，CodeBuddy）
 
 > 前置：用户「E2E基线迁和生产硬化余项吧」→ 依候选次序第 1 项 = F7-5 progress 边界「admin RT 过渡态物理删除须先迁 E2E 基线（删即破坏 Playwright 回归）」；第 2 项 = X 期生产硬化可落地部分（本波命令化，见下）。
