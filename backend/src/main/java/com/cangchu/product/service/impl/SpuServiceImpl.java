@@ -14,6 +14,7 @@ import com.cangchu.product.entity.Spu;
 import com.cangchu.product.mapper.SkuMapper;
 import com.cangchu.product.mapper.SpuMapper;
 import com.cangchu.product.service.SpuService;
+import com.cangchu.product.spec.SpuSpecSchemaSupport;
 import com.cangchu.product.vo.SpuCategoryGroupVo;
 import com.cangchu.product.vo.SpuVo;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class SpuServiceImpl implements SpuService {
     private final SkuMapper skuMapper;
     private final AuthService authService;
     private final SnowflakeIdUtil snowflakeIdUtil;
+    private final SpuSpecSchemaSupport specSchemaSupport;
 
     @Override
     public Page<SpuVo> page(Long operatorId, int page, int size, String keyword,
@@ -53,6 +55,8 @@ public class SpuServiceImpl implements SpuService {
         Page<Spu> p = spuMapper.selectPage(
                 new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), MAX_PAGE_SIZE)),
                 new LambdaQueryWrapper<Spu>()
+                        // P6/V42：OPS 标品库仅 PLATFORM 行；商户自建 TENANT 行属租户私有，OPS 不可见
+                        .eq(Spu::getOwnerType, Spu.OWNER_PLATFORM)
                         .and(keyword != null && !keyword.isBlank(), w -> w
                                 .like(Spu::getName, keyword.trim())
                                 .or().like(Spu::getSpuCode, keyword.trim()))
@@ -81,6 +85,7 @@ public class SpuServiceImpl implements SpuService {
         }
         Spu spu = new Spu();
         spu.setId(snowflakeIdUtil.nextId());
+        spu.setOwnerType(Spu.OWNER_PLATFORM);
         spu.setName(dto.getName().trim());
         spu.setCategoryL1(dto.getCategoryL1());
         spu.setCategoryL2(dto.getCategoryL2());
@@ -108,7 +113,7 @@ public class SpuServiceImpl implements SpuService {
     @Transactional
     public void offline(Long operatorId, Long spuId) {
         requireOps(operatorId);
-        Spu spu = getOrThrow(spuId);
+        Spu spu = getPlatformOrThrow(spuId);
         if (!Spu.STATUS_ACTIVE.equals(spu.getStatus())) {
             throw new BizException(ErrorCode.SPU_STATE_INVALID);
         }
@@ -123,14 +128,14 @@ public class SpuServiceImpl implements SpuService {
     @Transactional
     public void merge(Long operatorId, Long sourceSpuId, Long targetSpuId) {
         requireOps(operatorId);
-        Spu source = getOrThrow(sourceSpuId);
+        Spu source = getPlatformOrThrow(sourceSpuId);
         if (!Spu.STATUS_ACTIVE.equals(source.getStatus())) {
             throw new BizException(ErrorCode.SPU_STATE_INVALID);
         }
         if (targetSpuId == null || targetSpuId.equals(sourceSpuId)) {
             throw new BizException(ErrorCode.SPU_MERGE_TARGET_INVALID);
         }
-        Spu target = getOrThrow(targetSpuId);
+        Spu target = getPlatformOrThrow(targetSpuId);
         if (!Spu.STATUS_ACTIVE.equals(target.getStatus())) {
             throw new BizException(ErrorCode.SPU_MERGE_TARGET_INVALID);
         }
@@ -152,6 +157,11 @@ public class SpuServiceImpl implements SpuService {
     @Override
     public Spu requireLinkable(Long spuId) {
         Spu spu = getOrThrow(spuId);
+        // P6/V42：商户自建聚合 SPU 的 SKU 只能经「规格批量生成」落库，禁止在 SKU 表单单独挂接
+        // （防跨租户把 SKU 挂到他人自建 SPU，也保持聚合 SKU 的组合唯一性由生成链独占）
+        if (Spu.OWNER_TENANT.equals(spu.getOwnerType())) {
+            throw new BizException(ErrorCode.SPU_NOT_MANUALLY_LINKABLE);
+        }
         if (!Spu.STATUS_ACTIVE.equals(spu.getStatus())) {
             throw new BizException(ErrorCode.SPU_NOT_LINKABLE);
         }
@@ -163,6 +173,9 @@ public class SpuServiceImpl implements SpuService {
         Page<Spu> p = spuMapper.selectPage(
                 new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), MAX_PAGE_SIZE)),
                 new LambdaQueryWrapper<Spu>()
+                        // P6/V42：公开目录只出 PLATFORM 标品；TENANT 自建聚合 SPU 属租户私有，
+                        // 走 /api/v1/tenant/spus 自己的列表，绝不出现在跨租户可见（且免登录）的目录里
+                        .eq(Spu::getOwnerType, Spu.OWNER_PLATFORM)
                         .eq(Spu::getStatus, Spu.STATUS_ACTIVE)
                         .and(keyword != null && !keyword.isBlank(), w -> w
                                 .like(Spu::getName, keyword.trim())
@@ -192,6 +205,18 @@ public class SpuServiceImpl implements SpuService {
     private Spu getOrThrow(Long id) {
         Spu spu = spuMapper.selectById(id);
         if (spu == null) {
+            throw new BizException(ErrorCode.SPU_NOT_FOUND);
+        }
+        return spu;
+    }
+
+    /**
+     * OPS 侧标品操作取数（P6/V42）：仅 PLATFORM 行——TENANT 自建 SPU 不在 OPS 管辖内，
+     * 以 SPU_NOT_FOUND 假装不存在（防枚举，CUSTOMER_NOT_FOUND 先例）。
+     */
+    private Spu getPlatformOrThrow(Long id) {
+        Spu spu = getOrThrow(id);
+        if (!Spu.OWNER_PLATFORM.equals(spu.getOwnerType())) {
             throw new BizException(ErrorCode.SPU_NOT_FOUND);
         }
         return spu;
@@ -232,6 +257,10 @@ public class SpuServiceImpl implements SpuService {
     private SpuVo toVo(Spu s, long refCount) {
         return SpuVo.builder()
                 .id(s.getId())
+                .ownerType(s.getOwnerType())
+                .tenantId(s.getTenantId())
+                .wholesalerId(s.getWholesalerId())
+                .specSchema(specSchemaSupport.toVo(specSchemaSupport.readSchema(s.getSpecSchema())))
                 .spuCode(s.getSpuCode())
                 .name(s.getName())
                 .categoryL1(s.getCategoryL1())

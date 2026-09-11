@@ -317,6 +317,7 @@ public class SkuServiceImpl implements SkuService {
                 .spuCategoryL2(s.getSpuCategoryL2())
                 .name(s.getName())
                 .spec(s.getSpec())
+                .specKey(s.getSpecKey())
                 .unitPrice(s.getUnitPrice())
                 .moqPrice(s.getMoqPrice())
                 .moqQty(s.getMoqQty())

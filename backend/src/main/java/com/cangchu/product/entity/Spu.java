@@ -28,9 +28,29 @@ public class Spu {
     public static final String STATUS_OFFLINE = "OFFLINE";
     public static final String STATUS_MERGED = "MERGED";
 
+    // ==================== 归属常量（P6 混合 SPU，V42） ====================
+    /** OPS 平台标品（既有语义，默认） */
+    public static final String OWNER_PLATFORM = "PLATFORM";
+    /** 租户/商户自建聚合 SPU（带 tenant_id + wholesaler_id，仅本租户可见） */
+    public static final String OWNER_TENANT = "TENANT";
+
     @TableId(type = IdType.ASSIGN_ID)
     @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
+
+    /** 归属类型：PLATFORM / TENANT（V42；默认 PLATFORM） */
+    private String ownerType;
+
+    /** 所属租户（仅 owner_type=TENANT 非空；spus 不纳入 TenantLine，须显式过滤） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long tenantId;
+
+    /** 所属商户（仅 owner_type=TENANT 非空） */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long wholesalerId;
+
+    /** 规格模板 JSON（V42）：[{"name":"包装","options":["5L/桶"]}]；仅 TENANT 行非空 */
+    private String specSchema;
 
     /** 平台编码（OPS 填 / 自动 GSPU-xxx；全局唯一） */
     private String spuCode;

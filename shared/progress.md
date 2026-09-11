@@ -2,6 +2,19 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-10 · P6 商品规格模型后端落地（SKU 之上加 SPU 聚合层 + 结构化规格，CodeBuddy）
+
+> 决策（2026-09-09 澄清，三项全选）：SPU **混合归属** —— 保留 OPS 平台标品 + 支持 TA/商户自建聚合 SPU；同一 SPU 下不同 SKU 携带结构化规格并各自独立；**库存/单据/交易链一律继续按 skus.id 流转**。本轮范围 = 后端全套（V42 + 实体/DTO/Service/Controller + 场景测试 + 全量回归）+ 前端契约类型同步（`@cangchu/api-types`）。
+
+- **模型（V42）**：`spus` 加 `owner_type`（默认 `PLATFORM`，既有行零迁移）/ `tenant_id` / `wholesaler_id` / `spec_schema`（模板 JSON）+ `idx_spu_owner_tenant`、`idx_spu_wholesaler`；`skus` 加 `spec_key` + `uk_sku_spu_spec(spu_id, spec_key)` 组合唯一 DB 兜底（历史/平台挂接行 spec_key 恒 NULL，NULL 互不冲突）。spus 仍是平台级表**不进 TenantLine**（V38 先例），TENANT 行由 service 显式按 `owner_type='TENANT' AND tenant_id=?` 过滤。
+- **规格支撑 `SpuSpecSchemaSupport`**：模板规范化 + 上限校验（维度≤5、单维取值≤20、组合≤60 → 50731/50732；空模板 50730）、JSON 读写、笛卡尔积展开、`matchCombo`（组合与模板匹配 50734）、`toSpecKey`（有序紧凑 JSON）/`summary`（" / " 连接，落 SKU name+spec）。
+- **`/api/v1/tenant/spus`（MerchantSpuService + MerchantSpuController）**：创建（自动 `TSPU-` 编码；品类仍走平台两级字典，保持与标品同口径）、partial 更新（null 保持原值；名称/品类变更同步存量 SKU 快照列）、列表/详情（含 referencedSkuCount）、`POST /{id}/generate-skus`（items 为空 = **完整笛卡尔积 + 默认价**；items 非空 = 指定组合 + **逐组合覆盖价格**，即「不同规格价格各自独立」；与存量组合重复 50733 整单回滚）、`POST /{id}/offline`（ACTIVE→OFFLINE 并级联下架其 SKU，重复下架 50722）。
+- **隔离收口（本轮最关键的安全面）**：① OPS `SpuService.page` 与**免登录**的公开 `searchActive`（`/api/v1/catalog/**` 不在登录拦截内）只出 PLATFORM —— 自建 SPU 绝不外泄；② `requireLinkable` 对 TENANT SPU 抛 50737（聚合 SKU 只能经批量生成，杜绝跨租户手动挂接破坏组合唯一性）；③ 按 id 的读/写一律经「owner_type=TENANT + 所属商户在本租户可见（wholesalers 受 TenantLine 过滤）」双查，失败统一 50735（假装不存在，防枚举）；④ OPS `offline/merge` 收 `getPlatformOrThrow` 仅 PLATFORM。
+- **鉴权**：写路径 = 该商户 WA 或该租户 TA；读路径放宽 WK（SkuServiceImpl 先例）；tenant_id 取商户真实租户，不信任客户端入参。
+- **测试**：`MerchantSpuScenarioTest` 12 例（S1 创建/完整笛卡尔积/逐组合价/下架级联/partial 更新；S2 模板缺失-非法-超限-组合错配；S3 商户 WA 自助入驻后可建 + 无绑定 WA 42101；S4 跨租户读/写/生成/下架 50735、跨租户列表 50230、公开目录不含自建 SPU、手动挂接 50737）—— 12 例全绿；**全量回归 555 全绿**（Build SUCCESS）。
+- **前端契约同步（零行为改动）**：`packages/api-types` 新增 `spu.ts`（`SpuOwnerType`/`SpecDimension`/`SpecOptions`/`SpuSpecItem`/`Create·UpdateMerchantSpuRequest`/`GenerateSkuRequest`/`MerchantSpu`，含端点与 50730-50737 契约注释）并 `index.ts` 导出；`Sku` 加 `specKey`（历史行为 null）；`Spu` 加 `ownerType/tenantId/wholesalerId/specSchema`（可选，兼容既有构造；内联结构避免与 spu.ts 类型循环）。**六包 typecheck 全绿 + admin build DONE（41.9s）+ uni H5 build DONE**。
+- **未做（待拍板）**：商户端 UI 与 API 封装层（`api/*.ts`）未接——本轮只交付后端 + 契约类型；自建 SPU 跨商户共享模板、OPS 侧对自建 SPU 的治理/审计视图未纳入。
+
 ## 2026-09-09 · W8-L5 graceful shutdown 人工停服实测通过（X 期上线检查单本地闭环，CodeBuddy）
 
 > 前置：F7-7 收官后 roadmap 本地可执行项仅剩 X 期 W8-L5 graceful shutdown 手测（清单 `shared/ops/go-live-checklist.md` §3 + 手册 13 §8.5.2），用户「继续下一步吧」。

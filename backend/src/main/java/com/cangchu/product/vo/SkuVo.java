@@ -43,6 +43,9 @@ public class SkuVo {
 
     private String spec;
 
+    /** 结构化规格键（P6/V42）：模板维度=取值 的有序 JSON；历史/平台挂接为 NULL */
+    private String specKey;
+
     /** 公开价：单价 */
     private BigDecimal unitPrice;
 

@@ -43,8 +43,11 @@ public class Sku {
 
     private String name;
 
-    /** 规格文本 */
+    /** 规格文本（历史自由文本；P6 批量生成的聚合 SKU 落规格摘要，展示用） */
     private String spec;
+
+    /** 结构化规格键（P6/V42）：模板维度=取值 的有序紧凑 JSON，同 SPU 下唯一；历史/平台挂接为 NULL */
+    private String specKey;
 
     /** 单价（公开价，>0） */
     private BigDecimal unitPrice;
