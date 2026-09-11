@@ -174,6 +174,17 @@ export interface Spu {
   mergedToSpuId: string | null
   /** 引用该标品的在库 SKU 数 */
   referencedSkuCount: number
+  /**
+   * 归属（P6/V42）：'PLATFORM'=OPS 平台标品 / 'TENANT'=租户商户自建聚合 SPU
+   * （值类型同 spu.ts 的 `SpuOwnerType`；此处内联以避免 spu.ts ⇄ ops.ts 类型循环）。
+   */
+  ownerType?: 'PLATFORM' | 'TENANT'
+  /** 自建聚合 SPU 归属租户（PLATFORM 为 null） */
+  tenantId?: SnowflakeId | null
+  /** 自建聚合 SPU 归属商户（PLATFORM 为 null） */
+  wholesalerId?: SnowflakeId | null
+  /** 规格模板（仅 TENANT 非空；结构同 spu.ts 的 `SpecDimension[]`） */
+  specSchema?: Array<{ name: string; options: string[] }> | null
   createdAt: string
 }
 

@@ -32,6 +32,11 @@ export interface Sku {
   spuCategoryL2: string | null
   name: string
   spec: string | null
+  /**
+   * 结构化规格键（P6/V42）：模板「维度=取值」的有序 JSON。
+   * 历史 SKU 与平台挂接 SKU 恒为 null；聚合 SKU 由批量生成写入。
+   */
+  specKey: string | null
   /** 公开价：单价 */
   unitPrice: number
   /** 公开价：起批价 */
