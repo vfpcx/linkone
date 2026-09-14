@@ -192,6 +192,12 @@ onPullDownRefresh(async () => {
         <text class="cell__hint">上架 / 下架管理</text>
         <text class="cell__arrow">›</text>
       </view>
+      <view class="cell" @click="go('/pages/wa/spus/index')">
+        <view class="cell__icon cell__icon--teal">聚</view>
+        <text class="cell__label">聚合商品</text>
+        <text class="cell__hint">多规格模板 · 批量生成</text>
+        <text class="cell__arrow">›</text>
+      </view>
       <view class="cell" @click="go('/pages/wa/inbound/index')">
         <view class="cell__icon cell__icon--red">入</view>
         <text class="cell__label">入库确认</text>

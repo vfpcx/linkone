@@ -13,6 +13,8 @@
  *  - GET  /api/v1/tenant/spus/{id}                 详情（含规格模板）
  *  - POST /api/v1/tenant/spus/{id}/generate-skus   按规格模板批量生成 SKU
  *  - POST /api/v1/tenant/spus/{id}/offline         下架并级联下架其 SKU
+ *  - GET  /api/v1/tenant/spus/spu-categories       两级品类字典（登录即可读；复用
+ *        OPS SpuCatalog 唯一事实源，SpuCategoryGroup 见 ops.ts）
  *
  * ⚠️ 与平台标品互不影响：本组端点只操作 `ownerType='TENANT'` 行；
  *    `/api/v1/ops/spus` 与公开目录 `/api/v1/catalog/spus` 只出 `ownerType='PLATFORM'`。

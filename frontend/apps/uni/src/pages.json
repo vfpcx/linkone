@@ -156,6 +156,26 @@
       }
     },
     {
+      "path": "pages/wa/spus/index",
+      "style": {
+        "navigationBarTitleText": "聚合商品",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/wa/spus/create",
+      "style": {
+        "navigationBarTitleText": "新建聚合商品"
+      }
+    },
+    {
+      "path": "pages/wa/spus/detail",
+      "style": {
+        "navigationBarTitleText": "聚合商品详情",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/wa/inbound/index",
       "style": {
         "navigationBarTitleText": "入库确认",
