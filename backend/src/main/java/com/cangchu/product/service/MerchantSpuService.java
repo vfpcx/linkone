@@ -4,6 +4,7 @@ import com.cangchu.product.dto.MerchantSpuCreateDto;
 import com.cangchu.product.dto.MerchantSpuUpdateDto;
 import com.cangchu.product.dto.SkuGenerateDto;
 import com.cangchu.product.vo.SkuVo;
+import com.cangchu.product.vo.SpuCategoryGroupVo;
 import com.cangchu.product.vo.SpuVo;
 
 import java.util.List;
@@ -51,4 +52,10 @@ public interface MerchantSpuService {
 
     /** 下架自建聚合 SPU（ACTIVE → OFFLINE）并级联下架其全部 SKU。 */
     void offline(Long spuId, Long operatorId);
+
+    /**
+     * 两级品类字典（复用平台标品 SpuCatalog 唯一事实源，保持与标品同口径）。
+     * 登录即可读（预置公开口径数据，无敏感性；商户端建 SPU 两级联动下拉用）。
+     */
+    List<SpuCategoryGroupVo> categories();
 }

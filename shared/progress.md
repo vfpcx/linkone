@@ -2,6 +2,20 @@
 
 > 最新在上。关联 `task_plan.md` / `findings.md`。P2 定价/入驻计划已归档 `shared/archive/`。
 
+## 2026-09-14 · P6 商户端 UI 落地（P6 收官：字典端点 + uni 三页，CodeBuddy）
+
+> 前置：P6 后端（v4.11）progress「未做（待拍板）」第一项 = 商户端 UI 与 API 封装层；用户「继续吧」。范围 = 后端品类字典端点小补 + uni 商户端全链（列表/新建/编辑/详情/批量生成/下架）+ 文档；零库存/单据/交易链改动。
+
+- **后端（最小改动）**：`MerchantSpuController` 补 `GET /api/v1/tenant/spus/spu-categories`（两级品类字典，**登录即可读**——预置公开口径数据无敏感性；复用 `SpuCatalog.L1_L2S` 唯一事实源，与 OPS 标品完全同口径；`SpuService.categories` 的 requireOps 端点不动）。精确路径优先于 `/{id}`（Spring pattern 比较器），不误入详情；`MerchantSpuServiceImpl.categories()` 直接构建 `SpuCategoryGroupVo`。
+- **测试**：`MerchantSpuScenarioTest` 新增 S1-06（登录 TA 可读字典含 l1/l2s、免登录 401）→ 13 例全绿；**全量回归 556 全绿**（555 + 1）。
+- **uni API 层** `api/spu.ts`：7 方法封装（categories/listMine/detail/create/update/generateSkus/offline），`SpuCategoryGroup` 复用 ops.ts 既有类型；`api-types/spu.ts` 头注释补字典端点一行（零类型改动）。
+- **uni 三页**（pages.json 注册 + WA 工作台「聚合商品」入口 cell）：
+  - `pages/wa/spus/index` 列表：状态徽标（在架/已下架）+ 名称/编码/品类 + 规格摘要（`包装×2 · 容量×3`）+ 引用 SKU 数；下架二次确认（文案明示级联下架不可恢复）；空态引导新建 + 提示单规格商品仍走「我的商品」。
+  - `pages/wa/spus/create` 新建/编辑二合一：编辑模式 query `id` → detail 预填（品类两级回填索引、模板回填）；两级品类联动 picker（选 L1 重置 L2）；**规格模板动态编辑** = 维度卡（名称 ≤32 + tag 式取值增删 ≤20）+ 添加维度 ≤5 + 组合数实时预览（≤60）+ 前端预校验（维度名非空/不重复、取值非空/不重复）——与后端 50730-50732 同口径但错误提示更早更友好。
+  - `pages/wa/spus/detail` 详情：字段 + 模板（维度 + 取值 tags + 组合数 + 组合示例）+ 引用数；**生成弹层** = 默认单价/起批量(缺省1)/起批价(可空)/生成后上架开关 → 完整笛卡尔积（items 缺省模式）+ 生成前二次确认（组合数 + 50733 重复整单失败提示）；OFFLINE 只读态（隐藏生成/编辑/下架）。
+- **验证**：六包 typecheck 全绿 + uni H5 build DONE + admin build DONE（1m03s）+ read_lints 0 + 后端全量 556 绿。
+- **未做**：逐组合覆盖价格（后端 items 模式已支持，移动端首版只出完整笛卡尔积，弹层文案已引导电脑端）、自建 SPU 跨商户共享模板、OPS 侧治理/审计视图（v4.11 同款遗留）。
+
 ## 2026-09-10 · P6 商品规格模型后端落地（SKU 之上加 SPU 聚合层 + 结构化规格，CodeBuddy）
 
 > 决策（2026-09-09 澄清，三项全选）：SPU **混合归属** —— 保留 OPS 平台标品 + 支持 TA/商户自建聚合 SPU；同一 SPU 下不同 SKU 携带结构化规格并各自独立；**库存/单据/交易链一律继续按 skus.id 流转**。本轮范围 = 后端全套（V42 + 实体/DTO/Service/Controller + 场景测试 + 全量回归）+ 前端契约类型同步（`@cangchu/api-types`）。

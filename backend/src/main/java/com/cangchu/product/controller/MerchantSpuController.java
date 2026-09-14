@@ -7,6 +7,7 @@ import com.cangchu.product.dto.MerchantSpuUpdateDto;
 import com.cangchu.product.dto.SkuGenerateDto;
 import com.cangchu.product.service.MerchantSpuService;
 import com.cangchu.product.vo.SkuVo;
+import com.cangchu.product.vo.SpuCategoryGroupVo;
 import com.cangchu.product.vo.SpuVo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -73,5 +74,15 @@ public class MerchantSpuController {
     public R<Void> offline(@PathVariable Long id) {
         merchantSpuService.offline(id, StpUtil.getLoginIdAsLong());
         return R.ok();
+    }
+
+    /**
+     * 两级品类字典（复用 SpuCatalog 唯一事实源；登录即可读）。
+     * 供商户端新建/编辑聚合 SPU 两级联动下拉，与 OPS 标品口径一致。
+     * 注：精确路径优先于 /{id}（Spring pattern 比较器），不会误入详情。
+     */
+    @GetMapping("/spu-categories")
+    public R<List<SpuCategoryGroupVo>> categories() {
+        return R.ok(merchantSpuService.categories());
     }
 }

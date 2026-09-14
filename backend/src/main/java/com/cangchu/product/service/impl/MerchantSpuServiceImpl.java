@@ -19,6 +19,7 @@ import com.cangchu.product.mapper.SpuMapper;
 import com.cangchu.product.service.MerchantSpuService;
 import com.cangchu.product.spec.SpuSpecSchemaSupport;
 import com.cangchu.product.vo.SkuVo;
+import com.cangchu.product.vo.SpuCategoryGroupVo;
 import com.cangchu.product.vo.SpuVo;
 import com.cangchu.tenant.service.WholesalerService;
 import com.cangchu.tenant.vo.WholesalerVo;
@@ -304,6 +305,13 @@ public class MerchantSpuServiceImpl implements MerchantSpuService {
     // ==================================================================
     // 读：列表 / 详情
     // ==================================================================
+
+    @Override
+    public List<SpuCategoryGroupVo> categories() {
+        return SpuCatalog.L1_L2S.entrySet().stream()
+                .map(e -> SpuCategoryGroupVo.builder().l1(e.getKey()).l2s(e.getValue()).build())
+                .toList();
+    }
 
     @Override
     public List<SpuVo> list(Long wholesalerId, Long operatorId) {

@@ -416,6 +416,27 @@ class MerchantSpuScenarioTest {
                 .extracting(m -> m.get("spuName")).containsOnly(newName);
     }
 
+    @Test
+    @DisplayName("P6-S1-06 两级品类字典：登录可读、与平台标品同源；未登录 → 401")
+    void s1_06_categories() {
+        TaContext ta = registerTaWithTenant();
+
+        // 登录即可读（TA/WA 同权；复用 OPS SpuCatalog 唯一事实源）
+        ResponseEntity<R<List<Map<String, Object>>>> resp = restTemplate.exchange(baseSpu + "/spu-categories",
+                HttpMethod.GET, new HttpEntity<>(bearer(ta.token())), LIST);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).isNotNull();
+        assertThat(resp.getBody().getCode()).isEqualTo(0);
+        List<Map<String, Object>> groups = resp.getBody().getData();
+        assertThat(groups).isNotEmpty();
+        assertThat(groups.get(0)).containsKeys("l1", "l2s");
+        assertThat((List<?>) groups.get(0).get("l2s")).isNotEmpty();
+
+        // 未登录 → 401（SaInterceptor 拦截，code=41001）
+        ResponseEntity<String> anon = restTemplate.getForEntity(baseSpu + "/spu-categories", String.class);
+        assertThat(anon.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
     // ======================================================================
     // S2 非法输入
     // ======================================================================
