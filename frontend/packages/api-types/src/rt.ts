@@ -195,3 +195,39 @@ export interface RtTenantNearbyQuery {
   lng?: number
   limit?: number
 }
+
+// ============ 搜商品找仓库（先搜货再进店，跨仓公开检索） ============
+
+/** 跨仓商品检索结果项（RtSkuSearchItemVo）：在售 SKU + 所属商户/仓库归属 */
+export interface RtSkuSearchItem {
+  skuId: SnowflakeId
+  name: string
+  spec: string | null
+  mainImage: string | null
+  /** 公开价：单价 */
+  unitPrice: number
+  /** 公开价：起批价 */
+  moqPrice: number
+  /** 公开价：起批量 */
+  moqQty: number
+  /** 当前库存量（检索口径 qty>0） */
+  stockQty: number
+  wholesalerId: SnowflakeId
+  wholesalerName: string
+  tenantId: SnowflakeId
+  storeId: SnowflakeId
+  storeName: string
+  /** 店铺码（= 租户简码，点击直接进店） */
+  tenantSimpleCode: string
+  /** 与请求坐标的直线距离（米）；仓库无坐标或未传坐标时为 null */
+  distanceMeters: number | null
+}
+
+/** 跨仓商品检索查询参数（GET /rt/sku-search） */
+export interface RtSkuSearchQuery {
+  /** 关键词（商品名/规格/标品名模糊匹配；空 → 空结果） */
+  keyword: string
+  lat?: number
+  lng?: number
+  limit?: number
+}

@@ -10,10 +10,12 @@ import com.cangchu.pricing.service.PricingService;
 import com.cangchu.pricing.vo.CustomerPriceRef;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
+import com.cangchu.storefront.mapper.RtSearchMapper;
 import com.cangchu.storefront.service.StoreFrontService;
 import com.cangchu.storefront.vo.RtPriceGroupVo;
 import com.cangchu.storefront.vo.RtPriceItemVo;
 import com.cangchu.storefront.vo.RtPriceListVo;
+import com.cangchu.storefront.vo.RtSkuSearchItemVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
@@ -67,6 +69,8 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     private final StorefrontFeatureService storefrontFeatureService;
     // C1（23-p5-c-c1 §5.1）：价目查询的 hmac 盲索引 + 尾号归属提示（PII 单入口，不落明文）
     private final PiiCrypto piiCrypto;
+    // 「搜商品找仓库」跨仓聚合检索（聚合域自有 mapper，G-S2 不侵入业务域）
+    private final RtSearchMapper rtSearchMapper;
 
     @Override
     public StoreFrontVo getStorePage(Long storeId, String code) {
@@ -291,6 +295,31 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     public List<RtTenantDirectoryItemVo> listNearbyStores(BigDecimal lat, BigDecimal lng, Integer limit) {
         int safeLimit = Math.min(limit != null && limit > 0 ? limit : 20, 50);
         return tenantMapper.selectNearbyStores(lat, lng, safeLimit);
+    }
+
+    /**
+     * RT 首页「搜商品找仓库」跨仓检索（先搜货再进店）。
+     *
+     * <p>关键词清洗：trim → 空/空白直接空结果（不抛错，GET 语义宽松）；截断至 50 字符防超长注入；
+     * LIKE 通配符转义（%!_ → !%!_!，SQL 侧 ESCAPE '!'，MySQL/H2 通用）防 % _ 通配符放大结果集。
+     * 检索口径与进店在售一致：listed + 有货 + 商户 ACTIVE + 租户 ACTIVE。
+     */
+    @Override
+    public List<RtSkuSearchItemVo> searchSkus(String keyword, BigDecimal lat, BigDecimal lng, Integer limit) {
+        String kw = keyword == null ? "" : keyword.trim();
+        if (kw.isEmpty()) {
+            return List.of();
+        }
+        if (kw.length() > 50) {
+            kw = kw.substring(0, 50);
+        }
+        int safeLimit = Math.min(limit != null && limit > 0 ? limit : 20, 50);
+        return rtSearchMapper.selectRtSkuSearch(escapeLike(kw), lat, lng, safeLimit);
+    }
+
+    /** LIKE 转义（配 mapper 侧 ESCAPE '!'）：先转义转义符本身，再转义 % 与 _。 */
+    private String escapeLike(String s) {
+        return s.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
     /**

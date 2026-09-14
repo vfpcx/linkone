@@ -5,6 +5,8 @@ import type {
   MyPriceListRequest,
   RtMyInquiries,
   RtPriceList,
+  RtSkuSearchItem,
+  RtSkuSearchQuery,
   RtStoreFront,
   RtTenantDirectoryItem,
   RtTenantNearbyQuery,
@@ -30,6 +32,15 @@ export const rtApi = {
       url: '/rt/tenants',
       method: 'GET',
       params: query as Record<string, string | number | undefined> | undefined,
+    })
+  },
+
+  /** 搜商品找仓库（公开跨仓检索）：在售 SKU + 所属商户/仓库，tenantSimpleCode 可直接进店。 */
+  searchSkus(query: RtSkuSearchQuery) {
+    return request<RtSkuSearchItem[]>({
+      url: '/rt/sku-search',
+      method: 'GET',
+      params: query as unknown as Record<string, string | number | undefined>,
     })
   },
 

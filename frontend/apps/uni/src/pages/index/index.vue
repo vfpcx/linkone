@@ -9,7 +9,7 @@ import { accountApi } from '../../api/account'
 import { rtApi } from '../../api/rt'
 import { clearAuth, hasRtScope } from '../../utils/session'
 import { getRecentStores, getSavedPhone, savePhone, type RecentStore } from '../../utils/storage'
-import type { RtTenantDirectoryItem } from '@cangchu/api-types'
+import type { RtSkuSearchItem, RtTenantDirectoryItem } from '@cangchu/api-types'
 
 const codeInput = ref('')
 const phoneInput = ref('')
@@ -22,6 +22,15 @@ const rtLogged = ref(false)
 const nearbyStores = ref<RtTenantDirectoryItem[]>([])
 const nearbyLoading = ref(false)
 const locationDenied = ref(false)
+
+// 搜商品找仓库（先搜货再进店）
+const searchKeyword = ref('')
+const searchResults = ref<RtSkuSearchItem[]>([])
+const searching = ref(false)
+const searched = ref(false)
+/** 最近一次定位结果（搜索时带上距离排序） */
+const lastLat = ref<number | undefined>()
+const lastLng = ref<number | undefined>()
 
 onShow(() => {
   recentStores.value = getRecentStores()
@@ -40,6 +49,8 @@ function loadNearby() {
   uni.getLocation({
     type: 'gcj02',
     success: (res) => {
+      lastLat.value = res.latitude
+      lastLng.value = res.longitude
       fetchNearby(res.latitude, res.longitude)
     },
     fail: () => {
@@ -66,6 +77,29 @@ async function fetchNearby(lat?: number, lng?: number) {
 function formatDistance(meters: number): string {
   if (meters < 1000) return `${meters}m`
   return `${(meters / 1000).toFixed(1)}km`
+}
+
+/** 搜商品找仓库：跨仓检索在售 SKU，结果点击直接进对应店铺。 */
+async function onSearchSkus(): Promise<void> {
+  const kw = searchKeyword.value.trim()
+  if (!kw) {
+    uni.showToast({ title: '请输入商品名或规格关键词', icon: 'none' })
+    return
+  }
+  searching.value = true
+  try {
+    searchResults.value = await rtApi.searchSkus({
+      keyword: kw,
+      lat: lastLat.value,
+      lng: lastLng.value,
+      limit: 20,
+    })
+    searched.value = true
+  } catch (e) {
+    uni.showToast({ title: '搜索失败，请重试', icon: 'none' })
+  } finally {
+    searching.value = false
+  }
 }
 
 function maskPhone(p: string): string {
@@ -203,6 +237,50 @@ function onScan(): void {
             <text class="chip__name">{{ s.name }}</text>
             <text class="chip__code">{{ s.code }}</text>
           </view>
+        </view>
+      </view>
+
+      <!-- 搜商品找仓库（先搜货再进店） -->
+      <view class="sku-search">
+        <view class="sku-search__head">
+          <text class="sku-search__title">搜商品，找仓库</text>
+          <text class="sku-search__hint">不知道店铺码？直接搜商品名</text>
+        </view>
+        <view class="sku-search__row">
+          <input
+            v-model="searchKeyword"
+            class="code-input"
+            placeholder="如：苹果 / 5kg / 编织袋"
+            placeholder-class="ph"
+            maxlength="50"
+            confirm-type="search"
+            @confirm="onSearchSkus"
+          />
+          <button class="btn-ghost" :loading="searching" @click="onSearchSkus">搜索</button>
+        </view>
+
+        <view v-if="searched && searchResults.length" class="sku-search__list">
+          <view
+            v-for="item in searchResults"
+            :key="item.skuId"
+            class="sku-card"
+            @click="goStore(item.tenantSimpleCode)"
+          >
+            <view class="sku-card__main">
+              <text class="sku-card__name">{{ item.name }}</text>
+              <text v-if="item.spec" class="sku-card__spec">{{ item.spec }}</text>
+              <text class="sku-card__from">{{ item.wholesalerName }} · {{ item.storeName }}（{{ item.tenantSimpleCode }}）</text>
+            </view>
+            <view class="sku-card__side">
+              <text class="sku-card__price">¥{{ item.unitPrice }}</text>
+              <text v-if="item.distanceMeters != null" class="sku-card__dist">{{ formatDistance(item.distanceMeters) }}</text>
+              <text v-else class="sku-card__dist">库存 {{ item.stockQty }}</text>
+            </view>
+          </view>
+          <text class="sku-search__tip">点击商品进对应店铺，提交意向单留手机号，商户会主动联系你</text>
+        </view>
+        <view v-else-if="searched" class="sku-search__empty">
+          <text>没搜到相关商品，换个关键词试试，或直接逛附近仓库</text>
         </view>
       </view>
 
@@ -546,6 +624,116 @@ function onScan(): void {
   font-size: 24rpx;
   line-height: 1.7;
   color: $cc-fg-4;
+}
+
+/* ===== 搜商品找仓库 ===== */
+.sku-search {
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 2rpx solid $cc-border-1;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 18rpx;
+  }
+
+  &__title {
+    font-size: 30rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+  }
+
+  &__hint {
+    font-size: 24rpx;
+    color: $cc-fg-4;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 16rpx;
+  }
+
+  &__list {
+    margin-top: 18rpx;
+    display: flex;
+    flex-direction: column;
+    gap: 16rpx;
+  }
+
+  &__tip {
+    font-size: 22rpx;
+    line-height: 1.6;
+    color: $cc-fg-4;
+  }
+
+  &__empty {
+    margin-top: 18rpx;
+    padding: 24rpx 0;
+    text-align: center;
+    font-size: 26rpx;
+    color: $cc-fg-4;
+  }
+}
+
+.sku-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx;
+  background: $cc-bg-2;
+  border-radius: 16rpx;
+
+  &__main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8rpx;
+  }
+
+  &__name {
+    font-size: 30rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+  }
+
+  &__spec {
+    font-size: 24rpx;
+    color: $cc-fg-3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__from {
+    font-size: 22rpx;
+    color: $cc-fg-4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__side {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8rpx;
+  }
+
+  &__price {
+    font-size: 28rpx;
+    font-weight: 700;
+    color: $cc-rt-accent;
+  }
+
+  &__dist {
+    font-size: 22rpx;
+    color: $cc-fg-4;
+  }
 }
 
 /* ===== 附近仓库（US-RT-06） ===== */

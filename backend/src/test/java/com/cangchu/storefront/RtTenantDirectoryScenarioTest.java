@@ -94,19 +94,23 @@ class RtTenantDirectoryScenarioTest {
         seedStore(tenantC, "未审核仓库", CENTER_LAT, CENTER_LNG);
 
         TenantContext.clear();
-        List<RtTenantDirectoryItemVo> list = storeFrontService.listNearbyStores(CENTER_LAT, CENTER_LNG, 10);
+        List<RtTenantDirectoryItemVo> list = storeFrontService.listNearbyStores(CENTER_LAT, CENTER_LNG, 50);
 
-        Set<String> codes = list.stream().map(RtTenantDirectoryItemVo::getTenantSimpleCode).collect(Collectors.toSet());
-        assertThat(codes).contains(codeOf(tenantA));
-        assertThat(codes).contains(codeOf(tenantB));
-        assertThat(codes).doesNotContain(codeOf(tenantC));
+        // H2 测试库跨用例共享：先收敛到本用例 seed 的租户再断言
+        Set<String> ours = Set.of(codeOf(tenantA), codeOf(tenantB));
+        List<RtTenantDirectoryItemVo> mine = list.stream()
+                .filter(i -> ours.contains(i.getTenantSimpleCode()))
+                .toList();
+
+        assertThat(mine).hasSize(2);
+        assertThat(list).noneMatch(i -> codeOf(tenantC).equals(i.getTenantSimpleCode()));
 
         // 排序：A 距离 0 在第一位；B 距离 > 0 在第二位
-        RtTenantDirectoryItemVo first = list.get(0);
+        RtTenantDirectoryItemVo first = mine.get(0);
         assertThat(first.getDistanceMeters()).isEqualTo(0);
         assertThat(first.getTenantSimpleCode()).isEqualTo(codeOf(tenantA));
 
-        RtTenantDirectoryItemVo second = list.get(1);
+        RtTenantDirectoryItemVo second = mine.get(1);
         assertThat(second.getDistanceMeters()).isNotNull().isGreaterThan(0).isLessThan(20000);
     }
 

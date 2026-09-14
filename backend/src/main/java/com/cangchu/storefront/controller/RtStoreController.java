@@ -6,6 +6,7 @@ import com.cangchu.common.response.R;
 import com.cangchu.storefront.dto.MyPriceListQueryDto;
 import com.cangchu.storefront.service.StoreFrontService;
 import com.cangchu.storefront.vo.RtPriceListVo;
+import com.cangchu.storefront.vo.RtSkuSearchItemVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
@@ -93,6 +94,22 @@ public class RtStoreController {
             @RequestParam(required = false) BigDecimal lng,
             @RequestParam(required = false, defaultValue = "20") Integer limit) {
         return R.ok(storeFrontService.listNearbyStores(lat, lng, limit));
+    }
+
+    /**
+     * RT 首页「搜商品找仓库」公开跨仓检索（先搜货再进店）。
+     *
+     * <p>按关键词检索全平台在售 SKU（listed + 有货 + 商户/租户均 ACTIVE），返回公开价/库存 +
+     * 所属商户与仓库归属；买家用返回的 tenantSimpleCode 直接进店提交意向单，由商户主动联系
+     * （联系方式不在本端点下发，仍走询价确认后 phone-reveal，D-RT-01）。
+     */
+    @GetMapping("/sku-search")
+    public R<List<RtSkuSearchItemVo>> skuSearch(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) BigDecimal lat,
+            @RequestParam(required = false) BigDecimal lng,
+            @RequestParam(required = false, defaultValue = "20") Integer limit) {
+        return R.ok(storeFrontService.searchSkus(keyword, lat, lng, limit));
     }
 
     /**

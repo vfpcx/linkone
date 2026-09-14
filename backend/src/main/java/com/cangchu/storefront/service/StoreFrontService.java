@@ -1,6 +1,7 @@
 package com.cangchu.storefront.service;
 
 import com.cangchu.storefront.vo.RtPriceListVo;
+import com.cangchu.storefront.vo.RtSkuSearchItemVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
@@ -74,4 +75,18 @@ public interface StoreFrontService {
      * @param limit 返回上限（可空，默认 20，最大 50）
      */
     List<RtTenantDirectoryItemVo> listNearbyStores(BigDecimal lat, BigDecimal lng, Integer limit);
+
+    /**
+     * RT 首页「搜商品找仓库」公开跨仓检索（先搜货再进店）。
+     *
+     * <p>按关键词（商品名/规格/标品名）检索全平台在售 SKU（listed + 有货 + 商户 ACTIVE + 租户 ACTIVE），
+     * 返回商品公开价/库存 + 所属商户/仓库归属（店铺码可直接进店）。
+     * 与进店浏览同口径：只下发公开字段，不含 PII；联系方式走询价确认后 phone-reveal（D-RT-01）。
+     *
+     * @param keyword 关键词（去空格；空/空白 → 空结果；超长截断至 50 字符；LIKE 通配符已转义）
+     * @param lat     当前纬度（可空；有坐标且仓库有坐标时按距离升序）
+     * @param lng     当前经度（可空）
+     * @param limit   返回上限（可空，默认 20，最大 50）
+     */
+    List<RtSkuSearchItemVo> searchSkus(String keyword, BigDecimal lat, BigDecimal lng, Integer limit);
 }
