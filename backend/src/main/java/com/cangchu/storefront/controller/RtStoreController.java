@@ -9,6 +9,7 @@ import com.cangchu.storefront.vo.RtPriceListVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
+import com.cangchu.tenant.vo.RtTenantDirectoryItemVo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -77,6 +79,20 @@ public class RtStoreController {
     @PostMapping("/my-pricelist")
     public R<RtPriceListVo> myPriceList(@Valid @RequestBody MyPriceListQueryDto dto) {
         return R.ok(storeFrontService.getMyPriceList(dto.getStoreId(), dto.getCode(), dto.getRtPhone()));
+    }
+
+    /**
+     * RT 首页「附近仓库」公开目录（US-RT-06 · 基于位置推荐仓库）。
+     *
+     * <p>仅返回 ACTIVE 租户及其默认店铺；不传坐标时按创建时间倒序、距离为 null。
+     * 坐标采用 GCJ-02，距离按 haversine 公式估算（米）。
+     */
+    @GetMapping("/tenants")
+    public R<List<RtTenantDirectoryItemVo>> tenants(
+            @RequestParam(required = false) BigDecimal lat,
+            @RequestParam(required = false) BigDecimal lng,
+            @RequestParam(required = false, defaultValue = "20") Integer limit) {
+        return R.ok(storeFrontService.listNearbyStores(lat, lng, limit));
     }
 
     /**

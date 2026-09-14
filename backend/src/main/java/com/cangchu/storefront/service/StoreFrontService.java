@@ -4,7 +4,9 @@ import com.cangchu.storefront.vo.RtPriceListVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
 import com.cangchu.storefront.vo.StoreSkuVo;
 import com.cangchu.storefront.vo.StoreWholesalerVo;
+import com.cangchu.tenant.vo.RtTenantDirectoryItemVo;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -60,4 +62,16 @@ public interface StoreFrontService {
      * @param rtPhone 客户身份（RT 手机号，必填非空）
      */
     RtPriceListVo getMyPriceList(Long storeId, String code, String rtPhone);
+
+    /**
+     * RT 首页「附近仓库」公开目录（US-RT-06 · 基于位置推荐仓库）。
+     *
+     * <p>仅返回 ACTIVE 租户及其默认店铺；不传坐标时按创建时间倒序、距离为 null。
+     * 坐标采用 GCJ-02，距离按 haversine 公式估算（米）。
+     *
+     * @param lat   当前纬度（可空）
+     * @param lng   当前经度（可空）
+     * @param limit 返回上限（可空，默认 20，最大 50）
+     */
+    List<RtTenantDirectoryItemVo> listNearbyStores(BigDecimal lat, BigDecimal lng, Integer limit);
 }

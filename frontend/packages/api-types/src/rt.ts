@@ -174,3 +174,24 @@ export interface MyInquiriesRequest {
   /** RT 手机号 */
   rtPhone: string
 }
+
+// ============ US-RT-06 · RT 首页「附近仓库」（基于位置推荐仓库） ============
+
+/** 附近仓库目录项 */
+export interface RtTenantDirectoryItem {
+  tenantId: SnowflakeId
+  storeId: SnowflakeId
+  storeName: string
+  tenantSimpleCode: string
+  intro: string | null
+  lng: number | null
+  lat: number | null
+  distanceMeters: number | null
+}
+
+/** 附近仓库查询参数 */
+export interface RtTenantNearbyQuery {
+  lat?: number
+  lng?: number
+  limit?: number
+}

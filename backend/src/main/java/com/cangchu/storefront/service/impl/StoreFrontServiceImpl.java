@@ -21,6 +21,7 @@ import com.cangchu.tenant.entity.Store;
 import com.cangchu.tenant.entity.Tenant;
 import com.cangchu.tenant.mapper.StoreMapper;
 import com.cangchu.tenant.mapper.TenantMapper;
+import com.cangchu.tenant.vo.RtTenantDirectoryItemVo;
 import com.cangchu.tenant.service.StorefrontFeatureService;
 import com.cangchu.tenant.service.WholesalerService;
 import com.cangchu.tenant.vo.StorefrontFeatureVo;
@@ -278,6 +279,18 @@ public class StoreFrontServiceImpl implements StoreFrontService {
             return null;
         }
         return resolved;
+    }
+
+    /**
+     * RT 首页「附近仓库」公开目录（US-RT-06 · 基于位置推荐仓库）。
+     *
+     * <p>仅返回 ACTIVE 租户及其默认店铺；不传坐标时按创建时间倒序、距离为 null。
+     * 公开端点无 TenantContext，TenantLine 不注入租户条件；查询直接访问 tenants/stores 全局表。
+     */
+    @Override
+    public List<RtTenantDirectoryItemVo> listNearbyStores(BigDecimal lat, BigDecimal lng, Integer limit) {
+        int safeLimit = Math.min(limit != null && limit > 0 ? limit : 20, 50);
+        return tenantMapper.selectNearbyStores(lat, lng, safeLimit);
     }
 
     /**

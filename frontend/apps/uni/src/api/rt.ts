@@ -6,6 +6,8 @@ import type {
   RtMyInquiries,
   RtPriceList,
   RtStoreFront,
+  RtTenantDirectoryItem,
+  RtTenantNearbyQuery,
   SubmitInquiryRequest,
 } from '@cangchu/api-types'
 
@@ -20,6 +22,15 @@ export const rtApi = {
   /** 进店页聚合：店铺 + 店内 ACTIVE 批发商 + 在售 SKU（公开价 + 库存） */
   getStore(code: string) {
     return request<RtStoreFront>({ url: '/rt/store', params: { code } })
+  },
+
+  /** US-RT-06 · 附近仓库目录（公开，无需登录）：返回 ACTIVE 租户店铺及估算距离。 */
+  listNearbyStores(query?: RtTenantNearbyQuery) {
+    return request<RtTenantDirectoryItem[]>({
+      url: '/rt/tenants',
+      method: 'GET',
+      params: query as Record<string, string | number | undefined> | undefined,
+    })
   },
 
   /** 提交询价：单事务建单 + 价格快照；返回 PENDING 单（含 docNo）。 */

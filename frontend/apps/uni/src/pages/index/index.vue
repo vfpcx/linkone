@@ -6,8 +6,10 @@ import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { PHONE_MAX_LEN, PHONE_RE } from '../../config'
 import { accountApi } from '../../api/account'
+import { rtApi } from '../../api/rt'
 import { clearAuth, hasRtScope } from '../../utils/session'
 import { getRecentStores, getSavedPhone, savePhone, type RecentStore } from '../../utils/storage'
+import type { RtTenantDirectoryItem } from '@cangchu/api-types'
 
 const codeInput = ref('')
 const phoneInput = ref('')
@@ -16,6 +18,11 @@ const recentStores = ref<RecentStore[]>([])
 const entering = ref(false)
 const rtLogged = ref(false)
 
+// US-RT-06 · 附近仓库
+const nearbyStores = ref<RtTenantDirectoryItem[]>([])
+const nearbyLoading = ref(false)
+const locationDenied = ref(false)
+
 onShow(() => {
   recentStores.value = getRecentStores()
   rtLogged.value = hasRtScope()
@@ -23,7 +30,43 @@ onShow(() => {
     phoneInput.value = getSavedPhone()
     phoneOk.value = PHONE_RE.test(phoneInput.value)
   }
+  loadNearby()
 })
+
+/** 附近仓库：先取定位，成功则按距离排序；失败仍返回 ACTIVE 仓库列表（按入驻时间）。 */
+function loadNearby() {
+  nearbyLoading.value = true
+  locationDenied.value = false
+  uni.getLocation({
+    type: 'gcj02',
+    success: (res) => {
+      fetchNearby(res.latitude, res.longitude)
+    },
+    fail: () => {
+      locationDenied.value = true
+      fetchNearby()
+    },
+  })
+}
+
+async function fetchNearby(lat?: number, lng?: number) {
+  try {
+    nearbyStores.value = await rtApi.listNearbyStores({
+      lat,
+      lng,
+      limit: 20,
+    })
+  } catch (e) {
+    uni.showToast({ title: '附近仓库加载失败', icon: 'none' })
+  } finally {
+    nearbyLoading.value = false
+  }
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 1000) return `${meters}m`
+  return `${(meters / 1000).toFixed(1)}km`
+}
 
 function maskPhone(p: string): string {
   return p.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')
@@ -160,6 +203,31 @@ function onScan(): void {
             <text class="chip__name">{{ s.name }}</text>
             <text class="chip__code">{{ s.code }}</text>
           </view>
+        </view>
+      </view>
+
+      <!-- US-RT-06 · 附近仓库（无店铺码也能进店） -->
+      <view class="nearby">
+        <view class="nearby__head">
+          <text class="nearby__title">附近仓库</text>
+          <text v-if="nearbyLoading" class="nearby__hint">定位中…</text>
+          <text v-else-if="locationDenied" class="nearby__hint">未获取定位，按入驻时间排序</text>
+        </view>
+        <view v-if="nearbyStores.length" class="nearby__list">
+          <view v-for="s in nearbyStores" :key="s.tenantId" class="store-card" @click="goStore(s.tenantSimpleCode)">
+            <view class="store-card__main">
+              <text class="store-card__name">{{ s.storeName }}</text>
+              <text v-if="s.intro" class="store-card__intro">{{ s.intro }}</text>
+            </view>
+            <view class="store-card__side">
+              <text v-if="s.distanceMeters != null" class="store-card__dist">{{ formatDistance(s.distanceMeters) }}</text>
+              <text v-else class="store-card__dist">—</text>
+              <text class="store-card__code">{{ s.tenantSimpleCode }}</text>
+            </view>
+          </view>
+        </view>
+        <view v-else-if="!nearbyLoading" class="nearby__empty">
+          <text>暂无仓库，可输入店铺码或扫码进店</text>
         </view>
       </view>
     </view>
@@ -478,5 +546,93 @@ function onScan(): void {
   font-size: 24rpx;
   line-height: 1.7;
   color: $cc-fg-4;
+}
+
+/* ===== 附近仓库（US-RT-06） ===== */
+.nearby {
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 2rpx solid $cc-border-1;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 18rpx;
+  }
+
+  &__title {
+    font-size: 30rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+  }
+
+  &__hint {
+    font-size: 24rpx;
+    color: $cc-fg-4;
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 16rpx;
+  }
+
+  &__empty {
+    padding: 32rpx 0;
+    text-align: center;
+    font-size: 26rpx;
+    color: $cc-fg-4;
+  }
+}
+
+.store-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx;
+  background: $cc-bg-2;
+  border-radius: 16rpx;
+
+  &__main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8rpx;
+  }
+
+  &__name {
+    font-size: 30rpx;
+    font-weight: 600;
+    color: $cc-fg-1;
+  }
+
+  &__intro {
+    font-size: 24rpx;
+    color: $cc-fg-3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__side {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8rpx;
+  }
+
+  &__dist {
+    font-size: 26rpx;
+    font-weight: 600;
+    color: $cc-rt-accent;
+  }
+
+  &__code {
+    font-size: 22rpx;
+    color: $cc-fg-4;
+  }
 }
 </style>
