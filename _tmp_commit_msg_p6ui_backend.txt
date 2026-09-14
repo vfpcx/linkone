@@ -1,6 +1,0 @@
-feat(product): P6 商户端品类字典端点（/tenant/spus/spu-categories）
-
-- MerchantSpuController/Service 补 GET /spu-categories：两级品类字典，登录即可读（预置公开口径数据无敏感性），复用 SpuCatalog 唯一事实源与 OPS 标品同口径（requireOps 的 /ops 端点不动）
-- 精确路径优先于 /{id}（Spring pattern 比较器），不误入详情；Impl 直接构建 SpuCategoryGroupVo
-- 测试：MerchantSpuScenarioTest 新增 S1-06（登录可读 l1/l2s、免登录 401）→ 13 例全绿；全量回归 556 全绿（555 + 1）
-- 文档：roadmap v4.12 + progress 2026-09-14 P6-UI（含 uni 三页明细）

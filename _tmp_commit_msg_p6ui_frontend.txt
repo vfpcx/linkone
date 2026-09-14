@@ -1,8 +1,0 @@
-feat(uni): P6 商户端聚合商品 UI（列表/新建/编辑/详情 + 批量生成，P6 收官）
-
-- api/spu.ts：7 端点封装（categories/list/detail/create/update/generateSkus/offline），SpuCategoryGroup 复用 ops.ts；api-types/spu.ts 注释补字典端点（零类型改动）
-- pages/wa/spus/index 列表：状态徽标 + 规格摘要（包装×2 · 容量×3）+ 引用 SKU 数 + 下架二次确认（级联明示）；空态引导 + 单规格商品去向提示
-- pages/wa/spus/create 新建/编辑二合一：两级品类联动 picker + 规格模板动态编辑（维度卡 ≤5 · tag 式取值 ≤20 · 组合 ≤60 实时预览 + 前端预校验，与后端 50730-50732 同口径）
-- pages/wa/spus/detail 详情：模板展示 + 完整笛卡尔积生成弹层（默认价三件套/上架开关 + 50733 重复整单失败预提示）+ OFFLINE 只读态
-- pages.json 注册三页 + WA 工作台「聚合商品」入口 cell
-- 验证：六包 typecheck 全绿 + uni H5/admin build DONE + read_lints 0
