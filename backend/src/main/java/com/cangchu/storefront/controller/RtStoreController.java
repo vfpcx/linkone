@@ -5,6 +5,7 @@ import com.cangchu.account.service.AccountService;
 import com.cangchu.common.response.R;
 import com.cangchu.storefront.dto.MyPriceListQueryDto;
 import com.cangchu.storefront.service.StoreFrontService;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.storefront.vo.RtPriceListVo;
 import com.cangchu.storefront.vo.RtSkuSearchItemVo;
 import com.cangchu.storefront.vo.StoreFrontVo;
@@ -97,19 +98,23 @@ public class RtStoreController {
     }
 
     /**
-     * RT 首页「搜商品找仓库」公开跨仓检索（先搜货再进店）。
+     * RT「逛商品 / 搜商品找仓库」公开跨仓分页检索（先搜货再进店）。
      *
-     * <p>按关键词检索全平台在售 SKU（listed + 有货 + 商户/租户均 ACTIVE），返回公开价/库存 +
+     * <p>检索全平台在售 SKU（listed + 有货 + 商户/租户均 ACTIVE），返回公开价/库存 +
      * 所属商户与仓库归属；买家用返回的 tenantSimpleCode 直接进店提交意向单，由商户主动联系
      * （联系方式不在本端点下发，仍走询价确认后 phone-reveal，D-RT-01）。
+     *
+     * <p>keyword 为空/省略 = 逛全部在售商品（商品广场默认视图）；page≥1、size≤50（默认 1/20）。
+     * 传 lat/lng 时按距离升序（无坐标仓库排后）。
      */
     @GetMapping("/sku-search")
-    public R<List<RtSkuSearchItemVo>> skuSearch(
+    public R<Page<RtSkuSearchItemVo>> skuSearch(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) BigDecimal lat,
             @RequestParam(required = false) BigDecimal lng,
-            @RequestParam(required = false, defaultValue = "20") Integer limit) {
-        return R.ok(storeFrontService.searchSkus(keyword, lat, lng, limit));
+            @RequestParam(required = false, defaultValue = "1") long page,
+            @RequestParam(required = false, defaultValue = "20") long size) {
+        return R.ok(storeFrontService.searchSkus(keyword, lat, lng, page, size));
     }
 
     /**

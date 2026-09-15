@@ -1,6 +1,7 @@
 import { request } from '../utils/request'
 import type {
   Inquiry,
+  MpPage,
   MyInquiriesRequest,
   MyPriceListRequest,
   RtMyInquiries,
@@ -35,9 +36,12 @@ export const rtApi = {
     })
   },
 
-  /** 搜商品找仓库（公开跨仓检索）：在售 SKU + 所属商户/仓库，tenantSimpleCode 可直接进店。 */
-  searchSkus(query: RtSkuSearchQuery) {
-    return request<RtSkuSearchItem[]>({
+  /**
+   * 逛商品 / 搜商品找仓库（公开跨仓分页检索）：在售 SKU + 所属商户/仓库，tenantSimpleCode 可直接进店。
+   * keyword 省略 = 逛全部在售商品；传 lat/lng 按距离升序。
+   */
+  searchSkus(query: RtSkuSearchQuery = {}) {
+    return request<MpPage<RtSkuSearchItem>>({
       url: '/rt/sku-search',
       method: 'GET',
       params: query as unknown as Record<string, string | number | undefined>,

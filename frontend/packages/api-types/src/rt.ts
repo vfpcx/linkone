@@ -223,11 +223,17 @@ export interface RtSkuSearchItem {
   distanceMeters: number | null
 }
 
-/** 跨仓商品检索查询参数（GET /rt/sku-search） */
+/**
+ * 跨仓商品检索查询参数（GET /rt/sku-search）
+ * 商品广场（逛商品）与首页搜索共用：keyword 省略 = 逛全部在售商品。
+ */
 export interface RtSkuSearchQuery {
-  /** 关键词（商品名/规格/标品名模糊匹配；空 → 空结果） */
-  keyword: string
+  /** 关键词（商品名/规格/标品名模糊匹配）；省略/空白 = 逛全部在售商品 */
+  keyword?: string
   lat?: number
   lng?: number
-  limit?: number
+  /** 页码（1-based，默认 1） */
+  page?: number
+  /** 每页条数（默认 20，最大 50） */
+  size?: number
 }

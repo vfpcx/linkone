@@ -10,6 +10,7 @@ import com.cangchu.pricing.service.PricingService;
 import com.cangchu.pricing.vo.CustomerPriceRef;
 import com.cangchu.product.service.SkuService;
 import com.cangchu.product.vo.SkuVo;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.storefront.mapper.RtSearchMapper;
 import com.cangchu.storefront.service.StoreFrontService;
 import com.cangchu.storefront.vo.RtPriceGroupVo;
@@ -298,23 +299,31 @@ public class StoreFrontServiceImpl implements StoreFrontService {
     }
 
     /**
-     * RT 首页「搜商品找仓库」跨仓检索（先搜货再进店）。
+     * RT「逛商品 / 搜商品找仓库」跨仓分页检索（先搜货再进店）。
      *
-     * <p>关键词清洗：trim → 空/空白直接空结果（不抛错，GET 语义宽松）；截断至 50 字符防超长注入；
-     * LIKE 通配符转义（%!_ → !%!_!，SQL 侧 ESCAPE '!'，MySQL/H2 通用）防 % _ 通配符放大结果集。
+     * <p>关键词清洗：trim → 空/空白 = 不限关键词（逛全部在售商品，广场默认视图）；截断至 50 字符
+     * 防超长注入；LIKE 通配符转义（%!_ → !%!_!，SQL 侧 ESCAPE '!'，MySQL/H2 通用）防 % _ 放大结果集。
      * 检索口径与进店在售一致：listed + 有货 + 商户 ACTIVE + 租户 ACTIVE。
+     * page≥1、size 1..50（默认 1/20）；total 与 list 条件同源；total=0 或 offset 越界不再查明细（省一次扫描）。
      */
     @Override
-    public List<RtSkuSearchItemVo> searchSkus(String keyword, BigDecimal lat, BigDecimal lng, Integer limit) {
-        String kw = keyword == null ? "" : keyword.trim();
-        if (kw.isEmpty()) {
-            return List.of();
+    public Page<RtSkuSearchItemVo> searchSkus(String keyword, BigDecimal lat, BigDecimal lng,
+                                             long page, long size) {
+        String raw = keyword == null ? "" : keyword.trim();
+        String kw = raw.isEmpty() ? null : (raw.length() > 50 ? raw.substring(0, 50) : raw);
+        String likeKw = kw == null ? null : escapeLike(kw);
+        long safePage = Math.max(1, page);
+        long safeSize = Math.min(Math.max(1, size), 50);
+
+        long total = rtSearchMapper.countRtSkuSearch(likeKw);
+        Page<RtSkuSearchItemVo> result = new Page<>(safePage, safeSize, total);
+        long offset = (safePage - 1) * safeSize;
+        if (total == 0 || offset >= total) {
+            result.setRecords(List.of());
+            return result;
         }
-        if (kw.length() > 50) {
-            kw = kw.substring(0, 50);
-        }
-        int safeLimit = Math.min(limit != null && limit > 0 ? limit : 20, 50);
-        return rtSearchMapper.selectRtSkuSearch(escapeLike(kw), lat, lng, safeLimit);
+        result.setRecords(rtSearchMapper.selectRtSkuSearch(likeKw, lat, lng, offset, (int) safeSize));
+        return result;
     }
 
     /** LIKE 转义（配 mapper 侧 ESCAPE '!'）：先转义转义符本身，再转义 % 与 _。 */

@@ -15,6 +15,13 @@
       }
     },
     {
+      "path": "pages/rt/browse/index",
+      "style": {
+        "navigationBarTitleText": "逛商品",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/rt/inquiries/index",
       "style": {
         "navigationBarTitleText": "我的意向单",

@@ -8,6 +8,7 @@ import com.cangchu.inventory.entity.Inventory;
 import com.cangchu.inventory.mapper.InventoryMapper;
 import com.cangchu.product.entity.Sku;
 import com.cangchu.product.mapper.SkuMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cangchu.storefront.service.StoreFrontService;
 import com.cangchu.storefront.vo.RtSkuSearchItemVo;
 import com.cangchu.tenant.entity.Store;
@@ -22,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -154,7 +156,8 @@ class RtSkuSearchScenarioTest {
         seedInventory(tenantA, waA, seedSku(tenantA, waA, "海南香蕉", "5kg/箱", true), 10);
 
         TenantContext.clear();
-        List<RtSkuSearchItemVo> list = storeFrontService.searchSkus("苹果", CENTER_LAT, CENTER_LNG, 50);
+        List<RtSkuSearchItemVo> list = storeFrontService
+                .searchSkus("苹果", CENTER_LAT, CENTER_LNG, 1, 50).getRecords();
 
         // H2 测试库跨用例共享：先收敛到本用例 seed 的两个租户再断言
         Set<String> ours = Set.of(tenantA.getTenantSimpleCode(), tenantB.getTenantSimpleCode());
@@ -193,7 +196,8 @@ class RtSkuSearchScenarioTest {
         seedInventory(tenant, wa, seedSku(tenant, wa, "苹果派", "6个/盒", true), 0);
 
         TenantContext.clear();
-        List<RtSkuSearchItemVo> list = storeFrontService.searchSkus("苹果", null, null, 50);
+        List<RtSkuSearchItemVo> list = storeFrontService
+                .searchSkus("苹果", null, null, 1, 50).getRecords();
 
         // 收敛到本用例租户（H2 测试库跨用例共享，其他用例可能 seed 了同名前缀 SKU）
         List<RtSkuSearchItemVo> mine = list.stream()
@@ -216,23 +220,59 @@ class RtSkuSearchScenarioTest {
         seedInventory(tenant, wa, seedSku(tenant, wa, "1001纯果汁", "1L/瓶", true), 5);
 
         TenantContext.clear();
-        List<RtSkuSearchItemVo> list = storeFrontService.searchSkus("100%", null, null, 20);
+        List<RtSkuSearchItemVo> list = storeFrontService
+                .searchSkus("100%", null, null, 1, 20).getRecords();
 
         assertThat(list).hasSize(1);
         assertThat(list.get(0).getName()).isEqualTo("100%纯果汁");
     }
 
     @Test
-    void search_blankKeyword_returnsEmpty_andLimitCapped() {
+    void browse_blankKeyword_listsAllOnSale_andPaginates() {
         Tenant tenant = seedTenant("ACTIVE", "SG");
-        seedStore(tenant, "空关键词仓", CENTER_LAT, CENTER_LNG);
-        Wholesaler wa = seedWholesaler(tenant, "空关键词商户", "ACTIVE");
-        seedInventory(tenant, wa, seedSku(tenant, wa, "苹果干", "100g/袋", true), 5);
+        seedStore(tenant, "广场仓", CENTER_LAT, CENTER_LNG);
+        Wholesaler wa = seedWholesaler(tenant, "广场商户", "ACTIVE");
+        seedInventory(tenant, wa, seedSku(tenant, wa, "广场商品甲", "1箱", true), 5);
+        seedInventory(tenant, wa, seedSku(tenant, wa, "广场商品乙", "1箱", true), 6);
 
         TenantContext.clear();
-        assertThat(storeFrontService.searchSkus("  ", null, null, 20)).isEmpty();
-        assertThat(storeFrontService.searchSkus(null, null, null, 20)).isEmpty();
-        // limit 上限 50：传 100 也最多 50 条
-        assertThat(storeFrontService.searchSkus("苹果干", CENTER_LAT, CENTER_LNG, 100)).hasSizeLessThanOrEqualTo(50);
+        // 无关键词 = 逛全部在售商品（商品广场默认视图）：逐页收敛本用例商品（测试库跨用例共享，可能不止一页）
+        Set<String> mine = new HashSet<>();
+        Page<RtSkuSearchItemVo> page1 = null;
+        for (long p = 1; p <= 5; p++) {
+            Page<RtSkuSearchItemVo> pg = storeFrontService.searchSkus(null, null, null, p, 50);
+            if (page1 == null) page1 = pg;
+            pg.getRecords().stream()
+                    .filter(i -> tenant.getTenantSimpleCode().equals(i.getTenantSimpleCode()))
+                    .forEach(i -> mine.add(i.getName()));
+            if (pg.getRecords().size() < 50) break;
+        }
+        assertThat(mine).contains("广场商品甲", "广场商品乙");
+        // 空白关键词等价于不传
+        assertThat(storeFrontService.searchSkus("   ", null, null, 1, 50).getTotal())
+                .isEqualTo(page1.getTotal());
+
+        // 分页：size 上限 50；页码/每页条数回填，翻页不重复（排序稳定）
+        Page<RtSkuSearchItemVo> capped = storeFrontService.searchSkus(null, null, null, 1, 100);
+        assertThat(capped.getSize()).isEqualTo(50);
+        assertThat(capped.getRecords()).hasSizeLessThanOrEqualTo(50);
+
+        Page<RtSkuSearchItemVo> p1 = storeFrontService.searchSkus(null, null, null, 1, 5);
+        Page<RtSkuSearchItemVo> p2 = storeFrontService.searchSkus(null, null, null, 2, 5);
+        long total = p1.getTotal();
+        assertThat(p1.getCurrent()).isEqualTo(1);
+        assertThat(p2.getCurrent()).isEqualTo(2);
+        assertThat(p1.getRecords()).hasSize((int) Math.min(5, total));
+        if (total > 5) {
+            assertThat(p2.getRecords()).hasSize((int) Math.min(5, total - 5));
+            Set<Long> ids1 = p1.getRecords().stream().map(RtSkuSearchItemVo::getSkuId).collect(Collectors.toSet());
+            Set<Long> ids2 = p2.getRecords().stream().map(RtSkuSearchItemVo::getSkuId).collect(Collectors.toSet());
+            assertThat(ids1).doesNotContainAnyElementsOf(ids2);
+        }
+
+        // 越界页：total 内无数据时回空列表（不报错）
+        Page<RtSkuSearchItemVo> far = storeFrontService.searchSkus(null, null, null, 9999, 20);
+        assertThat(far.getRecords()).isEmpty();
+        assertThat(far.getTotal()).isEqualTo(p1.getTotal());
     }
 }
